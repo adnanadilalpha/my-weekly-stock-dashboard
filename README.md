@@ -1,7 +1,7 @@
 
   # MyWeekly Stock
 
-  This is a code bundle for MyWeekly Stock Dashboard. The original project is available at https://www.figma.com/design/vBTQYqjViksQEGDSbe84cl/Weekly-Stock-Dashboard-UI.
+  This is a code bundle for MyWeekly Stock Dashboard. 
 
   ## Running the code
 
