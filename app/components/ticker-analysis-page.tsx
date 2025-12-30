@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, RefreshCw, Star, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
 import type { PageView } from '../types';
+import { useTickerData } from '../../lib/hooks/useTickerData';
+import { getTickerData } from '../../lib/queries/ticker';
 
 interface TickerAnalysisPageProps {
   userEmail: string;
@@ -236,25 +238,187 @@ const tickerData: Record<string, any> = {
 export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTicker }: TickerAnalysisPageProps) {
   const [ticker, setTicker] = useState(initialTicker);
   const [timeframe, setTimeframe] = useState<'D' | 'W'>('D');
-  const [isSyncing, setIsSyncing] = useState(false);
 
-  // Get data for ticker - use specific data if available, otherwise generate mock data
-  const data = tickerData[ticker] || generateMockData(ticker);
+  // Fetch data from Supabase
+  const { data: supabaseData, type, loading, error, refetch } = useTickerData(ticker);
+
+  // Fetch benchmark data (SPY and sector benchmark)
+  const [spyData, setSpyData] = useState<any>(null);
+  const [sectorBenchmarkData, setSectorBenchmarkData] = useState<any>(null);
+  const [benchmarksLoading, setBenchmarksLoading] = useState(false);
 
   // All available tickers for the dropdown
   const allTickers = [...MARKET_SEGMENTS, ...SECTORS, ...MEGA_CAPS].sort();
 
   const handleRefresh = async () => {
-    setIsSyncing(true);
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsSyncing(false);
+    await refetch();
+    await fetchBenchmarkData();
   };
 
+  // Fetch SPY and sector benchmark data
+  const fetchBenchmarkData = async () => {
+    if (!supabaseData) return;
+    
+    setBenchmarksLoading(true);
+    try {
+      const sectorInfo = TICKER_SECTORS[ticker] || { category: 'Other', benchmark: 'SPY', benchmarkName: 'S&P 500' };
+      
+      // Always fetch SPY
+      const spyResult = await getTickerData('SPY');
+      if (spyResult.data) {
+        setSpyData(spyResult.data);
+      }
+      
+      // Fetch sector benchmark if different from SPY
+      if (sectorInfo.benchmark && sectorInfo.benchmark !== 'SPY') {
+        const sectorResult = await getTickerData(sectorInfo.benchmark);
+        if (sectorResult.data) {
+          setSectorBenchmarkData(sectorResult.data);
+        }
+      } else {
+        setSectorBenchmarkData(null);
+      }
+    } catch (err) {
+      console.error('Error fetching benchmark data:', err);
+    } finally {
+      setBenchmarksLoading(false);
+    }
+  };
+
+  // Fetch benchmark data when ticker or supabaseData changes
+  useEffect(() => {
+    if (supabaseData) {
+      fetchBenchmarkData();
+    }
+  }, [ticker, supabaseData]);
+
+  // Transform Supabase data to expected format
+  const data = useMemo(() => {
+    if (!supabaseData) return null;
+
+    const isDaily = timeframe === 'D';
+    const sectorInfo = TICKER_SECTORS[ticker] || { category: 'Other', benchmark: 'SPY', benchmarkName: 'S&P 500' };
+    
+    // Get name based on type
+    let name = '';
+    if (type === 'segment') {
+      name = (supabaseData as any).name || TICKER_NAMES[ticker] || ticker;
+    } else if (type === 'sector') {
+      name = (supabaseData as any).sector_name || TICKER_NAMES[ticker] || ticker;
+    } else if (type === 'mega_cap') {
+      name = (supabaseData as any).company_name || TICKER_NAMES[ticker] || ticker;
+    }
+
+    // Format last updated date
+    const lastUpdated = supabaseData.last_updated 
+      ? new Date(supabaseData.last_updated).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+      : new Date(supabaseData.updated_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+
+    // PERFORMANCE DATA - Use new simplified fields with fallback to old fields
+    const perf1M = (supabaseData as any)['1m_percent'] ?? supabaseData.daily_1m_percent;
+    const perf3M = (supabaseData as any)['3m_percent'] ?? supabaseData.daily_3m_percent;
+    const vsHigh1Y = (supabaseData as any)['vs_1y_high'] ?? supabaseData.daily_vs_1y_high;
+    const perfSummary = supabaseData.daily_performance_summary;
+    const perfDescription = supabaseData.daily_performance_description;
+    const vsSpyComparison = supabaseData.daily_vs_spy_comparison;
+    const vsBenchmarkComparison = type === 'mega_cap' 
+      ? (supabaseData as any).daily_vs_sector_comparison 
+      : (supabaseData as any).daily_vs_benchmark_comparison;
+    
+    // TREND DATA - Only trend switches based on timeframe
+    const trendScore = isDaily ? supabaseData.daily_trend_score : supabaseData.weekly_trend_score;
+    const trendRating = isDaily ? supabaseData.daily_rating : supabaseData.weekly_rating;
+    const trendOutlook = isDaily ? supabaseData.daily_outlook : supabaseData.weekly_outlook;
+    const trendDescription = isDaily ? supabaseData.daily_trend_description : supabaseData.weekly_trend_description;
+
+    // Trend signals
+    const priceVs9Ema = isDaily ? supabaseData.daily_price_vs_9ema : supabaseData.weekly_price_vs_9ema;
+    const priceVs21Ema = isDaily ? supabaseData.daily_price_vs_21ema : (supabaseData as any).weekly_price_vs_30ema;
+    const ema9Vs21Ema = isDaily ? supabaseData.daily_ema9_vs_21ema : (supabaseData as any).weekly_ema9_vs_30ema;
+    const slope9Ema = isDaily ? supabaseData.daily_slope_9ema : supabaseData.weekly_slope_9ema;
+    const slope21Ema = isDaily ? supabaseData.daily_slope_21ema : (supabaseData as any).weekly_slope_30ema;
+
+    // Key levels
+    const currentPrice = isDaily ? supabaseData.daily_current_price : supabaseData.weekly_current_price;
+    const ema9 = isDaily ? supabaseData.daily_ema_9 : supabaseData.weekly_ema_9;
+    const ema21 = isDaily ? supabaseData.daily_ema_21 : (supabaseData as any).weekly_ema_30;
+    const monthHigh = isDaily ? supabaseData.daily_month_high : supabaseData.weekly_month_high;
+    const monthLow = isDaily ? supabaseData.daily_month_low : supabaseData.weekly_month_low;
+
+    return {
+      name,
+      lastUpdated,
+      performance: {
+        summary: perfSummary || 'N/A',
+        description: perfDescription || 'N/A',
+        oneMonth: perf1M ?? 0,
+        threeMonth: perf3M ?? 0,
+        vsHigh1Y: vsHigh1Y ?? 0,
+        performanceStrength: (supabaseData as any)['performance_strength'] ?? supabaseData.daily_performance_strength ?? null,
+        distanceToHighs: (supabaseData as any)['distance_to_highs'] ?? supabaseData.daily_distance_to_highs ?? null,
+        price1M: supabaseData.price_1m ?? null,
+        price3M: supabaseData.price_3m ?? null,
+        spyPrice1M: supabaseData.spy_price_1m ?? null,
+        spyPrice3M: supabaseData.spy_price_3m ?? null,
+        sectorPrice1M: type === 'mega_cap' ? (supabaseData as any).sector_price_1m ?? null : null,
+        sectorPrice3M: type === 'mega_cap' ? (supabaseData as any).sector_price_3m ?? null : null,
+        vsSP500_Benchmark: vsSpyComparison || 'N/A',
+        vsBenchmark2: vsBenchmarkComparison || 'N/A',
+        sectorInfo,
+        benchmarks: {
+          spy: { 
+            oneMonth: spyData?.daily_1m_percent ?? 0,
+            threeMonth: spyData?.daily_3m_percent ?? 0
+          },
+          sector: { 
+            ticker: sectorInfo.benchmark,
+            name: sectorInfo.benchmarkName,
+            oneMonth: sectorBenchmarkData?.daily_1m_percent ?? (sectorInfo.benchmark === 'SPY' ? spyData?.daily_1m_percent ?? 0 : 0),
+            threeMonth: sectorBenchmarkData?.daily_3m_percent ?? (sectorInfo.benchmark === 'SPY' ? spyData?.daily_3m_percent ?? 0 : 0)
+          }
+        }
+      },
+      trend: {
+        rating: trendScore ?? 0,
+        direction: trendRating || 'N/A',
+        outlook: trendOutlook || 'N/A',
+        description: trendDescription || 'N/A',
+        signals: [
+          { label: isDaily ? 'Price vs 9-day EMA' : 'Price vs 9-week EMA', value: priceVs9Ema ?? 0, isNegative: (priceVs9Ema ?? 0) < 0 },
+          { label: isDaily ? 'Price vs 21-day EMA' : 'Price vs 30-week EMA', value: priceVs21Ema ?? 0, isNegative: (priceVs21Ema ?? 0) < 0 },
+          { label: isDaily ? '9-day EMA vs. 21-day EMA' : '9-week EMA vs. 30-week EMA', value: ema9Vs21Ema ?? 0, isNegative: (ema9Vs21Ema ?? 0) < 0 },
+          { label: isDaily ? 'Slope 9-day EMA' : 'Slope 9-week EMA', value: slope9Ema || 'N/A', isNegative: slope9Ema === 'Falling' },
+          { label: isDaily ? 'Slope 21-day EMA' : 'Slope 30-week EMA', value: slope21Ema || 'N/A', isNegative: slope21Ema === 'Falling' },
+        ],
+        keyLevels: [
+          { label: 'Current Price', value: currentPrice?.toFixed(2) || 'N/A' },
+          { label: isDaily ? '9-day EMA' : '9-week EMA', value: ema9?.toFixed(2) || 'N/A' },
+          { label: isDaily ? '21-day EMA' : '30-week EMA', value: ema21?.toFixed(2) || 'N/A' },
+          { label: isDaily ? '1-month High' : '3-month High', value: monthHigh?.toFixed(2) || 'N/A' },
+          { label: isDaily ? '1-month Low' : '3-month Low', value: monthLow?.toFixed(2) || 'N/A' },
+        ]
+      }
+    };
+  }, [supabaseData, timeframe, ticker, type, spyData, sectorBenchmarkData]);
+
+  // Get performance color and icon based on value (matching sheet logic)
   const getPerformanceColor = (value: number) => {
     if (value > 5) return 'bg-green-500 text-white';
     if (value > 0) return 'bg-green-200 text-green-900';
-    if (value > -5) return 'bg-red-200 text-red-900';
-    return 'bg-red-500 text-white';
+    if (value > -5) return 'bg-yellow-200 text-yellow-900';
+    return 'bg-red-200 text-red-900';
+  };
+
+  const getPerformanceIcon = (value: number) => {
+    if (value > 0) return '🟩';
+    if (value === 0) return '🟨';
+    return '🟥';
+  };
+
+  const getVsHighIcon = (value: number) => {
+    if (value > -5) return '✅';
+    if (value > -10) return '⚪️';
+    return '❌';
   };
 
   const renderStars = (rating: number) => {
@@ -269,6 +433,49 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
     }
     return stars;
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-neutral-500" />
+          <p className="text-neutral-600">Loading data from Supabase...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="min-h-screen bg-neutral-50">
+        <header className="bg-white border-b border-neutral-200 shadow-sm">
+          <div className="px-6 py-3">
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="sm" onClick={() => onNavigate('index')}>
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+              <h1 className="font-semibold text-neutral-900">Error Loading Ticker</h1>
+            </div>
+          </div>
+        </header>
+        <main className="p-6">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <div className="flex items-center gap-2 text-red-800 mb-2">
+              <AlertCircle className="w-5 h-5" />
+              <h3 className="font-semibold">Error loading data</h3>
+            </div>
+            <p className="text-red-700 text-sm mb-4">
+              {error ? error.message : `Ticker "${ticker}" not found in Supabase`}
+            </p>
+            <Button onClick={handleRefresh} variant="outline" size="sm">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Retry
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50">
@@ -302,11 +509,11 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
             <div className="flex items-center gap-2">
               <Button
                 onClick={handleRefresh}
-                disabled={isSyncing}
+                disabled={loading}
                 size="sm"
                 variant="outline"
               >
-                <RefreshCw className={`w-3 h-3 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3 h-3 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
             </div>
@@ -325,7 +532,7 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
           {/* PERFORMANCE Section */}
           <div className="bg-white border border-neutral-200 rounded-lg">
             <div className="px-6 py-3 border-b border-neutral-200 bg-neutral-50">
-              <h2 className="font-semibold text-neutral-900">PERFORMANCE</h2>
+              <h2 className="font-semibold text-neutral-900">DAILY PERFORMANCE</h2>
             </div>
             <div className="px-6 py-4 space-y-3">
               <div>
@@ -350,22 +557,22 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                         ${ticker} ({data.name.split(' ')[0]})
                       </td>
                       <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.oneMonth)}`}>
-                        {data.performance.oneMonth > 0 ? '+' : ''}{data.performance.oneMonth}%
+                        {getPerformanceIcon(data.performance.oneMonth)} {data.performance.oneMonth > 0 ? '+' : ''}{data.performance.oneMonth}%
                       </td>
                       <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.threeMonth)}`}>
-                        {data.performance.threeMonth > 0 ? '+' : ''}{data.performance.threeMonth}%
+                        {getPerformanceIcon(data.performance.threeMonth)} {data.performance.threeMonth > 0 ? '+' : ''}{data.performance.threeMonth}%
                       </td>
                       <td className={`px-4 py-2 text-center ${getPerformanceColor(data.performance.vsHigh1Y)}`}>
-                        {data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%
+                        {getVsHighIcon(data.performance.vsHigh1Y)} {data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%
                       </td>
                     </tr>
                     <tr className="border-b border-neutral-300">
                       <td className="px-4 py-2 text-neutral-700 border-r border-neutral-300">$SPY (S&P500)</td>
                       <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.benchmarks.spy.oneMonth)}`}>
-                        {data.performance.benchmarks.spy.oneMonth}%
+                        {getPerformanceIcon(data.performance.benchmarks.spy.oneMonth)} {data.performance.benchmarks.spy.oneMonth > 0 ? '+' : ''}{data.performance.benchmarks.spy.oneMonth}%
                       </td>
                       <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.benchmarks.spy.threeMonth)}`}>
-                        {data.performance.benchmarks.spy.threeMonth}%
+                        {getPerformanceIcon(data.performance.benchmarks.spy.threeMonth)} {data.performance.benchmarks.spy.threeMonth > 0 ? '+' : ''}{data.performance.benchmarks.spy.threeMonth}%
                       </td>
                       <td className="px-4 py-2 text-center text-neutral-700">
                         $SPY: {data.performance.vsSP500_Benchmark}
@@ -375,14 +582,14 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                       <td className="px-4 py-2 text-neutral-700 border-r border-neutral-300">
                         ${data.performance.benchmarks.sector?.ticker || 'XLV'} ({data.performance.sectorInfo?.category || 'Healthcare'})
                       </td>
-                      <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.benchmarks.sector?.oneMonth || data.performance.benchmarks[Object.keys(data.performance.benchmarks)[1]]?.oneMonth)}`}>
-                        {data.performance.benchmarks.sector?.oneMonth || data.performance.benchmarks[Object.keys(data.performance.benchmarks)[1]]?.oneMonth}%
+                      <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.benchmarks.sector?.oneMonth || 0)}`}>
+                        {getPerformanceIcon(data.performance.benchmarks.sector?.oneMonth || 0)} {data.performance.benchmarks.sector?.oneMonth || 0}%
                       </td>
-                      <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.benchmarks.sector?.threeMonth || data.performance.benchmarks[Object.keys(data.performance.benchmarks)[1]]?.threeMonth)}`}>
-                        {data.performance.benchmarks.sector?.threeMonth || data.performance.benchmarks[Object.keys(data.performance.benchmarks)[1]]?.threeMonth}%
+                      <td className={`px-4 py-2 text-center border-r border-neutral-300 ${getPerformanceColor(data.performance.benchmarks.sector?.threeMonth || 0)}`}>
+                        {getPerformanceIcon(data.performance.benchmarks.sector?.threeMonth || 0)} {data.performance.benchmarks.sector?.threeMonth || 0}%
                       </td>
-                      <td className={`px-4 py-2 text-center ${data.performance.vsBenchmark2 === 'Lagging' ? 'text-red-700' : 'text-green-700'}`}>
-                        ${data.performance.benchmarks.sector?.ticker || Object.keys(data.performance.benchmarks)[1].toUpperCase()}: {data.performance.vsBenchmark2 || data.performance.vsXLV_Benchmark}
+                      <td className="px-4 py-2 text-center text-neutral-700">
+                        ${data.performance.benchmarks.sector?.ticker || 'N/A'}: {data.performance.vsBenchmark2}
                       </td>
                     </tr>
                   </tbody>
@@ -391,10 +598,10 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
             </div>
           </div>
 
-          {/* DAILY CHART TREND Section */}
+          {/* CHART TREND Section (Daily or Weekly) */}
           <div className="bg-white border border-neutral-200 rounded-lg">
             <div className="px-6 py-3 border-b border-neutral-200 bg-neutral-50 flex items-center justify-between">
-              <h2 className="font-semibold text-neutral-900">DAILY CHART TREND</h2>
+              <h2 className="font-semibold text-neutral-900">{timeframe === 'D' ? 'DAILY' : 'WEEKLY'} CHART TREND</h2>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-neutral-600">[Select Timeframe ▶]</span>
                 <div className="flex border border-neutral-300 rounded overflow-hidden">
@@ -420,7 +627,7 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                   <div className="flex">
                     {renderStars(data.trend.rating)}
                   </div>
-                  <span className="text-lg font-semibold text-neutral-900">| {data.trend.rating.toFixed(1)}</span>
+                  <span className="text-lg font-semibold text-neutral-900">| {typeof data.trend.rating === 'number' ? data.trend.rating.toFixed(1) : data.trend.rating}</span>
                 </div>
                 <div className="text-right">
                   <p className="font-medium text-neutral-900">{data.trend.direction} | Outlook: {data.trend.outlook}</p>
@@ -442,17 +649,16 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                       <div key={idx} className="flex items-center justify-between text-sm border-b border-neutral-100 pb-2 last:border-0">
                         <span className="text-neutral-700">{signal.label}</span>
                         <span className="flex items-center gap-1">
-                          {typeof signal.value === 'number' ? (
+                          {typeof signal.value === 'number' && signal.value !== 0 ? (
                             <span className={signal.isNegative ? 'text-neutral-900' : 'text-green-700'}>
-                              {signal.value}%
+                              {(signal.value * 100).toFixed(2)}%
                             </span>
+                          ) : typeof signal.value === 'number' ? (
+                            <span className="text-neutral-900">0%</span>
                           ) : (
                             <span className="text-neutral-900">{signal.value}</span>
                           )}
-                          {signal.isNegative && typeof signal.value === 'number' && (
-                            <span className="text-red-600 font-bold">✕</span>
-                          )}
-                          {signal.isNegative && typeof signal.value === 'string' && (
+                          {signal.isNegative && signal.value !== 'N/A' && (
                             <span className="text-red-600 font-bold">✕</span>
                           )}
                         </span>
