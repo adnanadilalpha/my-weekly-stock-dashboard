@@ -118,8 +118,8 @@ export function StockTable({ ticker, timeframe, isSyncing }: StockTableProps) {
   };
 
   const getCellColor = (value: number) => {
-    if (value > 0) return 'text-green-700 bg-green-50';
-    if (value < 0) return 'text-red-700 bg-red-50';
+    if (value > 0) return 'text-green-700';
+    if (value < 0) return 'text-red-700';
     return 'text-neutral-900';
   };
 

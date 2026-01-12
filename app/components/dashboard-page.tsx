@@ -52,11 +52,8 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
 
   // Get performance color and icon based on value (matching sheet logic)
   const getPerformanceColor = (value: number) => {
-    if (value > 5) return 'bg-green-500';
-    if (value > 0) return 'bg-green-200';
-    if (value === 0) return 'bg-yellow-200';
-    if (value > -5) return 'bg-red-200';
-    return 'bg-red-500';
+    // Background colors removed - keeping for text color if needed
+    return '';
   };
 
   const getPerformanceIcon = (value: number) => {
@@ -129,15 +126,23 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
         >
           <div className="px-4 py-2.5 text-neutral-900 border-r border-neutral-200">{row.segment}</div>
           <div className="px-4 py-2.5 text-neutral-700 text-center border-r border-neutral-200 italic">{row.ticker}</div>
-          <div className={`px-4 py-2.5 text-center border-r border-neutral-200 ${getPerformanceColor(row.perf1M)} text-neutral-900 font-medium`}>
-            {getPerformanceIcon(row.perf1M)} {row.perf1M > 0 ? '+' : ''}{row.perf1M}%
+          <div className="px-4 py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
+            <div className="flex items-center">
+              <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf1M)}</div>
+              <div className="flex-1 text-center tabular-nums">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</div>
+            </div>
           </div>
-          <div className={`px-4 py-2.5 text-center border-r border-neutral-200 ${getPerformanceColor(row.perf3M)} text-neutral-900 font-medium`}>
-            {getPerformanceIcon(row.perf3M)} {row.perf3M > 0 ? '+' : ''}{row.perf3M}%
+          <div className="px-4 py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
+            <div className="flex items-center">
+              <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf3M)}</div>
+              <div className="flex-1 text-center tabular-nums">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</div>
+            </div>
           </div>
-          <div className={`px-4 py-2.5 text-center border-r border-neutral-200 flex items-center justify-center gap-1.5 ${getPerformanceColor(row.vsHigh)} text-neutral-900 font-medium`}>
-            {getVsHighIcon(row.vsHigh)} {row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%
-            {getCheckOrX(row.vsHigh, row.hasX)}
+          <div className="px-4 py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
+            <div className="flex items-center">
+              <div className="w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(row.vsHigh)}</div>
+              <div className="flex-1 text-center tabular-nums">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</div>
+            </div>
           </div>
           <div className="px-4 py-2.5 border-r border-neutral-200 flex items-center justify-between gap-2">
             <div className="flex gap-0.5">

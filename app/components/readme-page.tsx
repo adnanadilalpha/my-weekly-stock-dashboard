@@ -42,7 +42,7 @@ export function ReadMePage({ userEmail, onSignOut, onNavigate }: ReadMePageProps
               <p className="text-neutral-700 leading-relaxed">
                 I developed the Momentum Pulse to help navigate markets and ride uptrends with confidence. Built on
                 years of research, it cuts through the noise of price action to answer two key questions: How strong is
-                the trend? And where is it headed next?
+                the momentum? And how sustainable is it?
               </p>
             </div>
 
@@ -57,18 +57,18 @@ export function ReadMePage({ userEmail, onSignOut, onNavigate }: ReadMePageProps
                 <h4 className="font-semibold text-neutral-900 mb-3">1. Performance</h4>
                 <ul className="space-y-2 ml-6">
                   <li className="text-neutral-700">
-                    <span className="font-medium">1-month and 3-month returns</span> (not vs. sector/market benchmarks)
+                    <span className="font-medium">1-month and 3-month returns</span> (and vs. sector/market benchmarks).
                   </li>
                   <li className="text-neutral-700">
-                    <span className="font-medium">Distance from the 1-year high</span>
+                    <span className="font-medium">Distance from the 1-year high:</span>
                     <ul className="ml-6 mt-1 space-y-1">
                       <li className="flex items-start gap-2">
                         <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
-                        <span>Green is high (&gt;90%): Low overhead resistance — more reliable moves</span>
+                        <span>Close to high (≤5%): Low overhead resistance → more reliable moves.</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <Square className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                        <span>Yellow is mid-range (&gt;70%): Higher deviation risk — more reluctance levels to clear.</span>
+                        <span>Far from high (&gt;10%): Higher drawdown risk → more resistance levels to clear.</span>
                       </li>
                     </ul>
                   </li>
@@ -78,58 +78,109 @@ export function ReadMePage({ userEmail, onSignOut, onNavigate }: ReadMePageProps
               {/* 2. Trend Assessment */}
               <div className="mb-6">
                 <h4 className="font-semibold text-neutral-900 mb-3">2. Trend Assessment</h4>
-                <p className="text-neutral-700 mb-3">Timeframes: based on 10-day or Weekly chart.</p>
+                <p className="text-neutral-700 mb-3">Timeframes: based on Daily or Weekly chart.</p>
+                <p className="text-neutral-700 mb-3">Key Tools: Two EMAs, short-term (9-period) and mid-term (21/30-period).</p>
+                <p className="font-medium text-neutral-900 mb-3">Trend Rating Criteria (Score: out of 5):</p>
                 
-                <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-4 mb-3">
-                  <p className="font-medium text-neutral-900 mb-2">Key Tools: Two EMAs, short-term (9-period) and mid-term (21/30-periods)</p>
-                  <p className="font-medium text-neutral-900 mb-3">Trend Rating Criteria (Score: out of 5):</p>
-                  
-                  <div className="space-y-2 ml-4">
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
-                      <span className="text-neutral-700">+5/+5 = 21/30 EMA (most important)</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
-                      <span className="text-neutral-700">Price above the 9-EMA</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
-                      <span className="text-neutral-700">Price above the 21/30 EMA</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Square className="w-4 h-4 text-yellow-600 mt-0.5 flex-shrink-0" />
-                      <span className="text-neutral-700">+3/+3 9-EMA slope is rising</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <XCircle className="w-4 h-4 text-red-700 mt-0.5 flex-shrink-0" />
-                      <span className="text-neutral-700">-2/+2 21/30-EMA slope is rising</span>
-                    </div>
+                <div className="space-y-2 ml-6 mb-3">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
+                    <span className="text-neutral-700">9-EMA &gt; 21/30-EMA (most important).</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
+                    <span className="text-neutral-700">Price above the 9-EMA.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
+                    <span className="text-neutral-700">Price above the 21/30-EMA.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
+                    <span className="text-neutral-700">9-EMA slope is rising.</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-700 mt-0.5 flex-shrink-0" />
+                    <span className="text-neutral-700">21/30-EMA slope is rising.</span>
                   </div>
                 </div>
 
-                <div className="space-y-2 ml-4">
-                  <p className="text-neutral-700">
-                    <span className="font-medium">Classification:</span> (Strong) (Neutral), (Sideways), (Strong) Downtrend:
-                  </p>
-                </div>
+                <p className="text-neutral-700 ml-6">
+                  <span className="font-medium">Classification:</span> (Strong) Uptrend, Sideways, (Strong) Downtrend.
+                </p>
               </div>
 
               {/* 3. Trend Outlook */}
-              <div>
+              <div className="mb-6">
                 <h4 className="font-semibold text-neutral-900 mb-3">3. Trend Outlook</h4>
                 <ul className="space-y-2 ml-6">
                   <li className="flex items-start gap-2">
-                    <span className="font-medium text-green-700">Extended:</span>
-                    <span className="text-neutral-700">Price too far (&gt; 8% EMA = consolidation likely.</span>
+                    <span className="font-medium text-neutral-900">Extended:</span>
+                    <span className="text-neutral-700">Price stretched far above the 9-EMA → consolidation likely.</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="font-medium text-yellow-700">Cooling:</span>
-                    <span className="text-neutral-700">Price near 9-EMA = trend intact.</span>
+                    <span className="font-medium text-neutral-900">Stable:</span>
+                    <span className="text-neutral-700">Price near 9-EMA → trend intact.</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="font-medium text-red-700">Caution:</span>
-                    <span className="text-neutral-700">Price below the 9-EMA but holding the 21/30-EMA.</span>
+                    <span className="font-medium text-neutral-900">Cooling:</span>
+                    <span className="text-neutral-700">Price below the 9-EMA but holding the 21/30 EMA.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="font-medium text-neutral-900">Reversing:</span>
+                    <span className="text-neutral-700">Price breaking the 21/30-EMA increases risk of trend reversal.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            {/* HOW DO I USE IT? */}
+            <div>
+              <h3 className="font-semibold text-neutral-900 mb-4 pb-2 border-b border-neutral-200">
+                HOW DO I USE IT?
+              </h3>
+
+              {/* 1. Timeframes */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-neutral-900 mb-3">1. Timeframes</h4>
+                <ul className="space-y-2 ml-6">
+                  <li className="text-neutral-700">
+                    <span className="font-medium">Daily:</span> Swing trades.
+                  </li>
+                  <li className="text-neutral-700">
+                    <span className="font-medium">Weekly:</span> Position/long-term trades.
+                  </li>
+                </ul>
+              </div>
+
+              {/* 2. Buy & Sell */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-neutral-900 mb-3">2. Buy & Sell</h4>
+                <ul className="space-y-2 ml-6">
+                  <li className="text-neutral-700">
+                    <span className="font-medium">Favorite Setup:</span> 9-EMA crossing above the 21/30-EMA. Sometimes, I enter early and use the crossover as validation.
+                  </li>
+                  <li className="text-neutral-700">
+                    Avoid new entries if trend score &gt;4 (especially if extended).
+                  </li>
+                  <li className="text-neutral-700">
+                    Hold comfortably if trend score &gt;2.5.
+                  </li>
+                </ul>
+              </div>
+
+              {/* 3. Watchouts */}
+              <div>
+                <h4 className="font-semibold text-neutral-900 mb-3">3. Watchouts</h4>
+                <ul className="space-y-2 ml-6">
+                  <li className="text-neutral-700">
+                    Extended trends can persist (especially in volatile assets: leverage ETFs, crypto, meme stocks). But gravity always kicks in eventually.
+                  </li>
+                  <li className="text-neutral-700">
+                    Sideways trends are tricky and lower conviction trades.
+                  </li>
+                  <li className="text-neutral-700">
+                    &gt;10% below 1-year high: Higher fake out risk.
                   </li>
                 </ul>
               </div>
