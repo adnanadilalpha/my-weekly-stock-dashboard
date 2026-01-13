@@ -93,9 +93,9 @@ export async function POST(request: Request) {
     const redirectTo = `${appUrl}/auth/callback`;
     console.log('Magic link redirect URL:', redirectTo); // Debug log
     
-    // Use Resend if API key is available (for custom email template), otherwise use Supabase's built-in email
-    // Note: Set ENABLE_RESEND=false to force Supabase emails even if Resend key exists
-    const useResend = process.env.ENABLE_RESEND !== 'false' && process.env.RESEND_API_KEY;
+    // Use Resend if explicitly enabled AND API key is available, otherwise use Supabase's built-in email
+    // Default to Supabase unless ENABLE_RESEND=true is explicitly set
+    const useResend = process.env.ENABLE_RESEND === 'true' && !!process.env.RESEND_API_KEY;
     
     let magicLink: string;
 
@@ -349,15 +349,27 @@ If you didn't request this email, you can safely ignore it.
         const errorData = await resendResponse.json();
         console.error('Resend API error:', errorData);
         
-        // Handle Resend domain verification error
+        // Handle Resend domain verification error - fallback to Supabase
         if (errorData.statusCode === 403 && errorData.message?.includes('verify a domain')) {
-          return NextResponse.json(
-            { 
-              error: 'Email service needs domain verification. Please verify your domain at resend.com/domains or contact administrator.',
-              details: errorData.message
+          console.log('Resend domain not verified, falling back to Supabase email');
+          // Fallback to Supabase's built-in email
+          const { error: signInError } = await supabase.auth.signInWithOtp({
+            email: emailLower,
+            options: {
+              emailRedirectTo: redirectTo,
+              shouldCreateUser: false,
             },
-            { status: 403 }
-          );
+          });
+
+          if (signInError) {
+            console.error('Error generating OTP with Supabase fallback:', signInError);
+            return NextResponse.json(
+              { error: signInError.message || 'Failed to send magic link' },
+              { status: 500 }
+            );
+          }
+
+          return NextResponse.json({ success: true, fallback: 'supabase' });
         }
         
         return NextResponse.json(
