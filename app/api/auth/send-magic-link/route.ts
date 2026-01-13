@@ -54,10 +54,48 @@ export async function POST(request: Request) {
     }
 
     // Generate magic link with Supabase
-    const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'}/auth/callback`;
+    // Get the app URL - prioritize request origin (most reliable), then env vars
+    let appUrl: string | undefined;
     
-    // Check if Resend is enabled - if not, use Supabase's built-in email
-    const useResend = process.env.ENABLE_RESEND === 'true' && process.env.RESEND_API_KEY;
+    // First, try to get from request URL (most reliable for production)
+    try {
+      const requestUrl = new URL(request.url);
+      const requestOrigin = requestUrl.origin;
+      if (requestOrigin && !requestOrigin.includes('localhost') && !requestOrigin.includes('127.0.0.1')) {
+        appUrl = requestOrigin;
+      }
+    } catch (e) {
+      // URL parsing failed, continue to fallbacks
+    }
+    
+    // Fallback to environment variables
+    if (!appUrl || appUrl.includes('localhost')) {
+      if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
+        appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      } else if (process.env.VERCEL_URL) {
+        appUrl = `https://${process.env.VERCEL_URL}`;
+      } else {
+        // Last resort: try request headers
+        const host = request.headers.get('host');
+        if (host && !host.includes('localhost')) {
+          appUrl = `https://${host}`;
+        } else {
+          appUrl = 'http://localhost:3000';
+        }
+      }
+    }
+    
+    // Ensure appUrl is always defined
+    if (!appUrl) {
+      appUrl = 'http://localhost:3000';
+    }
+    
+    const redirectTo = `${appUrl}/auth/callback`;
+    console.log('Magic link redirect URL:', redirectTo); // Debug log
+    
+    // Use Resend if API key is available (for custom email template), otherwise use Supabase's built-in email
+    // Note: Set ENABLE_RESEND=false to force Supabase emails even if Resend key exists
+    const useResend = process.env.ENABLE_RESEND !== 'false' && process.env.RESEND_API_KEY;
     
     let magicLink: string;
 
@@ -152,70 +190,119 @@ export async function POST(request: Request) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>Sign in to MyWeekly Stock</title>
+  <!--[if mso]>
+  <style type="text/css">
+    body, table, td {font-family: Arial, sans-serif !important;}
+  </style>
+  <![endif]-->
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f8fafc;">
-  <table role="presentation" style="width: 100%; border-collapse: collapse;">
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+  <!-- Wrapper -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f1f5f9;">
     <tr>
-      <td style="padding: 40px 20px;">
-        <table role="presentation" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-          <!-- Header -->
+      <td align="center" style="padding: 40px 20px;">
+        <!-- Main Container -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);">
+          
+          <!-- Header with Gradient -->
           <tr>
-            <td style="padding: 40px 40px 30px; text-align: center; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); border-radius: 12px 12px 0 0;">
-              <div style="display: inline-block; padding: 16px; background-color: rgba(255, 255, 255, 0.2); border-radius: 16px; margin-bottom: 16px;">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                </svg>
-              </div>
-              <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">MyWeekly Stock</h1>
+            <td style="background: linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%); padding: 48px 40px 40px; text-align: center;">
+              <!-- Icon Container -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td align="center" style="padding-bottom: 24px;">
+                    <div style="display: inline-block; width: 64px; height: 64px; background-color: rgba(255, 255, 255, 0.25); border-radius: 20px; padding: 16px; backdrop-filter: blur(10px);">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                      </svg>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center">
+                    <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1.2;">MyWeekly Stock</h1>
+                    <p style="margin: 8px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px; font-weight: 400;">Your Stock Market Dashboard</p>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           
-          <!-- Content -->
+          <!-- Content Section -->
           <tr>
-            <td style="padding: 40px;">
-              <h2 style="margin: 0 0 16px; color: #1e293b; font-size: 24px; font-weight: 600;">Sign in to your account</h2>
-              <p style="margin: 0 0 32px; color: #64748b; font-size: 16px; line-height: 1.6;">
-                Click the button below to securely sign in to your MyWeekly Stock dashboard. This link will expire in 1 hour.
+            <td style="padding: 48px 40px;">
+              <h2 style="margin: 0 0 12px; color: #0f172a; font-size: 26px; font-weight: 700; line-height: 1.3;">Welcome back!</h2>
+              <p style="margin: 0 0 32px; color: #475569; font-size: 16px; line-height: 1.6;">
+                Click the button below to securely access your MyWeekly Stock dashboard. This magic link will expire in <strong>1 hour</strong> for your security.
               </p>
               
               <!-- CTA Button -->
-              <table role="presentation" style="width: 100%; margin: 32px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
-                  <td style="text-align: center;">
-                    <a href="${magicLink}" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);">
-                      Sign In to Dashboard
+                  <td align="center" style="padding: 8px 0 32px;">
+                    <a href="${magicLink}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); transition: all 0.2s;">
+                      Sign In to Dashboard →
                     </a>
                   </td>
                 </tr>
               </table>
               
-              <p style="margin: 24px 0 0; color: #94a3b8; font-size: 14px; line-height: 1.5;">
-                If the button doesn't work, copy and paste this link into your browser:<br>
-                <a href="${magicLink}" style="color: #3b82f6; text-decoration: none; word-break: break-all;">${magicLink}</a>
-              </p>
+              <!-- Divider -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 24px 0; border-top: 1px solid #e2e8f0;">
+                    <p style="margin: 0 0 16px; color: #64748b; font-size: 14px; line-height: 1.5;">
+                      <strong style="color: #334155;">Button not working?</strong><br>
+                      Copy and paste this link into your browser:
+                    </p>
+                    <p style="margin: 0; padding: 12px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                      <a href="${magicLink}" style="color: #3b82f6; text-decoration: none; word-break: break-all; font-size: 13px; font-family: 'Courier New', monospace;">${magicLink}</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           
-          <!-- Footer -->
+          <!-- Security Footer -->
           <tr>
-            <td style="padding: 32px 40px; background-color: #f8fafc; border-radius: 0 0 12px 12px; border-top: 1px solid #e2e8f0;">
-              <p style="margin: 0 0 8px; color: #64748b; font-size: 14px; text-align: center;">
-                This link expires in 1 hour for security reasons.
-              </p>
-              <p style="margin: 0; color: #94a3b8; font-size: 12px; text-align: center;">
-                If you didn't request this email, you can safely ignore it.
-              </p>
+            <td style="padding: 32px 40px; background: linear-gradient(to bottom, #f8fafc 0%, #f1f5f9 100%); border-top: 1px solid #e2e8f0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td align="center" style="padding-bottom: 16px;">
+                    <div style="display: inline-block; width: 40px; height: 40px; background-color: #dbeafe; border-radius: 10px; padding: 10px;">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                      </svg>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center">
+                    <p style="margin: 0 0 8px; color: #475569; font-size: 14px; font-weight: 600;">Secure Authentication</p>
+                    <p style="margin: 0 0 16px; color: #64748b; font-size: 13px; line-height: 1.5;">
+                      This link expires in 1 hour for security reasons.<br>
+                      If you didn't request this email, you can safely ignore it.
+                    </p>
+                    <p style="margin: 0; color: #94a3b8; font-size: 12px;">
+                      © ${new Date().getFullYear()} MyWeekly Stock. All rights reserved.
+                    </p>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
         </table>
         
-        <!-- Bottom spacing -->
-        <table role="presentation" style="width: 100%; margin-top: 24px;">
+        <!-- Bottom Spacing -->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
           <tr>
-            <td style="text-align: center; padding: 20px;">
+            <td style="padding: 24px 0; text-align: center;">
               <p style="margin: 0; color: #94a3b8; font-size: 12px;">
-                © ${new Date().getFullYear()} MyWeekly Stock. All rights reserved.
+                Powered by Supabase Authentication
               </p>
             </td>
           </tr>

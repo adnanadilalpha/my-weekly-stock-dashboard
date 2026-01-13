@@ -30,12 +30,12 @@ export default function Home() {
 
         if (session?.user) {
           setUserEmail(session.user.email || '');
-          setIsAuthenticated(true);
-        }
+      setIsAuthenticated(true);
+    }
       } catch (err) {
         console.error('Error checking session:', err);
       } finally {
-        setIsLoading(false);
+    setIsLoading(false);
       }
     };
 
@@ -69,9 +69,9 @@ export default function Home() {
   const handleSignOut = async () => {
     try {
       await supabase.auth.signOut();
-      setUserEmail('');
-      setIsAuthenticated(false);
-      setCurrentPage('index');
+    setUserEmail('');
+    setIsAuthenticated(false);
+    setCurrentPage('index');
     } catch (error) {
       console.error('Error signing out:', error);
     }

@@ -78,12 +78,12 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         } else {
           setError(data.error || 'Failed to send magic link. Please try again.');
         }
-        setIsSubmitting(false);
-        return;
-      }
-
-      setMagicLinkSent(true);
       setIsSubmitting(false);
+      return;
+    }
+
+    setMagicLinkSent(true);
+    setIsSubmitting(false);
     } catch (err) {
       console.error('Error in handleSubmit:', err);
       setError('An unexpected error occurred. Please try again.');
@@ -117,15 +117,15 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                   </Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                    <Input
-                      type="email"
-                      id="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com"
-                      disabled={isSubmitting}
+                  <Input
+                    type="email"
+                    id="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    disabled={isSubmitting}
                       className="bg-white pl-10 h-11 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
-                    />
+                  />
                   </div>
                 </div>
 
@@ -175,19 +175,19 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
                 <div className="pt-2 space-y-3">
                   <p className="text-sm text-slate-600 text-center">
                     Didn't receive the email? Check your spam folder or try again.
-                  </p>
-                  
-                  <Button
-                    onClick={() => {
-                      setMagicLinkSent(false);
-                      setEmail('');
+                    </p>
+
+                <Button
+                  onClick={() => {
+                    setMagicLinkSent(false);
+                    setEmail('');
                       setError('');
-                    }}
-                    variant="outline"
+                  }}
+                  variant="outline"
                     className="w-full h-10 border-slate-200 hover:bg-slate-50"
-                  >
+                >
                     Use a Different Email
-                  </Button>
+                </Button>
                 </div>
               </div>
             )}
