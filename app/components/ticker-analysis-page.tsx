@@ -96,8 +96,10 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
   // Fetch data from Supabase
   const { data: supabaseData, type, loading, error, refetch } = useTickerData(ticker);
 
-  // Fetch benchmark data (SPY and sector benchmark)
-  const [spyData, setSpyData] = useState<any>(null);
+  // Fetch benchmark data (First benchmark from daily_vs_spy_comparison and second benchmark)
+  const [firstBenchmarkData, setFirstBenchmarkData] = useState<any>(null);
+  const [firstBenchmarkTicker, setFirstBenchmarkTicker] = useState<string | null>(null);
+  const [firstBenchmarkName, setFirstBenchmarkName] = useState<string>('N/A');
   const [sectorBenchmarkData, setSectorBenchmarkData] = useState<any>(null);
   const [benchmarkTicker, setBenchmarkTicker] = useState<string | null>(null);
   const [benchmarkName, setBenchmarkName] = useState<string>('N/A');
@@ -111,19 +113,38 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
     await fetchBenchmarkData();
   };
 
-  // Fetch SPY and sector benchmark data based on comparison text from Supabase
+  // Fetch benchmark data based on comparison text from Supabase
   const fetchBenchmarkData = async () => {
     if (!supabaseData) return;
     
     setBenchmarksLoading(true);
     try {
-      // Always fetch SPY
-      const spyResult = await getTickerData('SPY');
-      if (spyResult.data) {
-        setSpyData(spyResult.data);
+      // Extract first benchmark ticker from daily_vs_spy_comparison (row 12)
+      const vsSpyComparison = (supabaseData as any).daily_vs_spy_comparison;
+      const firstExtractedTicker = extractBenchmarkTicker(vsSpyComparison);
+      setFirstBenchmarkTicker(firstExtractedTicker);
+      
+      // Fetch first benchmark data
+      if (firstExtractedTicker) {
+        // Handle cases like "SPY Energy Sector" - try to extract just the ticker part
+        const tickerMatch = firstExtractedTicker.match(/^([A-Z]{2,5})\s/);
+        const actualFirstTicker = tickerMatch ? tickerMatch[1] : firstExtractedTicker;
+        
+        const firstResult = await getTickerData(actualFirstTicker);
+        if (firstResult.data) {
+          setFirstBenchmarkData(firstResult.data);
+          const firstName = getBenchmarkNameFromData(firstResult.data, firstResult.type);
+          setFirstBenchmarkName(firstName);
+        } else {
+          setFirstBenchmarkData(null);
+          setFirstBenchmarkName(firstExtractedTicker);
+        }
+      } else {
+        setFirstBenchmarkData(null);
+        setFirstBenchmarkName('N/A');
       }
       
-      // Extract benchmark ticker from comparison text
+      // Extract second benchmark ticker from comparison text (row 13)
       const vsBenchmarkComparison = type === 'mega_cap' 
         ? (supabaseData as any).daily_vs_sector_comparison 
         : (supabaseData as any).daily_vs_benchmark_comparison;
@@ -131,8 +152,8 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
       const extractedTicker = extractBenchmarkTicker(vsBenchmarkComparison);
       setBenchmarkTicker(extractedTicker);
       
-      // Fetch benchmark if found and different from SPY
-      if (extractedTicker && extractedTicker !== 'SPY') {
+      // Fetch second benchmark if found
+      if (extractedTicker) {
         // Handle cases like "SPY Energy Sector" - try to extract just the ticker part
         const tickerMatch = extractedTicker.match(/^([A-Z]{2,5})\s/);
         const actualTicker = tickerMatch ? tickerMatch[1] : extractedTicker;
@@ -148,10 +169,6 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
           // If ticker not found, use the full extracted text (e.g., "SPY Energy Sector")
           setBenchmarkName(extractedTicker);
         }
-      } else if (extractedTicker === 'SPY') {
-        // If benchmark is SPY, use SPY's name
-        setSectorBenchmarkData(null);
-        setBenchmarkName(spyData?.name || 'SPY');
       } else {
         setSectorBenchmarkData(null);
         setBenchmarkName('N/A');
@@ -185,6 +202,13 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
     const ema9Vs21Ema = isDaily ? supabaseData.daily_ema9_vs_21ema : (supabaseData as any).weekly_ema9_vs_30ema;
     const slope9Ema = isDaily ? supabaseData.daily_slope_9ema : supabaseData.weekly_slope_9ema;
     const slope21Ema = isDaily ? supabaseData.daily_slope_21ema : (supabaseData as any).weekly_slope_30ema;
+    
+    // Trend signal icons (from column D in sheets) - stored as strings (emojis like ❌, ✅, ⚪️)
+    const priceVs9EmaIcon = isDaily ? supabaseData.daily_price_vs_9ema_icon : supabaseData.weekly_price_vs_9ema_icon;
+    const priceVs21EmaIcon = isDaily ? supabaseData.daily_price_vs_21ema_icon : supabaseData.weekly_price_vs_30ema_icon;
+    const ema9Vs21EmaIcon = isDaily ? supabaseData.daily_ema9_vs_21ema_icon : supabaseData.weekly_ema9_vs_30ema_icon;
+    const slope9EmaIcon = isDaily ? supabaseData.daily_slope_9ema_icon : supabaseData.weekly_slope_9ema_icon;
+    const slope21EmaIcon = isDaily ? supabaseData.daily_slope_21ema_icon : supabaseData.weekly_slope_30ema_icon;
 
     // Key levels
     const currentPrice = isDaily ? supabaseData.daily_current_price : supabaseData.weekly_current_price;
@@ -199,11 +223,11 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
       outlook: trendOutlook || 'N/A',
       description: trendDescription || 'N/A',
       signals: [
-        { label: isDaily ? 'Price vs 9-day EMA' : 'Price vs 9-week EMA', value: priceVs9Ema ?? 0, isNegative: (priceVs9Ema ?? 0) < 0 },
-        { label: isDaily ? 'Price vs 21-day EMA' : 'Price vs 30-week EMA', value: priceVs21Ema ?? 0, isNegative: (priceVs21Ema ?? 0) < 0 },
-        { label: isDaily ? '9-day EMA vs. 21-day EMA' : '9-week EMA vs. 30-week EMA', value: ema9Vs21Ema ?? 0, isNegative: (ema9Vs21Ema ?? 0) < 0 },
-        { label: isDaily ? 'Slope 9-day EMA' : 'Slope 9-week EMA', value: slope9Ema || 'N/A', isNegative: slope9Ema === 'Falling' },
-        { label: isDaily ? 'Slope 21-day EMA' : 'Slope 30-week EMA', value: slope21Ema || 'N/A', isNegative: slope21Ema === 'Falling' },
+        { label: isDaily ? 'Price vs 9-day EMA' : 'Price vs 9-week EMA', value: priceVs9Ema ?? 0, isNegative: (priceVs9Ema ?? 0) < 0, icon: priceVs9EmaIcon || null },
+        { label: isDaily ? 'Price vs 21-day EMA' : 'Price vs 30-week EMA', value: priceVs21Ema ?? 0, isNegative: (priceVs21Ema ?? 0) < 0, icon: priceVs21EmaIcon || null },
+        { label: isDaily ? '9-day EMA vs. 21-day EMA' : '9-week EMA vs. 30-week EMA', value: ema9Vs21Ema ?? 0, isNegative: (ema9Vs21Ema ?? 0) < 0, icon: ema9Vs21EmaIcon || null },
+        { label: isDaily ? 'Slope 9-day EMA' : 'Slope 9-week EMA', value: slope9Ema || 'N/A', isNegative: slope9Ema === 'Falling', icon: slope9EmaIcon || null },
+        { label: isDaily ? 'Slope 21-day EMA' : 'Slope 30-week EMA', value: slope21Ema || 'N/A', isNegative: slope21Ema === 'Falling', icon: slope21EmaIcon || null },
       ],
       keyLevels: [
         { label: 'Current Price', value: currentPrice?.toFixed(2) || 'N/A' },
@@ -265,22 +289,24 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
         vsSP500_Benchmark: vsSpyComparison || 'N/A',
         vsBenchmark2: vsBenchmarkComparison || 'N/A',
         benchmarks: {
-          spy: { 
-            oneMonth: spyData?.daily_1m_percent ?? 0,
-            threeMonth: spyData?.daily_3m_percent ?? 0
+          first: {
+            ticker: firstBenchmarkTicker || 'N/A',
+            name: firstBenchmarkName,
+            oneMonth: firstBenchmarkData?.daily_1m_percent ?? (firstBenchmarkData as any)?.['1m_percent'] ?? 0,
+            threeMonth: firstBenchmarkData?.daily_3m_percent ?? (firstBenchmarkData as any)?.['3m_percent'] ?? 0
           },
           sector: { 
             ticker: benchmarkTicker || 'N/A',
             name: benchmarkName,
-            oneMonth: sectorBenchmarkData?.daily_1m_percent ?? (benchmarkTicker === 'SPY' ? spyData?.daily_1m_percent ?? 0 : 0),
-            threeMonth: sectorBenchmarkData?.daily_3m_percent ?? (benchmarkTicker === 'SPY' ? spyData?.daily_3m_percent ?? 0 : 0)
+            oneMonth: sectorBenchmarkData?.daily_1m_percent ?? (sectorBenchmarkData as any)?.['1m_percent'] ?? 0,
+            threeMonth: sectorBenchmarkData?.daily_3m_percent ?? (sectorBenchmarkData as any)?.['3m_percent'] ?? 0
           }
         }
       },
       dailyTrend: transformTrendData(true),
       weeklyTrend: transformTrendData(false)
     };
-  }, [supabaseData, ticker, type, spyData, sectorBenchmarkData, benchmarkTicker, benchmarkName]);
+  }, [supabaseData, ticker, type, firstBenchmarkData, firstBenchmarkTicker, firstBenchmarkName, sectorBenchmarkData, benchmarkTicker, benchmarkName]);
 
   // Get performance color and icon based on value (matching sheet logic)
   const getPerformanceColor = (value: number) => {
@@ -455,17 +481,19 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                       </td>
                     </tr>
                     <tr className="border-b border-neutral-300">
-                      <td className="px-4 py-2 text-neutral-700 border-r border-neutral-300">$SPY (S&P500)</td>
+                      <td className="px-4 py-2 text-neutral-700 border-r border-neutral-300">
+                        ${data.performance.benchmarks.first?.ticker || 'N/A'} {data.performance.benchmarks.first?.name && data.performance.benchmarks.first?.name !== data.performance.benchmarks.first?.ticker ? `(${data.performance.benchmarks.first?.name})` : ''}
+                      </td>
                       <td className="px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.spy.oneMonth)}</div>
-                          <div className="flex-1 text-center tabular-nums">{data.performance.benchmarks.spy.oneMonth > 0 ? '+' : ''}{data.performance.benchmarks.spy.oneMonth}%</div>
+                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.oneMonth || 0)}</div>
+                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.oneMonth || 0}%</div>
                         </div>
                       </td>
                       <td className="px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.spy.threeMonth)}</div>
-                          <div className="flex-1 text-center tabular-nums">{data.performance.benchmarks.spy.threeMonth > 0 ? '+' : ''}{data.performance.benchmarks.spy.threeMonth}%</div>
+                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.threeMonth || 0)}</div>
+                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.threeMonth || 0}%</div>
                         </div>
                       </td>
                       <td className="px-4 py-2 text-center text-neutral-700">
@@ -539,16 +567,19 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                               <span className="flex items-center gap-1">
                                 {typeof signal.value === 'number' && signal.value !== 0 ? (
                                   <span className={signal.isNegative ? 'text-neutral-900' : 'text-green-700'}>
-                                    {(signal.value * 100).toFixed(2)}%
+                                    {typeof signal.value === 'number' ? signal.value.toFixed(1) : signal.value}%
                                   </span>
                                 ) : typeof signal.value === 'number' ? (
                                   <span className="text-neutral-900">0%</span>
                                 ) : (
                                   <span className="text-neutral-900">{signal.value}</span>
                                 )}
-                                {signal.isNegative && signal.value !== 'N/A' && (
+                                {/* Use stored icon from sheet if available, otherwise fallback to generated icon */}
+                                {signal.icon ? (
+                                  <span>{signal.icon}</span>
+                                ) : signal.isNegative && signal.value !== 'N/A' ? (
                                   <span className="text-red-600 font-bold">✕</span>
-                                )}
+                                ) : null}
                               </span>
                             </div>
                           ))}
