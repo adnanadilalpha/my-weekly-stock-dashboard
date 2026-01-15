@@ -97,78 +97,57 @@ export async function POST(request: Request) {
     // Default to Supabase unless ENABLE_RESEND=true is explicitly set
     const useResend = process.env.ENABLE_RESEND === 'true' && !!process.env.RESEND_API_KEY;
     
+    console.log('Email sending configuration:', {
+      ENABLE_RESEND: process.env.ENABLE_RESEND,
+      hasResendApiKey: !!process.env.RESEND_API_KEY,
+      useResend,
+      hasServiceRoleKey: !!supabaseServiceRoleKey,
+    });
+    
     let magicLink: string;
 
+    // Always generate magic link using Supabase (prefer admin API to avoid sending email)
     if (useResend) {
-      // Only generate magic link if using Resend (we need the link to send via Resend)
-      // Try to use admin API if service role key is available
+      console.log('Using Resend for email delivery');
+      // When using Resend, we need the magic link to send via Resend
+      // Prefer admin API to generate link without sending email
       if (supabaseAdmin) {
-        try {
-          const { data: otpData, error: signInError } = await supabaseAdmin.auth.admin.generateLink({
-            type: 'magiclink',
-            email: emailLower,
-            options: {
-              redirectTo: redirectTo,
-            },
-          });
-
-          if (signInError || !otpData?.properties?.action_link) {
-            console.error('Error generating magic link with admin API:', signInError);
-            // Fallback to regular OTP
-            throw new Error('Admin API failed, using fallback');
-          }
-
-          magicLink = otpData.properties.action_link;
-        } catch (error) {
-          // Fallback: Use regular OTP flow
-          console.log('Using fallback OTP method');
-          const { error: signInError } = await supabase.auth.signInWithOtp({
-            email: emailLower,
-            options: {
-              emailRedirectTo: redirectTo,
-              shouldCreateUser: false,
-            },
-          });
-
-          if (signInError) {
-            console.error('Error generating OTP:', signInError);
-            return NextResponse.json(
-              { error: signInError.message || 'Failed to generate magic link' },
-              { status: 500 }
-            );
-          }
-
-          // For fallback, we'll construct a link that will work with the callback
-          magicLink = `${redirectTo}?email=${encodeURIComponent(emailLower)}`;
-        }
-      } else {
-        // No service role key - use regular OTP
-        const { error: signInError } = await supabase.auth.signInWithOtp({
+        console.log('Generating magic link via Supabase Admin API (no email will be sent by Supabase)');
+        const { data: otpData, error: signInError } = await supabaseAdmin.auth.admin.generateLink({
+          type: 'magiclink',
           email: emailLower,
           options: {
-            emailRedirectTo: redirectTo,
-            shouldCreateUser: false,
+            redirectTo: redirectTo,
           },
         });
 
-        if (signInError) {
-          console.error('Error generating OTP:', signInError);
+        if (signInError || !otpData?.properties?.action_link) {
+          console.error('Error generating magic link with admin API:', signInError);
           return NextResponse.json(
-            { error: signInError.message || 'Failed to generate magic link' },
+            { error: signInError?.message || 'Failed to generate magic link' },
             { status: 500 }
           );
         }
 
-        // Construct callback link - user will authenticate via the OTP sent by Supabase
-        magicLink = `${redirectTo}?email=${encodeURIComponent(emailLower)}`;
+        magicLink = otpData.properties.action_link;
+        console.log('Magic link generated successfully, will send via Resend');
+      } else {
+        // No service role key - cannot generate link without sending email via Supabase
+        // Return error to require service role key when using Resend
+        console.error('Service role key missing - cannot use Resend without it');
+        return NextResponse.json(
+          { error: 'Service role key required when using Resend. Please set SUPABASE_SERVICE_ROLE_KEY environment variable.' },
+          { status: 500 }
+        );
       }
     } else {
-      // Use Supabase's built-in email - just trigger the OTP
+      console.log('Using Supabase built-in email delivery');
+      // Use Supabase's built-in email - just trigger the OTP (Supabase will send email)
       const { error: signInError } = await supabase.auth.signInWithOtp({
         email: emailLower,
         options: {
           emailRedirectTo: redirectTo,
-          shouldCreateUser: false,
+          shouldCreateUser: true,
         },
       });
 
@@ -181,6 +160,7 @@ export async function POST(request: Request) {
       }
 
       // Supabase will send the email automatically, we don't need the magic link
+      console.log('OTP sent via Supabase email');
       return NextResponse.json({ success: true });
     }
     
@@ -211,15 +191,6 @@ export async function POST(request: Request) {
             <td style="background: linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%); padding: 48px 40px 40px; text-align: center;">
               <!-- Icon Container -->
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                <tr>
-                  <td align="center" style="padding-bottom: 24px;">
-                    <div style="display: inline-block; width: 64px; height: 64px; background-color: rgba(255, 255, 255, 0.25); border-radius: 20px; padding: 16px; backdrop-filter: blur(10px);">
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display: block;">
-                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-                      </svg>
-                    </div>
-                  </td>
-                </tr>
                 <tr>
                   <td align="center">
                     <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1.2;">MyWeekly Stock</h1>
@@ -270,16 +241,7 @@ export async function POST(request: Request) {
           <tr>
             <td style="padding: 32px 40px; background: linear-gradient(to bottom, #f8fafc 0%, #f1f5f9 100%); border-top: 1px solid #e2e8f0;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                <tr>
-                  <td align="center" style="padding-bottom: 16px;">
-                    <div style="display: inline-block; width: 40px; height: 40px; background-color: #dbeafe; border-radius: 10px; padding: 10px;">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                      </svg>
-                    </div>
-                  </td>
-                </tr>
+
                 <tr>
                   <td align="center">
                     <p style="margin: 0 0 8px; color: #475569; font-size: 14px; font-weight: 600;">Secure Authentication</p>
@@ -329,6 +291,12 @@ If you didn't request this email, you can safely ignore it.
     if (useResend) {
       // Send email via Resend
       const resendApiKey = process.env.RESEND_API_KEY;
+      const resendFromEmail = process.env.RESEND_EMAIL_FROM || 'MyWeekly Stock <onboarding@resend.dev>';
+      
+      console.log('Sending email via Resend:', {
+        from: resendFromEmail,
+        to: emailLower,
+      });
       
       const resendResponse = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -337,7 +305,7 @@ If you didn't request this email, you can safely ignore it.
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: process.env.RESEND_FROM_EMAIL || 'MyWeekly Stock <onboarding@resend.dev>',
+          from: resendFromEmail,
           to: emailLower,
           subject: 'Sign in to MyWeekly Stock',
           html: emailHtml,
@@ -349,40 +317,14 @@ If you didn't request this email, you can safely ignore it.
         const errorData = await resendResponse.json();
         console.error('Resend API error:', errorData);
         
-        // Handle Resend domain verification error - fallback to Supabase
-        if (errorData.statusCode === 403 && errorData.message?.includes('verify a domain')) {
-          console.log('Resend domain not verified, falling back to Supabase email');
-          // Fallback to Supabase's built-in email
-          const { error: signInError } = await supabase.auth.signInWithOtp({
-            email: emailLower,
-            options: {
-              emailRedirectTo: redirectTo,
-              shouldCreateUser: false,
-            },
-          });
-
-          if (signInError) {
-            console.error('Error generating OTP with Supabase fallback:', signInError);
-            return NextResponse.json(
-              { error: signInError.message || 'Failed to send magic link' },
-              { status: 500 }
-            );
-          }
-
-          return NextResponse.json({ success: true, fallback: 'supabase' });
-        }
-        
         return NextResponse.json(
-          { error: errorData.message || 'Failed to send email' },
+          { error: errorData.message || 'Failed to send email via Resend' },
           { status: resendResponse.status }
         );
       }
 
-      return NextResponse.json({ success: true });
-    } else {
-      // Use Supabase's built-in email (default)
-      // The magic link was already generated above, Supabase will send the email automatically
-      // We just need to return success
+      const resendData = await resendResponse.json();
+      console.log('Email sent successfully via Resend:', resendData);
       return NextResponse.json({ success: true });
     }
   } catch (error) {
