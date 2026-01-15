@@ -54,44 +54,78 @@ export async function POST(request: Request) {
     }
 
     // Generate magic link with Supabase
-    // Get the app URL - prioritize request origin (most reliable), then env vars
+    // Get the app URL - prioritize request headers and origin for production
     let appUrl: string | undefined;
     
-    // First, try to get from request URL (most reliable for production)
-    try {
-      const requestUrl = new URL(request.url);
-      const requestOrigin = requestUrl.origin;
-      if (requestOrigin && !requestOrigin.includes('localhost') && !requestOrigin.includes('127.0.0.1')) {
-        appUrl = requestOrigin;
-      }
-    } catch (e) {
-      // URL parsing failed, continue to fallbacks
+    // Priority 1: Check x-forwarded-host header (Vercel/proxies set this)
+    const forwardedHost = request.headers.get('x-forwarded-host');
+    const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+    if (forwardedHost && !forwardedHost.includes('localhost') && !forwardedHost.includes('127.0.0.1')) {
+      appUrl = `${forwardedProto}://${forwardedHost}`;
     }
     
-    // Fallback to environment variables
+    // Priority 2: Check referer header (where the request came from)
+    if (!appUrl || appUrl.includes('localhost')) {
+      const referer = request.headers.get('referer');
+      if (referer) {
+        try {
+          const refererUrl = new URL(referer);
+          if (refererUrl.origin && !refererUrl.origin.includes('localhost') && !refererUrl.origin.includes('127.0.0.1')) {
+            appUrl = refererUrl.origin;
+          }
+        } catch (e) {
+          // Invalid referer URL, continue
+        }
+      }
+    }
+    
+    // Priority 3: Check request URL origin
+    if (!appUrl || appUrl.includes('localhost')) {
+      try {
+        const requestUrl = new URL(request.url);
+        const requestOrigin = requestUrl.origin;
+        if (requestOrigin && !requestOrigin.includes('localhost') && !requestOrigin.includes('127.0.0.1')) {
+          appUrl = requestOrigin;
+        }
+      } catch (e) {
+        // URL parsing failed, continue to fallbacks
+      }
+    }
+    
+    // Priority 4: Check host header
+    if (!appUrl || appUrl.includes('localhost')) {
+      const host = request.headers.get('host');
+      if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+        // Determine protocol based on host or default to https for production
+        const protocol = host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'https';
+        appUrl = `${protocol}://${host}`;
+      }
+    }
+    
+    // Priority 5: Fallback to environment variables
     if (!appUrl || appUrl.includes('localhost')) {
       if (process.env.NEXT_PUBLIC_APP_URL && !process.env.NEXT_PUBLIC_APP_URL.includes('localhost')) {
         appUrl = process.env.NEXT_PUBLIC_APP_URL;
       } else if (process.env.VERCEL_URL) {
         appUrl = `https://${process.env.VERCEL_URL}`;
-      } else {
-        // Last resort: try request headers
-        const host = request.headers.get('host');
-        if (host && !host.includes('localhost')) {
-          appUrl = `https://${host}`;
-        } else {
-          appUrl = 'http://localhost:3000';
-        }
       }
     }
     
-    // Ensure appUrl is always defined
-    if (!appUrl) {
+    // Last resort: localhost for development
+    if (!appUrl || appUrl.includes('localhost')) {
       appUrl = 'http://localhost:3000';
     }
     
     const redirectTo = `${appUrl}/auth/callback`;
     console.log('Magic link redirect URL:', redirectTo); // Debug log
+    console.log('URL detection details:', {
+      forwardedHost: request.headers.get('x-forwarded-host'),
+      forwardedProto: request.headers.get('x-forwarded-proto'),
+      referer: request.headers.get('referer'),
+      host: request.headers.get('host'),
+      requestUrl: request.url,
+      finalAppUrl: appUrl,
+    });
     
     // Use Resend if explicitly enabled AND API key is available, otherwise use Supabase's built-in email
     // Default to Supabase unless ENABLE_RESEND=true is explicitly set
