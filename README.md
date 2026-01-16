@@ -1,7 +1,7 @@
 
-  # MyWeekly Stock
+  # My Weekly Stock
 
-  This is a code bundle for MyWeekly Stock Dashboard. 
+  This is a code bundle for My Weekly Stock Dashboard. 
 
   ## Running the code
 

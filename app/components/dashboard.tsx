@@ -98,7 +98,7 @@ export function Dashboard({ userEmail, onSignOut }: DashboardProps) {
         <div className="px-6 py-4">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-neutral-900 mb-1">MyWeekly Stock</h1>
+              <h1 className="text-neutral-900 mb-1">My Weekly Stock</h1>
               <p className="text-sm text-neutral-600">Real-time sync with Google Sheets</p>
             </div>
             <Button

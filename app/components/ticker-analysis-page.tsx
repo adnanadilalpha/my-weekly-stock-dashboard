@@ -20,7 +20,7 @@ interface TickerAnalysisPageProps {
 // All available tickers organized by category
 const MARKET_SEGMENTS = ['SPY', 'QQQ', 'IWM', 'TLT', 'UUP', 'GLD', 'SLV', 'IBIT', 'ETHA', 'USO'];
 const SECTORS = ['XLK', 'XLC', 'SMH', 'XLY', 'XLF', 'XLI', 'XLE', 'XLB', 'XLRE', 'XLU', 'XLV', 'XLP'];
-const MEGA_CAPS = ['NVDA', 'MSFT', 'AAPL', 'GOOG', 'AMZN', 'META', 'TSLA', 'JPM', 'WMT', 'LLY'];
+const LARGE_CAPS = ['NVDA', 'MSFT', 'AAPL', 'GOOG', 'AMZN', 'META', 'TSLA', 'JPM', 'WMT', 'LLY', 'AVGO', 'CSCO', 'MCD', 'V', 'WFC', 'C', 'ORCL', 'MS', 'APP', 'MA', 'KO', 'ISRG', 'XOM', 'GS', 'LIN', 'JNJ', 'CAT', 'INTC', 'PLTR', 'IBM', 'DIS', 'NFLX', 'MRK', 'QCOM', 'BAC', 'AXP', 'PEP', 'COST', 'LRCX', 'BX', 'MU', 'CRM', 'AMGN', 'HD', 'RTX', 'SCHW', 'GE', 'TMO', 'INTU', 'AMD', 'AMAT', 'GEV', 'PG', 'ABT', 'UBER', 'CVX', 'TMUS', 'BA', 'UNH', 'SHOP'];
 
 // Mapping of ticker symbols to full company/fund names
 const TICKER_NAMES: Record<string, string> = {
@@ -48,7 +48,7 @@ const TICKER_NAMES: Record<string, string> = {
   'XLU': 'Utilities Select Sector SPDR Fund',
   'XLV': 'Health Care Select Sector SPDR Fund',
   'XLP': 'Consumer Staples Select Sector SPDR Fund',
-  // Mega Caps
+  // Large Caps
   'NVDA': 'NVIDIA Corporation',
   'MSFT': 'Microsoft Corporation',
   'AAPL': 'Apple Inc.',
@@ -59,6 +59,56 @@ const TICKER_NAMES: Record<string, string> = {
   'JPM': 'JPMorgan Chase & Co.',
   'WMT': 'Walmart Inc.',
   'LLY': 'Eli Lilly and Company',
+  'AVGO': 'Broadcom Inc.',
+  'CSCO': 'Cisco Systems Inc.',
+  'MCD': 'McDonald\'s Corporation',
+  'V': 'Visa Inc.',
+  'WFC': 'Wells Fargo & Company',
+  'C': 'Citigroup Inc.',
+  'ORCL': 'Oracle Corporation',
+  'MS': 'Morgan Stanley',
+  'APP': 'Applovin Corporation',
+  'MA': 'Mastercard Incorporated',
+  'KO': 'The Coca-Cola Company',
+  'ISRG': 'Intuitive Surgical Inc.',
+  'XOM': 'Exxon Mobil Corporation',
+  'GS': 'The Goldman Sachs Group Inc.',
+  'LIN': 'Linde plc',
+  'JNJ': 'Johnson & Johnson',
+  'CAT': 'Caterpillar Inc.',
+  'INTC': 'Intel Corporation',
+  'PLTR': 'Palantir Technologies Inc.',
+  'IBM': 'International Business Machines Corporation',
+  'DIS': 'The Walt Disney Company',
+  'NFLX': 'Netflix Inc.',
+  'MRK': 'Merck & Co. Inc.',
+  'QCOM': 'Qualcomm Incorporated',
+  'BAC': 'Bank of America Corp.',
+  'AXP': 'American Express Company',
+  'PEP': 'PepsiCo Inc.',
+  'COST': 'Costco Wholesale Corporation',
+  'LRCX': 'Lam Research Corporation',
+  'BX': 'Blackstone Inc.',
+  'MU': 'Micron Technology Inc.',
+  'CRM': 'Salesforce Inc.',
+  'AMGN': 'Amgen Inc.',
+  'HD': 'The Home Depot Inc.',
+  'RTX': 'RTX Corporation',
+  'SCHW': 'The Charles Schwab Corporation',
+  'GE': 'GE Aerospace',
+  'TMO': 'Thermo Fisher Scientific Inc.',
+  'INTU': 'Intuit Inc.',
+  'AMD': 'Advanced Micro Devices Inc.',
+  'AMAT': 'Applied Materials Inc.',
+  'GEV': 'GE Vernova',
+  'PG': 'The Procter & Gamble Company',
+  'ABT': 'Abbott Laboratories',
+  'UBER': 'Uber Technologies Inc.',
+  'CVX': 'Chevron Corporation',
+  'TMUS': 'T-Mobile US Inc.',
+  'BA': 'The Boeing Company',
+  'UNH': 'UnitedHealth Group Incorporated',
+  'SHOP': 'Shopify Inc.',
 };
 
 // Helper function to extract benchmark ticker from comparison text
@@ -82,7 +132,7 @@ function getBenchmarkNameFromData(data: any, type: string | null): string {
     return data.name || 'N/A';
   } else if (type === 'sector') {
     return data.sector_name || 'N/A';
-  } else if (type === 'mega_cap') {
+  } else if (type === 'mega_cap' || type === 'other_stock') {
     return data.company_name || 'N/A';
   }
   
@@ -106,7 +156,7 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
   const [benchmarksLoading, setBenchmarksLoading] = useState(false);
 
   // All available tickers for the dropdown
-  const allTickers = [...MARKET_SEGMENTS, ...SECTORS, ...MEGA_CAPS].sort();
+  const allTickers = [...MARKET_SEGMENTS, ...SECTORS, ...LARGE_CAPS].sort();
 
   const handleRefresh = async () => {
     await refetch();
@@ -249,7 +299,7 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
       name = (supabaseData as any).name || TICKER_NAMES[ticker] || ticker;
     } else if (type === 'sector') {
       name = (supabaseData as any).sector_name || TICKER_NAMES[ticker] || ticker;
-    } else if (type === 'mega_cap') {
+    } else if (type === 'mega_cap' || type === 'other_stock') {
       name = (supabaseData as any).company_name || TICKER_NAMES[ticker] || ticker;
     }
 
@@ -290,16 +340,16 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
         vsBenchmark2: vsBenchmarkComparison || 'N/A',
         benchmarks: {
           first: {
-            ticker: firstBenchmarkTicker || 'N/A',
+            ticker: (supabaseData as any).first_benchmark_ticker ?? (firstBenchmarkTicker || 'N/A'),
             name: firstBenchmarkName,
-            oneMonth: firstBenchmarkData?.daily_1m_percent ?? (firstBenchmarkData as any)?.['1m_percent'] ?? 0,
-            threeMonth: firstBenchmarkData?.daily_3m_percent ?? (firstBenchmarkData as any)?.['3m_percent'] ?? 0
+            oneMonth: (supabaseData as any).first_benchmark_1m_percent ?? firstBenchmarkData?.daily_1m_percent ?? (firstBenchmarkData as any)?.['1m_percent'] ?? 0,
+            threeMonth: (supabaseData as any).first_benchmark_3m_percent ?? firstBenchmarkData?.daily_3m_percent ?? (firstBenchmarkData as any)?.['3m_percent'] ?? 0
           },
           sector: { 
-            ticker: benchmarkTicker || 'N/A',
+            ticker: (supabaseData as any).second_benchmark_ticker ?? (benchmarkTicker || 'N/A'),
             name: benchmarkName,
-            oneMonth: sectorBenchmarkData?.daily_1m_percent ?? (sectorBenchmarkData as any)?.['1m_percent'] ?? 0,
-            threeMonth: sectorBenchmarkData?.daily_3m_percent ?? (sectorBenchmarkData as any)?.['3m_percent'] ?? 0
+            oneMonth: (supabaseData as any).second_benchmark_1m_percent ?? sectorBenchmarkData?.daily_1m_percent ?? (sectorBenchmarkData as any)?.['1m_percent'] ?? 0,
+            threeMonth: (supabaseData as any).second_benchmark_3m_percent ?? sectorBenchmarkData?.daily_3m_percent ?? (sectorBenchmarkData as any)?.['3m_percent'] ?? 0
           }
         }
       },
@@ -324,6 +374,26 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
     if (value > -5) return '✅';
     if (value > -10) return '⚪️';
     return '❌';
+  };
+
+  // Helper function to get comparison icon and text
+  const getComparisonIcon = (comparisonText: string | null | undefined) => {
+    if (!comparisonText || comparisonText === 'N/A') return { icon: null, text: comparisonText || 'N/A' };
+    
+    // Extract the comparison status (Leading, In line, Lagging)
+    const leadingMatch = comparisonText.match(/Leading/i);
+    const inLineMatch = comparisonText.match(/In line/i);
+    const laggingMatch = comparisonText.match(/Lagging/i);
+    
+    if (leadingMatch) {
+      return { icon: '✅', text: comparisonText };
+    } else if (inLineMatch) {
+      return { icon: '⚪️', text: comparisonText };
+    } else if (laggingMatch) {
+      return { icon: '❌', text: comparisonText };
+    }
+    
+    return { icon: null, text: comparisonText };
   };
 
   const renderStars = (rating: number) => {
@@ -386,19 +456,20 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
     <div className="min-h-screen bg-neutral-50">
       {/* Compact Header */}
       <header className="bg-white border-b border-neutral-200 shadow-sm sticky top-0 z-10">
-        <div className="px-6 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+        <div className="px-4 sm:px-6 py-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => onNavigate('index')}
+                className="flex-shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
               </Button>
               
               <Select value={ticker} onValueChange={setTicker}>
-                <SelectTrigger className="w-[180px] h-9 bg-white">
+                <SelectTrigger className="w-full sm:w-[180px] h-9 bg-white">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
@@ -408,18 +479,20 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                 </SelectContent>
               </Select>
 
-              <span className="text-xs text-neutral-500">last updated {data.lastUpdated}</span>
+              <span className="text-xs text-neutral-500 hidden sm:inline whitespace-nowrap">last updated {data.lastUpdated}</span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <span className="text-xs text-neutral-500 sm:hidden flex-1">last updated {data.lastUpdated}</span>
               <Button
                 onClick={handleRefresh}
                 disabled={loading}
                 size="sm"
                 variant="outline"
+                className="flex-shrink-0"
               >
-                <RefreshCw className={`w-3 h-3 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
+                <RefreshCw className={`w-3 h-3 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
               </Button>
             </div>
           </div>
@@ -427,97 +500,115 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
       </header>
 
       {/* Main Content - Single Viewport */}
-      <main className="p-6 max-w-[1400px] mx-auto">
-        <div className="space-y-4">
+      <main className="p-4 sm:p-6 max-w-[1400px] mx-auto">
+        <div className="space-y-3 sm:space-y-4">
           {/* Company Name Banner */}
-          <div className="bg-neutral-900 text-white px-6 py-3 rounded">
-            <h1 className="text-xl font-medium">{data.name}</h1>
+          <div className="bg-neutral-900 text-white px-4 sm:px-6 py-2 sm:py-3 rounded">
+            <h1 className="text-lg sm:text-xl font-medium truncate">{data.name}</h1>
           </div>
 
           {/* PERFORMANCE Section */}
           <div className="bg-white border border-neutral-200 rounded-lg">
-            <div className="px-6 py-3 border-b border-neutral-200 bg-neutral-50">
-              <h2 className="font-semibold text-neutral-900">DAILY PERFORMANCE</h2>
+            <div className="px-4 sm:px-6 py-2 sm:py-3 border-b border-neutral-200 bg-neutral-50">
+              <h2 className="font-semibold text-sm sm:text-base text-neutral-900">PERFORMANCE</h2>
             </div>
-            <div className="px-6 py-4 space-y-3">
+            <div className="px-4 sm:px-6 py-3 sm:py-4 space-y-3">
               <div>
-                <p className="font-medium text-neutral-900">{data.performance.summary}</p>
-                <p className="text-sm text-neutral-600 mt-1">{data.performance.description}</p>
+                <p className="font-medium text-sm sm:text-base text-neutral-900">{data.performance.summary}</p>
+                <p className="text-xs sm:text-sm text-neutral-600 mt-1">{data.performance.description}</p>
               </div>
 
               {/* Performance Table */}
-              <div className="border border-neutral-300 rounded overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="border border-neutral-300 rounded overflow-x-auto">
+                <table className="w-full text-xs sm:text-sm min-w-[600px]">
                   <thead>
                     <tr className="bg-neutral-50 border-b border-neutral-300">
-                      <th className="px-4 py-2 text-left text-neutral-900 border-r border-neutral-300 w-1/4">Ticker</th>
-                      <th className="px-4 py-2 text-center text-neutral-900 border-r border-neutral-300 w-1/4">1-month</th>
-                      <th className="px-4 py-2 text-center text-neutral-900 border-r border-neutral-300 w-1/4">3-month</th>
-                      <th className="px-4 py-2 text-center text-neutral-900 w-1/4">${ticker} performance vs:<br/>1Y High:</th>
+                      <th className="px-2 sm:px-4 py-2 text-left text-neutral-900 border-r border-neutral-300 w-1/4">Ticker</th>
+                      <th className="px-2 sm:px-4 py-2 text-center text-neutral-900 border-r border-neutral-300 w-1/4">1-month</th>
+                      <th className="px-2 sm:px-4 py-2 text-center text-neutral-900 border-r border-neutral-300 w-1/4">3-month</th>
+                      <th className="px-2 sm:px-4 py-2 text-center text-neutral-900 w-1/4">${ticker} performance vs:</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr className="border-b border-neutral-300">
-                      <td className="px-4 py-2 font-medium text-neutral-900 border-r border-neutral-300">
+                      <td className="px-2 sm:px-4 py-2 font-medium text-neutral-900 border-r border-neutral-300">
                         ${ticker} ({data.name.split(' ')[0]})
                       </td>
-                      <td className="px-4 py-2 border-r border-neutral-300">
+                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.oneMonth)}</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.oneMonth)}</div>
                           <div className="flex-1 text-center tabular-nums">{data.performance.oneMonth > 0 ? '+' : ''}{data.performance.oneMonth}%</div>
                         </div>
                       </td>
-                      <td className="px-4 py-2 border-r border-neutral-300">
+                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.threeMonth)}</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.threeMonth)}</div>
                           <div className="flex-1 text-center tabular-nums">{data.performance.threeMonth > 0 ? '+' : ''}{data.performance.threeMonth}%</div>
                         </div>
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-2 sm:px-4 py-2">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(data.performance.vsHigh1Y)}</div>
-                          <div className="flex-1 text-center tabular-nums">{data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(data.performance.vsHigh1Y)}</div>
+                          <div className="flex-1 text-center tabular-nums">
+                            <span className="text-xs text-neutral-600">1Y High:</span> {data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%
+                          </div>
                         </div>
                       </td>
                     </tr>
                     <tr className="border-b border-neutral-300">
-                      <td className="px-4 py-2 text-neutral-700 border-r border-neutral-300">
-                        ${data.performance.benchmarks.first?.ticker || 'N/A'} {data.performance.benchmarks.first?.name && data.performance.benchmarks.first?.name !== data.performance.benchmarks.first?.ticker ? `(${data.performance.benchmarks.first?.name})` : ''}
+                      <td className="px-2 sm:px-4 py-2 text-neutral-700 border-r border-neutral-300 truncate">
+                        {(supabaseData as any).first_benchmark_name || `$${data.performance.benchmarks.first?.ticker || 'N/A'}`}
                       </td>
-                      <td className="px-4 py-2 border-r border-neutral-300">
+                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.oneMonth || 0)}</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.oneMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.oneMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-4 py-2 border-r border-neutral-300">
+                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.threeMonth || 0)}</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.threeMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.threeMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-4 py-2 text-center text-neutral-700">
-                        {data.performance.vsSP500_Benchmark}
+                      <td className="px-2 sm:px-4 py-2">
+                        {(() => {
+                          const comparison = getComparisonIcon(data.performance.vsSP500_Benchmark);
+                          return (
+                            <div className="flex items-center">
+                              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{comparison.icon || ''}</div>
+                              <div className="flex-1 text-center text-xs sm:text-sm text-neutral-700">{comparison.text}</div>
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                     <tr>
-                      <td className="px-4 py-2 text-neutral-700 border-r border-neutral-300">
-                        ${data.performance.benchmarks.sector?.ticker || 'N/A'} {data.performance.benchmarks.sector?.name && data.performance.benchmarks.sector?.name !== data.performance.benchmarks.sector?.ticker ? `(${data.performance.benchmarks.sector?.name})` : ''}
+                      <td className="px-2 sm:px-4 py-2 text-neutral-700 border-r border-neutral-300 truncate">
+                        {(supabaseData as any).second_benchmark_name || `$${data.performance.benchmarks.sector?.ticker || 'N/A'}`}
                       </td>
-                      <td className="px-4 py-2 border-r border-neutral-300">
+                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.oneMonth || 0)}</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.oneMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.oneMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-4 py-2 border-r border-neutral-300">
+                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.threeMonth || 0)}</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.threeMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.threeMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-4 py-2 text-center text-neutral-700">
-                        {data.performance.vsBenchmark2}
+                      <td className="px-2 sm:px-4 py-2">
+                        {(() => {
+                          const comparison = getComparisonIcon(data.performance.vsBenchmark2);
+                          return (
+                            <div className="flex items-center">
+                              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{comparison.icon || ''}</div>
+                              <div className="flex-1 text-center text-xs sm:text-sm text-neutral-700">{comparison.text}</div>
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   </tbody>
@@ -533,40 +624,40 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
               
               return (
                 <div className="bg-white border border-neutral-200 rounded-lg">
-                  <div className="px-6 py-3 border-b border-neutral-200 bg-neutral-50">
-                    <h2 className="font-semibold text-neutral-900">{title}</h2>
+                  <div className="px-4 sm:px-6 py-2 sm:py-3 border-b border-neutral-200 bg-neutral-50">
+                    <h2 className="font-semibold text-sm sm:text-base text-neutral-900">{title}</h2>
                   </div>
-                  <div className="px-6 py-4 space-y-4">
+                  <div className="px-4 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
                     {/* Rating and Status */}
-                    <div className="flex items-center justify-between pb-3 border-b border-neutral-200">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 pb-3 border-b border-neutral-200">
+                      <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex">
                           {renderStars(trendData.rating)}
                         </div>
-                        <span className="text-lg font-semibold text-neutral-900">| {typeof trendData.rating === 'number' ? trendData.rating.toFixed(1) : trendData.rating}</span>
+                        <span className="text-base sm:text-lg font-semibold text-neutral-900">| {typeof trendData.rating === 'number' ? trendData.rating.toFixed(1) : trendData.rating}</span>
                       </div>
-                      <div className="text-right">
-                        <p className="font-medium text-neutral-900">{trendData.direction} | Outlook: {trendData.outlook}</p>
+                      <div className="text-left sm:text-right">
+                        <p className="text-xs sm:text-sm font-medium text-neutral-900">{trendData.direction} | Outlook: {trendData.outlook}</p>
                       </div>
                     </div>
 
                     {/* Description */}
-                    <p className="text-sm text-neutral-700 leading-relaxed bg-neutral-50 border border-neutral-200 rounded p-4">
+                    <p className="text-xs sm:text-sm text-neutral-700 leading-relaxed bg-neutral-50 border border-neutral-200 rounded p-3 sm:p-4">
                       {trendData.description}
                     </p>
 
                     {/* Two Column Layout */}
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                       {/* Trend Signals */}
                       <div>
-                        <h3 className="font-semibold text-neutral-900 mb-3 pb-2 border-b border-neutral-200">Trend Signals</h3>
+                        <h3 className="font-semibold text-sm sm:text-base text-neutral-900 mb-2 sm:mb-3 pb-2 border-b border-neutral-200">Trend Signals</h3>
                         <div className="space-y-2">
                           {trendData.signals.map((signal: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between text-sm border-b border-neutral-100 pb-2 last:border-0">
-                              <span className="text-neutral-700">{signal.label}</span>
-                              <span className="flex items-center gap-1">
+                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-neutral-100 pb-2 last:border-0">
+                              <span className="text-neutral-700 pr-2">{signal.label}</span>
+                              <span className="flex items-center gap-1 flex-shrink-0">
                                 {typeof signal.value === 'number' && signal.value !== 0 ? (
-                                  <span className={signal.isNegative ? 'text-neutral-900' : 'text-green-700'}>
+                                  <span className="text-neutral-900">
                                     {typeof signal.value === 'number' ? signal.value.toFixed(1) : signal.value}%
                                   </span>
                                 ) : typeof signal.value === 'number' ? (
@@ -588,12 +679,12 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
 
                       {/* Key Levels */}
                       <div>
-                        <h3 className="font-semibold text-neutral-900 mb-3 pb-2 border-b border-neutral-200">Key Levels</h3>
+                        <h3 className="font-semibold text-sm sm:text-base text-neutral-900 mb-2 sm:mb-3 pb-2 border-b border-neutral-200">Key Levels</h3>
                         <div className="space-y-2">
                           {trendData.keyLevels.map((level: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between text-sm border-b border-neutral-100 pb-2 last:border-0">
-                              <span className="text-neutral-700">{level.label}</span>
-                              <span className="font-medium text-neutral-900">{level.value}</span>
+                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-neutral-100 pb-2 last:border-0">
+                              <span className="text-neutral-700 pr-2">{level.label}</span>
+                              <span className="font-medium text-neutral-900 flex-shrink-0">{level.value}</span>
                             </div>
                           ))}
                         </div>

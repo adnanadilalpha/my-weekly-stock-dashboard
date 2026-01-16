@@ -6,6 +6,38 @@ import { Button } from './ui/button';
 import type { PageView } from '../types';
 import { useDashboardData } from '../../lib/hooks/useDashboardData';
 
+// Mapping of ticker symbols to display names (matching index-page.tsx)
+const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
+  // Segments
+  'SPY': 'S&P500',
+  'QQQ': 'Nasdaq',
+  'IWM': 'Small Caps',
+  'TLT': 'Treasuries',
+  'UUP': 'US Dollar fund',
+  'GLD': 'Gold',
+  'SLV': 'Silver',
+  'IBIT': 'Bitcoin',
+  'ETHA': 'Ethereum',
+  'USO': 'Oil',
+  // Sectors
+  'XLK': 'Technology',
+  'XLC': 'Communication Services',
+  'SMH': 'Semiconductors',
+  'XLY': 'Consumer Cyclicals',
+  'XLF': 'Financials',
+  'XLI': 'Industrials',
+  'XLE': 'Energy',
+  'XLB': 'Materials',
+  'XLRE': 'Real Estate',
+  'XLU': 'Utilities',
+  'XLV': 'Healthcare',
+  'XLP': 'Consumer Defensive',
+};
+
+// Order arrays for segments and sectors
+const SEGMENT_ORDER = ['SPY', 'QQQ', 'IWM', 'TLT', 'UUP', 'GLD', 'SLV', 'IBIT', 'ETHA', 'USO'];
+const SECTOR_ORDER = ['XLK', 'XLC', 'SMH', 'XLY', 'XLF', 'XLI', 'XLE', 'XLB', 'XLRE', 'XLU', 'XLV', 'XLP'];
+
 interface DashboardPageProps {
   userEmail: string;
   onSignOut: () => void;
@@ -14,7 +46,7 @@ interface DashboardPageProps {
 
 export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPageProps) {
   const [timeframe, setTimeframe] = useState<'D' | 'W'>('D');
-  const { segments, sectors, megaCaps, loading, error, refetch } = useDashboardData(timeframe);
+  const { segments, sectors, loading, error, refetch } = useDashboardData(timeframe);
 
   const handleRefresh = async () => {
     await refetch();
@@ -46,9 +78,34 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
     };
   };
 
-  const marketSegmentsData = segments.map(s => transformToTableData(s, (item) => item.name || item.ticker));
-  const sectorsData = sectors.map(s => transformToTableData(s, (item) => item.sector_name || item.ticker));
-  const megaCapsData = megaCaps.map(m => transformToTableData(m, (item) => item.company_name || item.ticker));
+  // Helper function to get display name from ticker
+  const getDisplayName = (ticker: string, dbName: string | null | undefined): string => {
+    return TICKER_TO_DISPLAY_NAME[ticker] || dbName || ticker;
+  };
+
+  // Helper function to sort by order array
+  const sortByOrder = <T extends { ticker: string }>(items: T[], order: string[]): T[] => {
+    return [...items].sort((a, b) => {
+      const indexA = order.indexOf(a.ticker);
+      const indexB = order.indexOf(b.ticker);
+      // If both are in order array, sort by their position
+      if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+      // If only one is in order array, prioritize it
+      if (indexA !== -1) return -1;
+      if (indexB !== -1) return 1;
+      // If neither is in order array, maintain original order
+      return 0;
+    });
+  };
+
+  const marketSegmentsData = sortByOrder(
+    segments.map(s => transformToTableData(s, (item) => getDisplayName(item.ticker, item.name))),
+    SEGMENT_ORDER
+  );
+  const sectorsData = sortByOrder(
+    sectors.map(s => transformToTableData(s, (item) => getDisplayName(item.ticker, item.sector_name))),
+    SECTOR_ORDER
+  );
 
   // Get performance color and icon based on value (matching sheet logic)
   const getPerformanceColor = (value: number) => {
@@ -80,78 +137,78 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
     
     for (let i = 0; i < 5; i++) {
       if (i < fullStars) {
-        stars.push(<Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />);
+        stars.push(<Star key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-yellow-400 text-yellow-400" />);
       } else if (i === fullStars && hasHalfStar) {
-        stars.push(<Star key={i} className="w-3 h-3 fill-yellow-400/50 text-yellow-400" />);
+        stars.push(<Star key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-yellow-400/50 text-yellow-400" />);
       } else {
-        stars.push(<Star key={i} className="w-3 h-3 text-neutral-300" />);
+        stars.push(<Star key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-neutral-300" />);
       }
     }
     return stars;
   };
 
   const renderTableSection = (title: string, data: typeof marketSegmentsData) => (
-    <div className="mb-8 last:mb-0">
+    <div className="mb-6 sm:mb-8 last:mb-0">
       {/* Section Headers */}
       <div className="grid grid-cols-[2fr_3fr_5fr] gap-0 mb-0">
-        <div className="bg-neutral-900 text-white px-4 py-2 text-center font-semibold border-r border-neutral-700">
+        <div className="bg-neutral-900 text-white px-2 sm:px-4 py-2 text-center font-semibold border-r border-neutral-700 text-xs sm:text-sm">
           {title}
         </div>
-        <div className="bg-neutral-900 text-white px-4 py-2 text-center font-semibold border-r border-neutral-700">
+        <div className="bg-neutral-900 text-white px-2 sm:px-4 py-2 text-center font-semibold border-r border-neutral-700 text-xs sm:text-sm">
           PERFORMANCE
         </div>
-        <div className="bg-neutral-900 text-white px-4 py-2 text-center font-semibold">
+        <div className="bg-neutral-900 text-white px-2 sm:px-4 py-2 text-center font-semibold text-xs sm:text-sm">
           {timeframe === 'D' ? 'DAILY' : 'WEEKLY'} CHART TREND
         </div>
       </div>
 
       {/* Column Headers */}
-      <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_2fr_1.5fr_1.5fr] gap-0 bg-neutral-100 border-b border-neutral-300 text-sm">
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 border-r border-neutral-300">Segment</div>
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Ticker</div>
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">1M</div>
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">3M</div>
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">vs 1Y High</div>
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Trend Score (0-5)</div>
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Rating</div>
-        <div className="px-4 py-2.5 font-semibold text-neutral-900 text-center">Outlook</div>
+      <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_2fr_1.5fr_1.5fr] gap-0 bg-neutral-100 border-b border-neutral-300 text-xs sm:text-sm">
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300">Segment</div>
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Ticker</div>
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">1M</div>
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">3M</div>
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">vs 1Y High</div>
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Trend Score (0-5)</div>
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Rating</div>
+        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center">Outlook</div>
       </div>
 
       {/* Data Rows */}
       {data.map((row, idx) => (
         <div 
           key={idx} 
-          className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_2fr_1.5fr_1.5fr] gap-0 border-b border-neutral-200 hover:bg-neutral-50 cursor-pointer text-sm transition-colors"
+          className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_2fr_1.5fr_1.5fr] gap-0 border-b border-neutral-200 hover:bg-neutral-50 cursor-pointer text-xs sm:text-sm transition-colors"
           onClick={() => onNavigate('ticker-analysis', row.ticker)}
         >
-          <div className="px-4 py-2.5 text-neutral-900 border-r border-neutral-200">{row.segment}</div>
-          <div className="px-4 py-2.5 text-neutral-700 text-center border-r border-neutral-200 italic">{row.ticker}</div>
-          <div className="px-4 py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-900 border-r border-neutral-200 truncate">{row.segment}</div>
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-700 text-center border-r border-neutral-200 italic">{row.ticker}</div>
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
             <div className="flex items-center">
-              <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf1M)}</div>
-              <div className="flex-1 text-center tabular-nums">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</div>
+              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf1M)}</div>
+              <div className="flex-1 text-center tabular-nums text-xs sm:text-sm">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</div>
             </div>
           </div>
-          <div className="px-4 py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
             <div className="flex items-center">
-              <div className="w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf3M)}</div>
-              <div className="flex-1 text-center tabular-nums">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</div>
+              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf3M)}</div>
+              <div className="flex-1 text-center tabular-nums text-xs sm:text-sm">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</div>
             </div>
           </div>
-          <div className="px-4 py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
             <div className="flex items-center">
-              <div className="w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(row.vsHigh)}</div>
-              <div className="flex-1 text-center tabular-nums">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</div>
+              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(row.vsHigh)}</div>
+              <div className="flex-1 text-center tabular-nums text-xs sm:text-sm">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</div>
             </div>
           </div>
-          <div className="px-4 py-2.5 border-r border-neutral-200 flex items-center justify-between gap-2">
-            <div className="flex gap-0.5">
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 flex items-center justify-between gap-0.5 sm:gap-2">
+            <div className="flex gap-0.5 flex-shrink-0">
               {renderStars(row.trendScore)}
             </div>
-            <span className="text-neutral-900 font-medium">| {row.trendScore}</span>
+            <span className="text-neutral-900 font-medium text-xs sm:text-sm whitespace-nowrap">| {row.trendScore}</span>
           </div>
-          <div className="px-4 py-2.5 text-center text-neutral-900 border-r border-neutral-200">{row.rating}</div>
-          <div className="px-4 py-2.5 text-center text-neutral-700 italic">{row.outlook}</div>
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-900 border-r border-neutral-200 text-xs sm:text-sm">{row.rating}</div>
+          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-700 italic text-xs sm:text-sm truncate">{row.outlook}</div>
         </div>
       ))}
     </div>
@@ -161,35 +218,36 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
     <div className="min-h-screen bg-neutral-50">
       {/* Header */}
       <header className="bg-white border-b border-neutral-200 shadow-sm sticky top-0 z-10">
-        <div className="px-6 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+        <div className="px-4 sm:px-6 py-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => onNavigate('index')}
+                className="flex-shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
               </Button>
-              <div>
-                <h1 className="font-semibold text-neutral-900">MWS's Momentum Pulse Check</h1>
+              <div className="min-w-0 flex-1 sm:flex-none">
+                <h1 className="font-semibold text-sm sm:text-base text-neutral-900 truncate">MWS's Momentum Pulse Check</h1>
                 <span className="text-xs text-neutral-500">last updated 12/23/2025</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-neutral-600">[Select Timeframe ▶]</span>
+            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
+              <div className="flex items-center gap-2 flex-1 sm:flex-none">
+                <span className="text-xs text-neutral-600 hidden sm:inline">[Select Timeframe ▶]</span>
                 <div className="flex border border-neutral-300 rounded overflow-hidden">
                   <button
                     onClick={() => setTimeframe('D')}
-                    className={`px-3 py-1 text-xs transition-colors ${timeframe === 'D' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-100'}`}
+                    className={`px-2 sm:px-3 py-1 text-xs transition-colors ${timeframe === 'D' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-100'}`}
                   >
                     D
                   </button>
                   <button
                     onClick={() => setTimeframe('W')}
-                    className={`px-3 py-1 text-xs border-l border-neutral-300 transition-colors ${timeframe === 'W' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-100'}`}
+                    className={`px-2 sm:px-3 py-1 text-xs border-l border-neutral-300 transition-colors ${timeframe === 'W' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-100'}`}
                   >
                     W
                   </button>
@@ -200,9 +258,10 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
                 disabled={loading}
                 size="sm"
                 variant="outline"
+                className="flex-shrink-0"
               >
-                <RefreshCw className={`w-3 h-3 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
+                <RefreshCw className={`w-3 h-3 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
               </Button>
             </div>
           </div>
@@ -210,21 +269,21 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
       </header>
 
       {/* Main Content */}
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         {loading && (
-          <div className="bg-white border border-neutral-200 rounded-lg p-6 text-center">
+          <div className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 text-center">
             <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-neutral-500" />
-            <p className="text-neutral-600">Loading data from Supabase...</p>
+            <p className="text-sm sm:text-base text-neutral-600">Loading data from Supabase...</p>
           </div>
         )}
         
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 sm:p-6 mb-4 sm:mb-6">
             <div className="flex items-center gap-2 text-red-800 mb-2">
-              <AlertCircle className="w-5 h-5" />
-              <h3 className="font-semibold">Error loading data</h3>
+              <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5" />
+              <h3 className="font-semibold text-sm sm:text-base">Error loading data</h3>
             </div>
-            <p className="text-red-700 text-sm">{error.message}</p>
+            <p className="text-red-700 text-xs sm:text-sm">{error.message}</p>
             <Button onClick={handleRefresh} variant="outline" size="sm" className="mt-4">
               <RefreshCw className="w-4 h-4 mr-2" />
               Retry
@@ -233,10 +292,11 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
         )}
         
         {!loading && !error && (
-          <div className="bg-white border border-neutral-200 rounded-lg p-6">
-            {renderTableSection('MARKET SEGMENTS', marketSegmentsData)}
-            {renderTableSection('SECTORS', sectorsData)}
-            {renderTableSection('MEGA CAPS', megaCapsData)}
+          <div className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 overflow-x-auto">
+            <div className="min-w-[800px]">
+              {renderTableSection('MARKET SEGMENTS', marketSegmentsData)}
+              {renderTableSection('SECTORS', sectorsData)}
+            </div>
           </div>
         )}
       </main>

@@ -205,7 +205,7 @@ export async function POST(request: Request) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>Sign in to MyWeekly Stock</title>
+  <title>Sign in to My Weekly Stock</title>
   <!--[if mso]>
   <style type="text/css">
     body, table, td {font-family: Arial, sans-serif !important;}
@@ -227,7 +227,7 @@ export async function POST(request: Request) {
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1.2;">MyWeekly Stock</h1>
+                    <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1.2;">My Weekly Stock</h1>
                     <p style="margin: 8px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px; font-weight: 400;">Your Stock Market Dashboard</p>
                   </td>
                 </tr>
@@ -240,7 +240,7 @@ export async function POST(request: Request) {
             <td style="padding: 48px 40px;">
               <h2 style="margin: 0 0 12px; color: #0f172a; font-size: 26px; font-weight: 700; line-height: 1.3;">Welcome back!</h2>
               <p style="margin: 0 0 32px; color: #475569; font-size: 16px; line-height: 1.6;">
-                Click the button below to securely access your MyWeekly Stock dashboard. This magic link will expire in <strong>1 hour</strong> for your security.
+                Click the button below to securely access your My Weekly Stock dashboard. This magic link will expire in <strong>1 hour</strong> for your security.
               </p>
               
               <!-- CTA Button -->
@@ -284,7 +284,7 @@ export async function POST(request: Request) {
                       If you didn't request this email, you can safely ignore it.
                     </p>
                     <p style="margin: 0; color: #94a3b8; font-size: 12px;">
-                      © ${new Date().getFullYear()} MyWeekly Stock. All rights reserved.
+                      © ${new Date().getFullYear()} My Weekly Stock. All rights reserved.
                     </p>
                   </td>
                 </tr>
@@ -311,7 +311,7 @@ export async function POST(request: Request) {
     `;
 
     const emailText = `
-Sign in to MyWeekly Stock
+Sign in to My Weekly Stock
 
 Click the link below to securely sign in to your dashboard:
 ${magicLink}
@@ -325,7 +325,7 @@ If you didn't request this email, you can safely ignore it.
     if (useResend) {
       // Send email via Resend
       const resendApiKey = process.env.RESEND_API_KEY;
-      const resendFromEmail = process.env.RESEND_EMAIL_FROM || 'MyWeekly Stock <onboarding@resend.dev>';
+      const resendFromEmail = process.env.RESEND_EMAIL_FROM || 'My Weekly Stock <onboarding@resend.dev>';
       
       console.log('Sending email via Resend:', {
         from: resendFromEmail,
@@ -341,7 +341,7 @@ If you didn't request this email, you can safely ignore it.
         body: JSON.stringify({
           from: resendFromEmail,
           to: emailLower,
-          subject: 'Sign in to MyWeekly Stock',
+          subject: 'Sign in to My Weekly Stock',
           html: emailHtml,
           text: emailText,
         }),
