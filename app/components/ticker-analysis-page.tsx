@@ -697,11 +697,11 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
 
             return (
               <>
-                {/* DAILY CHART TREND Section */}
-                {renderTrendSection('DAILY CHART TREND', data.dailyTrend)}
-                
                 {/* WEEKLY CHART TREND Section */}
                 {renderTrendSection('WEEKLY CHART TREND', data.weeklyTrend)}
+                
+                {/* DAILY CHART TREND Section */}
+                {renderTrendSection('DAILY CHART TREND', data.dailyTrend)}
               </>
             );
           })()}

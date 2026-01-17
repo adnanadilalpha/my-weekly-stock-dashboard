@@ -162,55 +162,71 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
         </div>
       </div>
 
-      {/* Column Headers */}
-      <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_2fr_1.5fr_1.5fr] gap-0 bg-neutral-100 border-b border-neutral-300 text-xs sm:text-sm">
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300">Segment</div>
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Ticker</div>
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">1M</div>
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">3M</div>
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">vs 1Y High</div>
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Trend Score (0-5)</div>
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center border-r border-neutral-300">Rating</div>
-        <div className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center">Outlook</div>
-      </div>
-
-      {/* Data Rows */}
-      {data.map((row, idx) => (
-        <div 
-          key={idx} 
-          className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_2fr_1.5fr_1.5fr] gap-0 border-b border-neutral-200 hover:bg-neutral-50 cursor-pointer text-xs sm:text-sm transition-colors"
-          onClick={() => onNavigate('ticker-analysis', row.ticker)}
-        >
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-900 border-r border-neutral-200 truncate">{row.segment}</div>
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-700 text-center border-r border-neutral-200 italic">{row.ticker}</div>
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
-            <div className="flex items-center">
-              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf1M)}</div>
-              <div className="flex-1 text-center tabular-nums text-xs sm:text-sm">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</div>
-            </div>
-          </div>
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
-            <div className="flex items-center">
-              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(row.perf3M)}</div>
-              <div className="flex-1 text-center tabular-nums text-xs sm:text-sm">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</div>
-            </div>
-          </div>
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium">
-            <div className="flex items-center">
-              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(row.vsHigh)}</div>
-              <div className="flex-1 text-center tabular-nums text-xs sm:text-sm">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</div>
-            </div>
-          </div>
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 flex items-center justify-between gap-0.5 sm:gap-2">
-            <div className="flex gap-0.5 flex-shrink-0">
-              {renderStars(row.trendScore)}
-            </div>
-            <span className="text-neutral-900 font-medium text-xs sm:text-sm whitespace-nowrap">| {row.trendScore}</span>
-          </div>
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-900 border-r border-neutral-200 text-xs sm:text-sm">{row.rating}</div>
-          <div className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-700 italic text-xs sm:text-sm truncate">{row.outlook}</div>
-        </div>
-      ))}
+      {/* Table with proper column alignment */}
+      <table className="w-full border-collapse">
+        <colgroup>
+          <col className="w-[20%]" />
+          <col className="w-[10%]" />
+          <col className="w-[10%]" />
+          <col className="w-[10%]" />
+          <col className="w-[10%]" />
+          <col className="w-[15%]" />
+          <col className="w-[12%]" />
+          <col className="w-[13%]" />
+        </colgroup>
+        <thead>
+          <tr className="bg-neutral-100 border-b border-neutral-300">
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-left text-xs sm:text-sm">Segment</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">Ticker</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">1M</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">3M</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">vs 1Y High</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">Trend Score (0-5)</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">Rating</th>
+            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center text-xs sm:text-sm">Outlook</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row, idx) => (
+            <tr 
+              key={idx} 
+              className="border-b border-neutral-200 hover:bg-neutral-50 cursor-pointer transition-colors"
+              onClick={() => onNavigate('ticker-analysis', row.ticker)}
+            >
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-900 border-r border-neutral-200 truncate text-xs sm:text-sm">{row.segment}</td>
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-700 border-r border-neutral-200 text-center italic text-xs sm:text-sm">{row.ticker}</td>
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
+                <div className="flex items-center gap-0.5 sm:gap-1">
+                  <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf1M)}</span>
+                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</span>
+                </div>
+              </td>
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
+                <div className="flex items-center gap-0.5 sm:gap-1">
+                  <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf3M)}</span>
+                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</span>
+                </div>
+              </td>
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
+                <div className="flex items-center gap-0.5 sm:gap-1">
+                  <span className="flex-shrink-0 text-[10px] sm:text-xs">{getVsHighIcon(row.vsHigh)}</span>
+                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</span>
+                </div>
+              </td>
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-xs sm:text-sm">
+                <div className="flex items-center justify-center gap-1 sm:gap-2">
+                  <div className="flex gap-0.5 flex-shrink-0">
+                    {renderStars(row.trendScore)}
+                  </div>
+                  <span className="text-neutral-900 font-medium whitespace-nowrap">| {row.trendScore}</span>
+                </div>
+              </td>
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-900 border-r border-neutral-200 text-xs sm:text-sm">{row.rating}</td>
+              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-700 italic text-xs sm:text-sm truncate">{row.outlook}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 
@@ -294,8 +310,8 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
         {!loading && !error && (
           <div className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 overflow-x-auto">
             <div className="min-w-[800px]">
-              {renderTableSection('MARKET SEGMENTS', marketSegmentsData)}
-              {renderTableSection('SECTORS', sectorsData)}
+            {renderTableSection('MARKET SEGMENTS', marketSegmentsData)}
+            {renderTableSection('SECTORS', sectorsData)}
             </div>
           </div>
         )}
