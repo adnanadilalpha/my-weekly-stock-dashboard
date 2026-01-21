@@ -53,7 +53,7 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
   };
 
   // Get the most recent update date from all data
-  const getLastUpdatedDate = () => {
+  const getLastUpdatedDate = (): string | null => {
     const allItems = [...segments, ...sectors];
     if (allItems.length === 0) return null;
 
@@ -63,15 +63,21 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
       const dateStr = (item as any).last_updated || (item as any).updated_at;
       if (dateStr) {
         const date = new Date(dateStr);
-        if (!mostRecent || date > mostRecent) {
-          mostRecent = date;
+        if (!isNaN(date.getTime())) {
+          if (mostRecent === null || date > mostRecent) {
+            mostRecent = date;
+          }
         }
       }
     });
 
-    if (!mostRecent) return null;
+    if (mostRecent === null) {
+      return null;
+    }
 
-    return mostRecent.toLocaleDateString('en-US', { 
+    // TypeScript type guard - mostRecent is definitely Date here
+    const dateToFormat: Date = mostRecent;
+    return dateToFormat.toLocaleDateString('en-US', { 
       month: '2-digit', 
       day: '2-digit', 
       year: 'numeric' 
