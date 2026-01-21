@@ -52,6 +52,34 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
     await refetch();
   };
 
+  // Get the most recent update date from all data
+  const getLastUpdatedDate = () => {
+    const allItems = [...segments, ...sectors];
+    if (allItems.length === 0) return null;
+
+    let mostRecent: Date | null = null;
+
+    allItems.forEach(item => {
+      const dateStr = (item as any).last_updated || (item as any).updated_at;
+      if (dateStr) {
+        const date = new Date(dateStr);
+        if (!mostRecent || date > mostRecent) {
+          mostRecent = date;
+        }
+      }
+    });
+
+    if (!mostRecent) return null;
+
+    return mostRecent.toLocaleDateString('en-US', { 
+      month: '2-digit', 
+      day: '2-digit', 
+      year: 'numeric' 
+    });
+  };
+
+  const lastUpdated = getLastUpdatedDate();
+
   // Transform Supabase data to table format
   const transformToTableData = (item: any, getSegmentName: (item: any) => string) => {
     const isDaily = timeframe === 'D';
@@ -247,7 +275,9 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
               </Button>
               <div className="min-w-0 flex-1 sm:flex-none">
                 <h1 className="font-semibold text-sm sm:text-base text-neutral-900 truncate">MWS's Momentum Pulse Check</h1>
-                <span className="text-xs text-neutral-500">last updated 12/23/2025</span>
+                {lastUpdated && (
+                  <span className="text-xs text-neutral-500">last updated {lastUpdated}</span>
+                )}
               </div>
             </div>
 
