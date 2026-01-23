@@ -60,7 +60,7 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
     let mostRecent: Date | null = null;
 
     allItems.forEach(item => {
-      const dateStr = (item as any).last_updated || (item as any).updated_at;
+      const dateStr = (item as any).updated_at;
       if (dateStr) {
         const date = new Date(dateStr);
         if (!isNaN(date.getTime())) {
@@ -77,10 +77,14 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate }: DashboardPag
 
     // TypeScript type guard - mostRecent is definitely Date here
     const dateToFormat: Date = mostRecent;
-    return dateToFormat.toLocaleDateString('en-US', { 
-      month: '2-digit', 
-      day: '2-digit', 
-      year: 'numeric' 
+    return dateToFormat.toLocaleString('en-US', { 
+      month: 'long', 
+      day: 'numeric', 
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
     });
   };
 

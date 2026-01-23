@@ -303,10 +303,18 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
       name = (supabaseData as any).company_name || TICKER_NAMES[ticker] || ticker;
     }
 
-    // Format last updated date
-    const lastUpdated = supabaseData.last_updated 
-      ? new Date(supabaseData.last_updated).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-      : new Date(supabaseData.updated_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+    // Format last updated date and time in human-readable format (user's local timezone)
+    const lastUpdated = supabaseData.updated_at 
+      ? new Date(supabaseData.updated_at).toLocaleString('en-US', { 
+          month: 'long', 
+          day: 'numeric', 
+          year: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        })
+      : 'N/A';
 
     // PERFORMANCE DATA - Use new simplified fields with fallback to old fields
     const perf1M = (supabaseData as any)['1m_percent'] ?? supabaseData.daily_1m_percent;
