@@ -1,0 +1,353 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "EMA Swing Trades",
+    "lastRow": 971,
+    "lastColumn": 27,
+    "rangeA1": "A1:AA971",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "SWING TRADES",
+        "columnIndex": 1,
+        "inferredType": "string",
+        "nonEmptyCount": 492,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          "Back to Home Page",
+          "OPEN POSITIONS",
+          "ID",
+          265,
+          269,
+          280,
+          293,
+          307,
+          342,
+          343
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_2",
+        "columnIndex": 2,
+        "inferredType": "string",
+        "nonEmptyCount": 489,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          "Status",
+          "OPEN"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "TOTAL TRADES",
+        "columnIndex": 3,
+        "inferredType": "string",
+        "nonEmptyCount": 490,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          "OPEN POSITIONS",
+          "Ticker",
+          "TSM",
+          "ETHA",
+          "MSTR",
+          "HOOD",
+          "XOM",
+          "CRM",
+          "PCOR",
+          "SNPS"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "351",
+        "columnIndex": 4,
+        "inferredType": "string",
+        "nonEmptyCount": 486,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          19,
+          "1st Buy Date",
+          "2025-08-29T07:00:00.000Z",
+          "2025-09-04T07:00:00.000Z",
+          "2025-09-29T07:00:00.000Z",
+          "2025-10-24T07:00:00.000Z",
+          "2025-12-04T08:00:00.000Z",
+          "2026-01-13T08:00:00.000Z",
+          "2026-01-14T08:00:00.000Z",
+          "2026-01-14T08:00:00.000Z"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Start:",
+        "columnIndex": 5,
+        "inferredType": "string",
+        "nonEmptyCount": 486,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          "Oct 2023",
+          "Quantity",
+          9,
+          150,
+          30,
+          52,
+          40,
+          28,
+          100,
+          13
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Initial Value",
+        "columnIndex": 6,
+        "inferredType": "string",
+        "nonEmptyCount": 485,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          100000,
+          "Avg Cost",
+          234.76,
+          33.28,
+          231.55,
+          138.65,
+          117.55,
+          241.38,
+          71.6,
+          503.98
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Invested",
+        "columnIndex": 7,
+        "inferredType": "string",
+        "nonEmptyCount": 485,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.7963459031845863,
+          "Cost",
+          2112.84,
+          4992,
+          6946.5,
+          7209.8,
+          4702,
+          6758.639999999999,
+          7159.999999999999,
+          6551.74
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Cash",
+        "columnIndex": 8,
+        "inferredType": "string",
+        "nonEmptyCount": 486,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          26952.594140000023,
+          "Current Price",
+          362.26,
+          14.63,
+          125.2,
+          75.21,
+          150.68,
+          187.79,
+          53.06,
+          442.31
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Portfolio Value",
+        "columnIndex": 9,
+        "inferredType": "string",
+        "nonEmptyCount": 490,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          132344.96414000003,
+          "Current Value",
+          3260.34,
+          2194.5,
+          3756,
+          3910.9199999999996,
+          6027.200000000001,
+          5258.12,
+          5306,
+          5750.03
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Return $",
+        "columnIndex": 10,
+        "inferredType": "string",
+        "nonEmptyCount": 490,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          32344.964140000026,
+          "Return $",
+          1147.5,
+          -2797.5,
+          -3190.5,
+          -3298.8800000000006,
+          1325.2000000000007,
+          -1500.5199999999995,
+          -1853.999999999999,
+          -801.71
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Returns %",
+        "columnIndex": 11,
+        "inferredType": "string",
+        "nonEmptyCount": 486,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.32344964140000027,
+          "Return%",
+          0.5431078548304651,
+          -0.5603966346153846,
+          -0.45929604836968263,
+          -0.45755499459069604,
+          0.2818375159506594,
+          -0.22201507995691439,
+          -0.2589385474860334,
+          -0.12236596690344859
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Hit Rate",
+        "columnIndex": 12,
+        "inferredType": "string",
+        "nonEmptyCount": 490,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.43874643874643876,
+          "Allocation",
+          0.024635164784593364,
+          0.01658166605930367,
+          0.028380377178739848,
+          0.02955095439719841,
+          0.04554158927894058,
+          0.03973041236716601,
+          0.04009219417209628,
+          0.04344728972019954
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Avg Gain",
+        "columnIndex": 13,
+        "inferredType": "string",
+        "nonEmptyCount": 111,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.129591350111591,
+          "Comments",
+          "Trimmed 2x",
+          "65m"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Avg Loss",
+        "columnIndex": 14,
+        "inferredType": "string",
+        "nonEmptyCount": 486,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          -0.06768876996228146,
+          "Holding Time",
+          174,
+          168,
+          143,
+          118,
+          77,
+          37,
+          36
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Net Avg Return",
+        "columnIndex": 15,
+        "inferredType": "string",
+        "nonEmptyCount": 21,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.014910824239681946,
+          "Segment",
+          "Growth",
+          "Cyclical"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "CAGR",
+        "columnIndex": 16,
+        "inferredType": "number",
+        "nonEmptyCount": 1,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.12578003815671113
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Holding Time",
+        "columnIndex": 17,
+        "inferredType": "string",
+        "nonEmptyCount": 353,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          54.12820512820513
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_18",
+        "columnIndex": 18,
+        "inferredType": "string",
+        "nonEmptyCount": 353,
+        "totalRows": 970,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Growth",
+        "columnIndex": 19,
+        "inferredType": "string",
+        "nonEmptyCount": 357,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          "Cyclical",
+          "Defensive",
+          "Cash",
+          "TOTAL"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "53843.03",
+        "columnIndex": 20,
+        "inferredType": "string",
+        "nonEmptyCount": 357,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          30228.7,
+          21320.64,
+          26952.594140000023,
+          132344.96414000003
+        ],
+        "supabaseSuggestedType": "text"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}

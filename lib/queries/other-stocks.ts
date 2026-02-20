@@ -102,15 +102,12 @@ export async function getOtherStockByTicker(ticker: string): Promise<OtherStock 
     .from('other_stocks')
     .select('*')
     .eq('ticker', ticker.toUpperCase())
-    .single();
+    .maybeSingle();
 
   if (error) {
-    if (error.code === 'PGRST116') {
-      return null; // Not found
-    }
     console.error('Error fetching other stock:', error);
     throw error;
   }
 
-  return data;
+  return data ?? null;
 }

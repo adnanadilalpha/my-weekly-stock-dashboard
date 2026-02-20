@@ -1,0 +1,287 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "Watchlist",
+    "lastRow": 58,
+    "lastColumn": 16,
+    "rangeA1": "A1:P58",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "Swing Trade Watchlist",
+        "columnIndex": 1,
+        "inferredType": "string",
+        "nonEmptyCount": 26,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Ticker",
+          "AAPL",
+          "AMZN",
+          "AXP",
+          "CAT",
+          "COST",
+          "CRM",
+          "DAL",
+          "DIS",
+          "GOOG"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_2",
+        "columnIndex": 2,
+        "inferredType": "string",
+        "nonEmptyCount": 26,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Stock",
+          "Apple Inc",
+          "Amazon.com Inc.",
+          "American Express",
+          "Caterpillar Inc.",
+          "Costco Wholesale Corp",
+          "Salesforce",
+          "Delta Airlines",
+          "Walt Disney Co",
+          "Alphabet Inc"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_3",
+        "columnIndex": 3,
+        "inferredType": "string",
+        "nonEmptyCount": 26,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Sector",
+          "Technology",
+          "Consumer Cyclical",
+          "Financial",
+          "Industrials",
+          "Consumer Defensive",
+          "Communication Services"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_4",
+        "columnIndex": 4,
+        "inferredType": "string",
+        "nonEmptyCount": 26,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Segment",
+          "Growth",
+          "Cyclical",
+          "Defensive"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_5",
+        "columnIndex": 5,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 57,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Macro ETF Watchlist",
+        "columnIndex": 6,
+        "inferredType": "string",
+        "nonEmptyCount": 27,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Theme",
+          "Equity",
+          "Cash & Bonds",
+          "Inudstry Themes"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_7",
+        "columnIndex": 7,
+        "inferredType": "string",
+        "nonEmptyCount": 27,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Name",
+          "S&P 500",
+          "Nasdaq",
+          "Small Caps",
+          "Emerging Markets",
+          "Bonds",
+          "Treasury",
+          "US Dollar",
+          "Internet",
+          "Software"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_8",
+        "columnIndex": 8,
+        "inferredType": "string",
+        "nonEmptyCount": 27,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "ETF",
+          "SPY",
+          "QQQ",
+          "IWM",
+          "EEM",
+          "BND",
+          "TLT",
+          "UUP",
+          "FDN",
+          "IGV"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_9",
+        "columnIndex": 9,
+        "inferredType": "string",
+        "nonEmptyCount": 36,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "3x Lev",
+          "SPXL",
+          "TQQQ",
+          "TNA",
+          "EDC",
+          "BND",
+          "TMF",
+          "UUP",
+          "WEBL",
+          "TECL"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_10",
+        "columnIndex": 10,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 57,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Sector Watchlist",
+        "columnIndex": 11,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Sector",
+          "Consumer Cyclical",
+          "Consumer Defensive",
+          "Communication Services",
+          "Energy",
+          "Financials",
+          "Healthcare",
+          "Industrials",
+          "Materials",
+          "Real Estate"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_12",
+        "columnIndex": 12,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "ETF",
+          "XLY",
+          "XLP",
+          "XLC",
+          "XLE",
+          "XLF",
+          "XLV",
+          "XLI",
+          "XLB",
+          "XLRE"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_13",
+        "columnIndex": 13,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "3x ETF",
+          "WANT",
+          "UGE",
+          "LTL",
+          "ERX",
+          "FAS",
+          "CURE",
+          "DUSL",
+          "UYM",
+          "DRN"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_14",
+        "columnIndex": 14,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 57,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Crypto Watchlist",
+        "columnIndex": 15,
+        "inferredType": "string",
+        "nonEmptyCount": 19,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Coin",
+          "Cardano",
+          "Avalanche",
+          "Bitcoin",
+          "Dogecoin",
+          "Polkadot",
+          "Ethereum",
+          "Internet Computer",
+          "Chainlink",
+          "Polygon"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_16",
+        "columnIndex": 16,
+        "inferredType": "string",
+        "nonEmptyCount": 19,
+        "totalRows": 57,
+        "sampleDistinctValues": [
+          "Pair",
+          "ADAUSD",
+          "AVAXUSD",
+          "BTCUSD",
+          "DOGEUSD",
+          "DOTUSD",
+          "ETHUSD",
+          "ICPUSD",
+          "LINKUSD",
+          "MATICUSD"
+        ],
+        "supabaseSuggestedType": "text"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}

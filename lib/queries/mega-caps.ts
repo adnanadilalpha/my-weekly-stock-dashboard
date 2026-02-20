@@ -101,16 +101,13 @@ export async function getMegaCapByTicker(ticker: string): Promise<MegaCap | null
     .from('mega_caps')
     .select('*')
     .eq('ticker', ticker.toUpperCase())
-    .single();
+    .maybeSingle();
 
   if (error) {
-    if (error.code === 'PGRST116') {
-      return null; // Not found
-    }
     console.error('Error fetching mega cap:', error);
     throw error;
   }
 
-  return data;
+  return data ?? null;
 }
 

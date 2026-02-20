@@ -2,18 +2,23 @@
 
 import { useState, useEffect } from 'react';
 import { AuthScreen } from './components/auth-screen';
+import { HubPage } from './components/hub-page';
 import { IndexPage } from './components/index-page';
 import { ReadMePage } from './components/readme-page';
 import { TickerAnalysisPage } from './components/ticker-analysis-page';
 import { DashboardPage } from './components/dashboard-page';
-import type { PageView } from './types';
+import { PortfolioDashboardPage } from './components/portfolio-dashboard-page';
+import { PortfolioDetailPage } from './components/portfolio-detail-page';
+import type { PageView, AppMode, PortfolioPage } from './types';
 import { supabase } from '@/lib/supabase-client';
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [appMode, setAppMode] = useState<AppMode>('hub');
   const [currentPage, setCurrentPage] = useState<PageView>('index');
+  const [portfolioPage, setPortfolioPage] = useState<PortfolioPage>('dashboard');
   const [selectedTicker, setSelectedTicker] = useState('SPY');
 
   useEffect(() => {
@@ -69,9 +74,11 @@ export default function Home() {
   const handleSignOut = async () => {
     try {
       await supabase.auth.signOut();
-    setUserEmail('');
-    setIsAuthenticated(false);
-    setCurrentPage('index');
+      setUserEmail('');
+      setIsAuthenticated(false);
+      setAppMode('hub');
+      setCurrentPage('index');
+      setPortfolioPage('dashboard');
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -79,9 +86,22 @@ export default function Home() {
 
   const handleNavigate = (page: PageView, ticker?: string) => {
     setCurrentPage(page);
-    if (ticker) {
-      setSelectedTicker(ticker);
-    }
+    if (ticker) setSelectedTicker(ticker);
+  };
+
+  const handleGoToPortfolio = () => {
+    setAppMode('portfolio');
+    setPortfolioPage('dashboard');
+  };
+
+  const handleGoToMWS = () => {
+    setAppMode('mws');
+    setCurrentPage('index');
+  };
+
+  const handleSelectPortfolio = (page: PortfolioPage) => {
+    if (page === 'dashboard') setPortfolioPage('dashboard');
+    else setPortfolioPage(page);
   };
 
   if (isLoading) {
@@ -102,35 +122,82 @@ export default function Home() {
     return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
   }
 
+  if (appMode === 'hub') {
+    return (
+      <HubPage
+        onGoToPortfolio={handleGoToPortfolio}
+        onGoToMWS={handleGoToMWS}
+      />
+    );
+  }
+
+  if (appMode === 'portfolio') {
+    if (portfolioPage === 'dashboard') {
+      return (
+        <PortfolioDashboardPage
+          userEmail={userEmail}
+          currentAppMode={appMode}
+          onGoToPortfolio={handleGoToPortfolio}
+          onGoToMWS={handleGoToMWS}
+          onSignOut={handleSignOut}
+          onSelectPortfolio={handleSelectPortfolio}
+        />
+      );
+    }
+    return (
+      <PortfolioDetailPage
+        portfolioPage={portfolioPage}
+        userEmail={userEmail}
+        currentAppMode={appMode}
+        onGoToPortfolio={handleGoToPortfolio}
+        onGoToMWS={handleGoToMWS}
+        onSignOut={handleSignOut}
+        onBack={() => setPortfolioPage('dashboard')}
+      />
+    );
+  }
+
   return (
     <>
       {currentPage === 'index' && (
-        <IndexPage 
-          userEmail={userEmail} 
+        <IndexPage
+          userEmail={userEmail}
           onSignOut={handleSignOut}
           onNavigate={handleNavigate}
+          currentAppMode={appMode}
+          onGoToPortfolio={handleGoToPortfolio}
+          onGoToMWS={handleGoToMWS}
         />
       )}
       {currentPage === 'readme' && (
-        <ReadMePage 
-          userEmail={userEmail} 
+        <ReadMePage
+          userEmail={userEmail}
           onSignOut={handleSignOut}
           onNavigate={handleNavigate}
+          currentAppMode={appMode}
+          onGoToPortfolio={handleGoToPortfolio}
+          onGoToMWS={handleGoToMWS}
         />
       )}
       {currentPage === 'ticker-analysis' && (
-        <TickerAnalysisPage 
-          userEmail={userEmail} 
+        <TickerAnalysisPage
+          userEmail={userEmail}
           onSignOut={handleSignOut}
           onNavigate={handleNavigate}
           initialTicker={selectedTicker}
+          currentAppMode={appMode}
+          onGoToPortfolio={handleGoToPortfolio}
+          onGoToMWS={handleGoToMWS}
         />
       )}
       {currentPage === 'dashboard' && (
-        <DashboardPage 
-          userEmail={userEmail} 
+        <DashboardPage
+          userEmail={userEmail}
           onSignOut={handleSignOut}
           onNavigate={handleNavigate}
+          currentAppMode={appMode}
+          onGoToPortfolio={handleGoToPortfolio}
+          onGoToMWS={handleGoToMWS}
         />
       )}
     </>

@@ -1,0 +1,103 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "EMA Swing Trades",
+    "lastRow": 971,
+    "lastColumn": 27,
+    "rangeA1": "A1:AA971",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "0.4068385249856775",
+        "columnIndex": 21,
+        "inferredType": "string",
+        "nonEmptyCount": 357,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.22840838861101523,
+          0.16109898958789348,
+          0.20365409681541372,
+          1
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2022",
+        "columnIndex": 22,
+        "inferredType": "string",
+        "nonEmptyCount": 3,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          100000
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2023",
+        "columnIndex": 23,
+        "inferredType": "string",
+        "nonEmptyCount": 5,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          12,
+          108591,
+          0.08590999999999993
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2024",
+        "columnIndex": 24,
+        "inferredType": "string",
+        "nonEmptyCount": 5,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          52,
+          135328,
+          0.24621745816872487
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2025",
+        "columnIndex": 25,
+        "inferredType": "number",
+        "nonEmptyCount": 3,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          52,
+          135409,
+          0.0005985457554977813
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "2026",
+        "columnIndex": 26,
+        "inferredType": "number",
+        "nonEmptyCount": 3,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          7,
+          132344.96414000003,
+          -0.02262800744411353
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column_27",
+        "columnIndex": 27,
+        "inferredType": "number",
+        "nonEmptyCount": 1,
+        "totalRows": 970,
+        "sampleDistinctValues": [
+          0.12578003815671113
+        ],
+        "supabaseSuggestedType": "numeric"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}

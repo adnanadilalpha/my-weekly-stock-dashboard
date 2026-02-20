@@ -1,16 +1,21 @@
 'use client';
 
-import { LogOut, FileText, BarChart3, TrendingUp, LayoutDashboard, Layers, Search } from 'lucide-react';
+import { FileText, BarChart3, TrendingUp, LayoutDashboard, Layers, Search } from 'lucide-react';
 import { Button } from './ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { AppHeader } from './app-header';
 import type { PageView } from '../types';
+import type { AppMode } from '../types';
 import { useState } from 'react';
 
 interface IndexPageProps {
   userEmail: string;
   onSignOut: () => void;
   onNavigate: (page: PageView, ticker?: string) => void;
+  currentAppMode: AppMode;
+  onGoToPortfolio: () => void;
+  onGoToMWS: () => void;
 }
 
 const SEGMENTS = [
@@ -125,11 +130,10 @@ const TICKER_MAP: Record<string, string> = {
   'Shopify': 'SHOP',
 };
 
-export function IndexPage({ userEmail, onSignOut, onNavigate }: IndexPageProps) {
+export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, onGoToPortfolio, onGoToMWS }: IndexPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<string[]>([]);
 
-  // All searchable items
   const allItems = [...SEGMENTS, ...SECTORS, ...LARGE_CAPS];
 
   const handleSearch = (query: string) => {
@@ -153,30 +157,18 @@ export function IndexPage({ userEmail, onSignOut, onNavigate }: IndexPageProps) 
 
   return (
     <div className="min-h-screen bg-neutral-50">
-      {/* Header */}
-      <header className="bg-white border-b border-neutral-200 shadow-sm">
-        <div className="px-4 sm:px-6 py-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-neutral-900 text-lg sm:text-xl">MWS's Momentum Pulse Check</h1>
-              <p className="text-xs sm:text-sm text-neutral-600 mt-0.5">Market Analysis Dashboard</p>
-            </div>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
-              <div className="text-left sm:text-right">
-                <p className="text-xs text-neutral-500">Signed in as</p>
-                <p className="text-xs sm:text-sm text-neutral-900 break-all sm:break-normal">{userEmail}</p>
-              </div>
-              <Button onClick={onSignOut} variant="outline" size="sm" className="w-full sm:w-auto">
-                <LogOut className="w-4 h-4 mr-2" />
-                Sign Out
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
+      <AppHeader
+        userEmail={userEmail}
+        currentAppMode={currentAppMode}
+        onGoToPortfolio={onGoToPortfolio}
+        onGoToMWS={onGoToMWS}
+        onSignOut={onSignOut}
+      />
       <main className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6">
+        <div>
+          <h1 className="text-neutral-900 text-lg sm:text-xl">MWS&apos;s Momentum Pulse Check</h1>
+          <p className="text-xs sm:text-sm text-neutral-600 mt-0.5">Market Analysis Dashboard</p>
+        </div>
         {/* Global Search */}
         <div className="relative">
           <div className="relative">

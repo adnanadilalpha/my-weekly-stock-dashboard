@@ -100,16 +100,13 @@ export async function getSectorByTicker(ticker: string): Promise<Sector | null> 
     .from('sectors')
     .select('*')
     .eq('ticker', ticker.toUpperCase())
-    .single();
+    .maybeSingle();
 
   if (error) {
-    if (error.code === 'PGRST116') {
-      return null; // Not found
-    }
     console.error('Error fetching sector:', error);
     throw error;
   }
 
-  return data;
+  return data ?? null;
 }
 
