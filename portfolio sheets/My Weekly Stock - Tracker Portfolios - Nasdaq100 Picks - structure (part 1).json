@@ -1,0 +1,341 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "Nasdaq100 Picks",
+    "lastRow": 222,
+    "lastColumn": 29,
+    "rangeA1": "A1:AC222",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "Momentum Picks:\nNASDAQ 100",
+        "columnIndex": 1,
+        "inferredType": "string",
+        "nonEmptyCount": 217,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Year",
+          2022
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_2",
+        "columnIndex": 2,
+        "inferredType": "string",
+        "nonEmptyCount": 217,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Week",
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_3",
+        "columnIndex": 3,
+        "inferredType": "string",
+        "nonEmptyCount": 217,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Week Start",
+          "2022-01-03T08:00:00.000Z",
+          "2022-01-10T08:00:00.000Z",
+          "2022-01-18T08:00:00.000Z",
+          "2022-01-24T08:00:00.000Z",
+          "2022-01-31T08:00:00.000Z",
+          "2022-02-07T08:00:00.000Z",
+          "2022-02-14T08:00:00.000Z",
+          "2022-02-22T08:00:00.000Z",
+          "2022-02-28T08:00:00.000Z"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_4",
+        "columnIndex": 4,
+        "inferredType": "string",
+        "nonEmptyCount": 220,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Start:",
+          "Jan 2026",
+          "WITH STOP LOSS",
+          "Ticker",
+          "EXC",
+          "ZM"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_5",
+        "columnIndex": 5,
+        "inferredType": "string",
+        "nonEmptyCount": 219,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Initial Value",
+          10000,
+          "Stock Return %",
+          -0.0081,
+          -0.0567,
+          -0.0554,
+          0.015034,
+          -0.01752,
+          -0.02251
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_6",
+        "columnIndex": 6,
+        "inferredType": "string",
+        "nonEmptyCount": 220,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Portfolio Value",
+          14552.850894049308,
+          14552.873575288428,
+          "Direction",
+          "Long",
+          "Short"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_7",
+        "columnIndex": 7,
+        "inferredType": "string",
+        "nonEmptyCount": 220,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Return $",
+          4552.850894049309,
+          4552.873575288428,
+          "Strategy Return %",
+          -0.0081,
+          0.0567,
+          0.0554,
+          -0.015034,
+          0.01752,
+          -0.02251
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_8",
+        "columnIndex": 8,
+        "inferredType": "string",
+        "nonEmptyCount": 220,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Returns %",
+          0.45528508940493095,
+          0.45528735752884275,
+          "Strategy Return $",
+          -11.92953629032258,
+          82.85355232779028,
+          85.54399859718853,
+          -24.500300874009994,
+          28.122389111596423,
+          -36.765168477876664
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_9",
+        "columnIndex": 9,
+        "inferredType": "string",
+        "nonEmptyCount": 220,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Hit Rate",
+          0.5509259259259259,
+          0.49537037037037035,
+          "PF Value",
+          1461.261945816407,
+          1544.1154981441973,
+          1629.6594967413857,
+          1605.1591958673757,
+          1633.2815849789722,
+          1596.5164165010956
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_10",
+        "columnIndex": 10,
+        "inferredType": "string",
+        "nonEmptyCount": 219,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Avg Gain",
+          0.06394956779661015,
+          0.0679872169811321,
+          "Stock Return With Stop Loss",
+          -0.008102,
+          -0.056697,
+          -0.055399,
+          0.015034,
+          -0.017522,
+          -0.022506
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_11",
+        "columnIndex": 11,
+        "inferredType": "string",
+        "nonEmptyCount": 220,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Avg Loss",
+          -0.046102432989690724,
+          -0.0397162385321101,
+          "Strategy Return %",
+          -0.008102,
+          0.056697,
+          0.055399,
+          -0.015034,
+          0.017522,
+          -0.022506
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_12",
+        "columnIndex": 12,
+        "inferredType": "string",
+        "nonEmptyCount": 220,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "Net Avg Return",
+          0.014232004629629624,
+          0.01332210648148147,
+          "Strategy Return $",
+          -10.993237903225806,
+          76.29178104311318,
+          78.7716738024113,
+          -22.5610533574015,
+          25.89940232619713,
+          -33.84918282612998
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_13",
+        "columnIndex": 13,
+        "inferredType": "string",
+        "nonEmptyCount": 217,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "PF Value",
+          1345.6052532429085,
+          1421.8970342860216,
+          1500.6687080884328,
+          1478.1076547310313,
+          1504.0070570572284,
+          1470.1578742310985,
+          1447.8982138573654,
+          1444.888033470756,
+          1648.305150374903
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_14",
+        "columnIndex": 14,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 221,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_15",
+        "columnIndex": 15,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 221,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_16",
+        "columnIndex": 16,
+        "inferredType": "number",
+        "nonEmptyCount": 5,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          2022,
+          2023,
+          2024,
+          2025,
+          2026
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "5Day",
+        "columnIndex": 17,
+        "inferredType": "number",
+        "nonEmptyCount": 5,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          -0.03920263258947099,
+          0.7257979146444167,
+          1.1161742248266653,
+          0.9502765780857019,
+          0.45528508940493073
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "S/L",
+        "columnIndex": 18,
+        "inferredType": "number",
+        "nonEmptyCount": 5,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          0.4236022398172321,
+          0.18560114480491885,
+          1.11699524513421,
+          1.0798632378828268,
+          0.45528735752884275
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column_19",
+        "columnIndex": 19,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 221,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_20",
+        "columnIndex": 20,
+        "inferredType": "string",
+        "nonEmptyCount": 1,
+        "totalRows": 221,
+        "sampleDistinctValues": [
+          "CAGR"
+        ],
+        "supabaseSuggestedType": "text"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}

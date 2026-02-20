@@ -1,38 +1,35 @@
-import { ArrowLeft, CheckCircle, XCircle, Square } from 'lucide-react';
+import { CheckCircle, XCircle, Square } from 'lucide-react';
 import { Button } from './ui/button';
+import { AppHeader } from './app-header';
 import type { PageView } from '../types';
+import type { AppMode } from '../types';
 
 interface ReadMePageProps {
   userEmail: string;
   onSignOut: () => void;
   onNavigate: (page: PageView) => void;
+  currentAppMode: AppMode;
+  onGoToPortfolio: () => void;
+  onGoToMWS: () => void;
 }
 
-export function ReadMePage({ userEmail, onSignOut, onNavigate }: ReadMePageProps) {
+export function ReadMePage({ userEmail, onSignOut, onNavigate, currentAppMode, onGoToPortfolio, onGoToMWS }: ReadMePageProps) {
   return (
     <div className="min-h-screen bg-neutral-50">
-      {/* Header */}
-      <header className="bg-white border-b border-neutral-200 shadow-sm">
-        <div className="px-4 sm:px-6 py-4">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onNavigate('index')}
-              className="flex-shrink-0"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-            <div className="min-w-0">
-              <h1 className="font-semibold text-base sm:text-lg text-neutral-900">How to Use the Momentum Pulse</h1>
-              <p className="text-xs sm:text-sm text-neutral-600 mt-0.5">A quick guide to interpreting the dashboard</p>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
+      <AppHeader
+        userEmail={userEmail}
+        currentAppMode={currentAppMode}
+        onGoToPortfolio={onGoToPortfolio}
+        onGoToMWS={onGoToMWS}
+        onSignOut={onSignOut}
+        onBack={() => onNavigate('index')}
+        backLabel="Back to MWS"
+      />
       <main className="p-4 sm:p-6 max-w-4xl mx-auto">
+        <div className="mb-6">
+          <h1 className="font-semibold text-base sm:text-lg text-neutral-900">How to Use the Momentum Pulse</h1>
+          <p className="text-xs sm:text-sm text-neutral-600 mt-0.5">A quick guide to interpreting the dashboard</p>
+        </div>
         <div className="bg-white border border-neutral-200 rounded-lg">
           <div className="px-4 sm:px-6 md:px-8 py-4 sm:py-6 space-y-6 sm:space-y-8">
             {/* OBJECTIVE */}

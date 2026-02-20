@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { ArrowLeft, RefreshCw, Star, AlertCircle } from 'lucide-react';
+import { RefreshCw, Star, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { AppHeader } from './app-header';
 import type { PageView } from '../types';
+import type { AppMode } from '../types';
 import { useTickerData } from '../../lib/hooks/useTickerData';
 import { getTickerData } from '../../lib/queries/ticker';
 
@@ -15,6 +17,9 @@ interface TickerAnalysisPageProps {
   onSignOut: () => void;
   onNavigate: (page: PageView) => void;
   initialTicker: string;
+  currentAppMode: AppMode;
+  onGoToPortfolio: () => void;
+  onGoToMWS: () => void;
 }
 
 // All available tickers organized by category
@@ -140,7 +145,7 @@ function getBenchmarkNameFromData(data: any, type: string | null): string {
 }
 
 
-export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTicker }: TickerAnalysisPageProps) {
+export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTicker, currentAppMode, onGoToPortfolio, onGoToMWS }: TickerAnalysisPageProps) {
   const [ticker, setTicker] = useState(initialTicker);
 
   // Fetch data from Supabase
@@ -431,17 +436,17 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
   if (error || !data) {
     return (
       <div className="min-h-screen bg-neutral-50">
-        <header className="bg-white border-b border-neutral-200 shadow-sm">
-          <div className="px-6 py-3">
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" onClick={() => onNavigate('index')}>
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-              <h1 className="font-semibold text-neutral-900">Error Loading Ticker</h1>
-            </div>
-          </div>
-        </header>
+        <AppHeader
+          userEmail={userEmail}
+          currentAppMode={currentAppMode}
+          onGoToPortfolio={onGoToPortfolio}
+          onGoToMWS={onGoToMWS}
+          onSignOut={onSignOut}
+          onBack={() => onNavigate('index')}
+          backLabel="Back to MWS"
+        />
         <main className="p-6">
+          <h1 className="font-semibold text-neutral-900 mb-4">Error Loading Ticker</h1>
           <div className="bg-red-50 border border-red-200 rounded-lg p-6">
             <div className="flex items-center gap-2 text-red-800 mb-2">
               <AlertCircle className="w-5 h-5" />
@@ -462,53 +467,44 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
 
   return (
     <div className="min-h-screen bg-neutral-50">
-      {/* Compact Header */}
-      <header className="bg-white border-b border-neutral-200 shadow-sm sticky top-0 z-10">
-        <div className="px-4 sm:px-6 py-3">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
-            <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onNavigate('index')}
-                className="flex-shrink-0"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-              
-              <Select value={ticker} onValueChange={setTicker}>
-                <SelectTrigger className="w-full sm:w-[180px] h-9 bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {allTickers.map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <span className="text-xs text-neutral-500 hidden sm:inline whitespace-nowrap">last updated {data.lastUpdated}</span>
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <span className="text-xs text-neutral-500 sm:hidden flex-1">last updated {data.lastUpdated}</span>
-              <Button
-                onClick={handleRefresh}
-                disabled={loading}
-                size="sm"
-                variant="outline"
-                className="flex-shrink-0"
-              >
-                <RefreshCw className={`w-3 h-3 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">Refresh</span>
-              </Button>
-            </div>
+      <AppHeader
+        userEmail={userEmail}
+        currentAppMode={currentAppMode}
+        onGoToPortfolio={onGoToPortfolio}
+        onGoToMWS={onGoToMWS}
+        onSignOut={onSignOut}
+        onBack={() => onNavigate('index')}
+        backLabel="Back to MWS"
+      />
+      <main className="p-4 sm:p-6 max-w-[1400px] mx-auto">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <Select value={ticker} onValueChange={setTicker}>
+              <SelectTrigger className="w-full sm:w-[180px] h-9 bg-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-[300px]">
+                {allTickers.map((t) => (
+                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-neutral-500 hidden sm:inline whitespace-nowrap">last updated {data.lastUpdated}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-neutral-500 sm:hidden flex-1">last updated {data.lastUpdated}</span>
+            <Button
+              onClick={handleRefresh}
+              disabled={loading}
+              size="sm"
+              variant="outline"
+              className="flex-shrink-0"
+            >
+              <RefreshCw className={`w-3 h-3 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
           </div>
         </div>
-      </header>
-
-      {/* Main Content - Single Viewport */}
-      <main className="p-4 sm:p-6 max-w-[1400px] mx-auto">
         <div className="space-y-3 sm:space-y-4">
           {/* Company Name Banner */}
           <div className="bg-neutral-900 text-white px-4 sm:px-6 py-2 sm:py-3 rounded">

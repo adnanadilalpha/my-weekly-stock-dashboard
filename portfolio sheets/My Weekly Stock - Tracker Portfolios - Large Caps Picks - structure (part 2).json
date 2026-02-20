@@ -1,0 +1,161 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "Large Caps Picks",
+    "lastRow": 183,
+    "lastColumn": 29,
+    "rangeA1": "A1:AC183",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "Column_21",
+        "columnIndex": 21,
+        "inferredType": "number",
+        "nonEmptyCount": 1,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          0.0843426659768991
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column_22",
+        "columnIndex": 22,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 182,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_23",
+        "columnIndex": 23,
+        "inferredType": "string",
+        "nonEmptyCount": 10,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          "Weekly Momentum Picks (WMP): LARGE CPS",
+          "Year",
+          "With Stop-Loss",
+          "Annual Returns",
+          "Avg per week",
+          "Avg Gain",
+          "Avg Loss",
+          "Hit Rate",
+          "5-Day Holding (Mon-Fri) – No Stop-Loss"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_24",
+        "columnIndex": 24,
+        "inferredType": "string",
+        "nonEmptyCount": 8,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          2022,
+          "Backtest",
+          0.5761976725800244,
+          0.039835307692307684,
+          0.0854055,
+          -0.033077,
+          0.6153846153846154,
+          0.44838167911653337
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_25",
+        "columnIndex": 25,
+        "inferredType": "string",
+        "nonEmptyCount": 8,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          2023,
+          "Backtest",
+          0.144474680060247,
+          0.002788461538461539,
+          0.03276923076923079,
+          -0.0271923076923077,
+          0.5,
+          -0.04776187959143097
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_26",
+        "columnIndex": 26,
+        "inferredType": "string",
+        "nonEmptyCount": 8,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          2024,
+          "Backtest",
+          1.5016183259419007,
+          0.018483754716981132,
+          0.03921019444444445,
+          -0.0254075294117647,
+          0.6792452830188679,
+          1.3516068481567802
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_27",
+        "columnIndex": 27,
+        "inferredType": "string",
+        "nonEmptyCount": 8,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          2025,
+          "LIVE",
+          0.27899122142669364,
+          0.006352769230769231,
+          0.052797000000000004,
+          -0.03345657142857143,
+          0.46153846153846156,
+          -0.06857950467303364
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_28",
+        "columnIndex": 28,
+        "inferredType": "string",
+        "nonEmptyCount": 8,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          2026,
+          "LIVE",
+          -0.14289143639690227,
+          -0.025136000000000002,
+          0.020175,
+          -0.0341982,
+          0.14285714285714285
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_29",
+        "columnIndex": 29,
+        "inferredType": "string",
+        "nonEmptyCount": 8,
+        "totalRows": 182,
+        "sampleDistinctValues": [
+          "TOTAL",
+          "LIVE",
+          0.09623432865800488,
+          0.0030953103448275866,
+          0.05149212,
+          -0.0335689393939394,
+          0.43103448275862066,
+          -0.2530109787315736
+        ],
+        "supabaseSuggestedType": "text"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}

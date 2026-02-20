@@ -1,0 +1,133 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "_Portfolio_Structure",
+    "lastRow": 268,
+    "lastColumn": 8,
+    "rangeA1": "A1:H268",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "Sheet Name",
+        "columnIndex": 1,
+        "inferredType": "string",
+        "nonEmptyCount": 267,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          "PERFORMANCE RECAP"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column Index",
+        "columnIndex": 2,
+        "inferredType": "number",
+        "nonEmptyCount": 267,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column Header",
+        "columnIndex": 3,
+        "inferredType": "string",
+        "nonEmptyCount": 267,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          "Column_1",
+          "Column_2",
+          "Column_3",
+          "Column_4",
+          "Column_5",
+          "Column_6",
+          "Column_7",
+          "Column_8",
+          "Column_9",
+          "Column_10"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Inferred Type",
+        "columnIndex": 4,
+        "inferredType": "string",
+        "nonEmptyCount": 267,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          "empty",
+          "string"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Supabase Type (suggested)",
+        "columnIndex": 5,
+        "inferredType": "string",
+        "nonEmptyCount": 267,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          "text"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Non-Empty Count",
+        "columnIndex": 6,
+        "inferredType": "number",
+        "nonEmptyCount": 267,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          0,
+          8,
+          6
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Total Rows",
+        "columnIndex": 7,
+        "inferredType": "number",
+        "nonEmptyCount": 267,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          15
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Sample Distinct Values",
+        "columnIndex": 8,
+        "inferredType": "string",
+        "nonEmptyCount": 232,
+        "totalRows": 267,
+        "sampleDistinctValues": [
+          "PORTFOLIO PERFORMANCE | WEEKLY MOMENTUM PICKS | Dow Jones 30 | US Large Caps | Nasdaq 100 | ETF PORTFOLIOS |   Macro ETF |   Macro 2-3xETF",
+          "Start | Jan 2019 | Jan 2025 | Jan 2026 | Nov 2023",
+          "Initial Value | 10000 | 9999.933379398648 | 120000 | 50000",
+          "Cash Invested | n/a | 0.9681578752916755 | 0.9239309424045403",
+          "Cash | n/a | 5302.723500000005 | 6213.516700000005",
+          "Portfolio Value | 102768.7469700908 | 10962.270254789852 | 14552.873575288428 | 166531.7107 | 81682.5776",
+          "Return $ | 92768.7469700908 | 962.3368753912036 | 4552.873575288428 | 46531.710699999996 | 31682.577600000004",
+          "Returns % | 9.27687469700908 | 0.09623432865800495 | 0.45528735752884275 | 0.3877642558333333 | 0.6336515520000001",
+          "Hit Rate | 0.6058981233243967 | 0.536723163841808 | 0.49537037037037035 | 0.38461538461538464 | 0.40350877192982454",
+          "Avg Gain | 0.02566389822076826 | 0.04456962105263156 | 0.0679872169811321 | 0.3642261027441545 | 0.5886894150733714"
+        ],
+        "supabaseSuggestedType": "text"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}

@@ -1,0 +1,208 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "Crypto Trading",
+    "lastRow": 142,
+    "lastColumn": 33,
+    "rangeA1": "A1:AG142",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "Column_21",
+        "columnIndex": 21,
+        "inferredType": "empty",
+        "nonEmptyCount": 0,
+        "totalRows": 141,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_22",
+        "columnIndex": 22,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "TRXUSD",
+          "SOLUSD",
+          "BTCUSD",
+          "LINKUSD",
+          "ETHUSD",
+          "ADAUSD",
+          "AVAXUSD",
+          "DOGEUSD",
+          "DOTUSD",
+          "ICPUSD"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_23",
+        "columnIndex": 23,
+        "inferredType": "date",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "2024-04-30T07:00:00.000Z",
+          "2024-05-16T07:00:00.000Z",
+          "2024-05-17T07:00:00.000Z",
+          "2024-05-18T07:00:00.000Z",
+          "2024-05-20T07:00:00.000Z",
+          "2024-05-22T07:00:00.000Z",
+          "2024-05-22T07:00:00.000Z",
+          "2024-05-22T07:00:00.000Z",
+          "2024-05-22T07:00:00.000Z",
+          "2024-05-22T07:00:00.000Z"
+        ],
+        "supabaseSuggestedType": "timestamptz"
+      },
+      {
+        "header": "Column_24",
+        "columnIndex": 24,
+        "inferredType": "number",
+        "nonEmptyCount": 9,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          100000,
+          60,
+          0.2,
+          800,
+          3.5,
+          24000,
+          300,
+          75000,
+          1600
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column_25",
+        "columnIndex": 25,
+        "inferredType": "number",
+        "nonEmptyCount": 9,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          0.118331,
+          162.36,
+          66114.8,
+          16.14,
+          3536.66,
+          0.4946,
+          40.41,
+          0.16427,
+          7.54
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column_26",
+        "columnIndex": 26,
+        "inferredType": "number",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          11833.1,
+          9741.6,
+          13222.960000000001,
+          12912,
+          12378.31,
+          11870.4,
+          12122.999999999998,
+          12320.25,
+          12064,
+          0
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column_27",
+        "columnIndex": 27,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "#N/A"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_28",
+        "columnIndex": 28,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "#N/A"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_29",
+        "columnIndex": 29,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "#N/A"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_30",
+        "columnIndex": 30,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "#N/A"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_31",
+        "columnIndex": 31,
+        "inferredType": "string",
+        "nonEmptyCount": 12,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "#N/A"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_32",
+        "columnIndex": 32,
+        "inferredType": "string",
+        "nonEmptyCount": 11,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "https://coinmarketcap.com/currencies/tron/",
+          "https://coinmarketcap.com/currencies/solana/",
+          "https://coinmarketcap.com/currencies/chainlink/",
+          "https://coinmarketcap.com/currencies/ethereum/",
+          "https://coinmarketcap.com/currencies/cardano/",
+          "https://coinmarketcap.com/currencies/avalanche/",
+          "https://coinmarketcap.com/currencies/dogecoin/",
+          "https://coinmarketcap.com/currencies/polkadot-new/",
+          "https://coinmarketcap.com/currencies/internet-computer/",
+          "https://coinmarketcap.com/currencies/polygon/"
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "Column_33",
+        "columnIndex": 33,
+        "inferredType": "string",
+        "nonEmptyCount": 11,
+        "totalRows": 141,
+        "sampleDistinctValues": [
+          "/html/body/div[1]/div[2]/div/div[2]/div/div/div[2]/section/div/div[2]/span"
+        ],
+        "supabaseSuggestedType": "text"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}

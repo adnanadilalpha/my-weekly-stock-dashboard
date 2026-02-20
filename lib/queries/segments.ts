@@ -98,16 +98,13 @@ export async function getMarketSegmentByTicker(ticker: string): Promise<MarketSe
     .from('market_segments')
     .select('*')
     .eq('ticker', ticker.toUpperCase())
-    .single();
+    .maybeSingle();
 
   if (error) {
-    if (error.code === 'PGRST116') {
-      return null; // Not found
-    }
     console.error('Error fetching market segment:', error);
     throw error;
   }
 
-  return data;
+  return data ?? null;
 }
 

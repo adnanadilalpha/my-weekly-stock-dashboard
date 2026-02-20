@@ -1,0 +1,98 @@
+{
+  "spreadsheetName": "My Weekly Stock - Tracker Portfolios",
+  "spreadsheetId": "1VrCerGt2Czf5l2gGoXz-Q5e6S4C5aPG8l7_92bONA0A",
+  "analyzedAt": "2026-02-19T13:44:18.414Z",
+  "sheet": {
+    "name": "Long-term Stocks",
+    "lastRow": 828,
+    "lastColumn": 27,
+    "rangeA1": "A1:AA828",
+    "hasHeaderRow": true,
+    "columns": [
+      {
+        "header": "Column_21",
+        "columnIndex": 21,
+        "inferredType": "string",
+        "nonEmptyCount": 73,
+        "totalRows": 827,
+        "sampleDistinctValues": [],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2022",
+        "columnIndex": 22,
+        "inferredType": "string",
+        "nonEmptyCount": 3,
+        "totalRows": 827,
+        "sampleDistinctValues": [
+          100000
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2023",
+        "columnIndex": 23,
+        "inferredType": "string",
+        "nonEmptyCount": 5,
+        "totalRows": 827,
+        "sampleDistinctValues": [
+          8,
+          111781,
+          0.11780999999999997
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2024",
+        "columnIndex": 24,
+        "inferredType": "string",
+        "nonEmptyCount": 5,
+        "totalRows": 827,
+        "sampleDistinctValues": [
+          52,
+          129447,
+          0.15804116978735205
+        ],
+        "supabaseSuggestedType": "text"
+      },
+      {
+        "header": "2025",
+        "columnIndex": 25,
+        "inferredType": "number",
+        "nonEmptyCount": 3,
+        "totalRows": 827,
+        "sampleDistinctValues": [
+          52,
+          132789,
+          0.02581751604903948
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "2025",
+        "columnIndex": 26,
+        "inferredType": "number",
+        "nonEmptyCount": 3,
+        "totalRows": 827,
+        "sampleDistinctValues": [
+          7,
+          132060.29,
+          -0.00548772865222269
+        ],
+        "supabaseSuggestedType": "numeric"
+      },
+      {
+        "header": "Column_27",
+        "columnIndex": 27,
+        "inferredType": "number",
+        "nonEmptyCount": 1,
+        "totalRows": 827,
+        "sampleDistinctValues": [
+          0.12920925014633977
+        ],
+        "supabaseSuggestedType": "numeric"
+      }
+    ],
+    "sampleRowCount": 20
+  }
+}
