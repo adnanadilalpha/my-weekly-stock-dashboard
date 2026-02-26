@@ -76,11 +76,14 @@ function formatCell(
   portfolioPage: DetailPageKey
 ): { text: string; isPositive?: boolean; isNegative?: boolean; isBold?: boolean; isAlgoScore?: boolean } {
   if (val == null || val === '') return { text: '—' };
-  const strVal = String(val).trim();
+  const strVal = String(val).trim().replace(/\u2212/g, '-');
   if (strVal.toLowerCase() === 'back to home page') return { text: '—' };
   const h = header.toLowerCase();
+  const isStockReturnWithStopLoss =
+    h.includes('stock return') && (h.includes('stop loss') || h.includes('stop-loss'));
   const isPercent =
-    h.includes('return') && (h.includes('%') || h.includes('percent'));
+    isStockReturnWithStopLoss ||
+    (h.includes('return') && (h.includes('%') || h.includes('percent')));
   const isCurrency =
     h.includes('$') ||
     h.includes('return $') ||
@@ -95,8 +98,12 @@ function formatCell(
     if (text) return { text };
   }
 
-  if (typeof val === 'number' || (typeof val === 'string' && /^-?[\d.]+$/.test(val))) {
-    const n = Number(val);
+  const isNumeric =
+    typeof val === 'number' ||
+    (typeof val === 'string' && /^[\s\u2212-]*[\d.]+[\s]*%?$/.test(strVal));
+  if (isNumeric) {
+    const n =
+      typeof val === 'number' ? Number(val) : Number(strVal.replace(/%/g, '').trim());
     if (Number.isNaN(n)) return { text: String(val) };
     if (isYear) return { text: Math.round(n).toString() };
     if (n >= 1e12 && n < 2e13) {
@@ -114,6 +121,9 @@ function formatCell(
       if (isPositionReturnPct && Math.abs(pct) < 50 && pct !== 0) {
         pct = n * 100;
       }
+      if (isStockReturnWithStopLoss && Math.abs(n) <= 1 && n !== 0) {
+        pct = n * 100;
+      }
       const text = pct.toFixed(1) + '%';
       const isMacro = portfolioPage === 'macro-etf' || portfolioPage === 'macro-3x';
       const hasColor =
@@ -122,7 +132,9 @@ function formatCell(
           : isMacro
             ? (isStrategyReturnPctColumn(header) || h.includes('returns %') || h.includes('net avg return') || (h.includes('return') && h.includes('%') && !h.includes('stock return')))
             : isStrategyReturnPctColumn(header);
-      return hasColor ? { text, isPositive: pct > 0, isNegative: pct < 0 } : { text };
+      return hasColor
+        ? { text, isPositive: pct > 0, isNegative: pct < 0 }
+        : { text };
     }
     const isPfAllocation = h.includes('allocation') || h.includes('pf allocation');
     if (isPfAllocation && n >= 0 && n <= 1) {
@@ -141,12 +153,23 @@ function formatCell(
     return { text: n.toLocaleString(undefined, { maximumFractionDigits: 2 }) };
   }
 
-  const str = String(val).trim();
+  const str = strVal;
   if (str && (/\d{4}-\d{2}-\d{2}/.test(str) || /^\d{4}-\d{2}-\d{2}T/.test(str))) {
     const dateText = formatDateSheet(val);
     if (dateText) return { text: dateText };
   }
-  return { text: str, isBold: isTicker };
+  // Stock Return With Stop Loss: value may arrive as percentage string (e.g. "-2%") – format as % only (no green/red)
+  if (isStockReturnWithStopLoss && str && /^[\s\u2212-]*[\d.]+[\s]*%?$/.test(str)) {
+    const numStr = str.replace(/%/g, '').replace(/\u2212/g, '-').trim();
+    const n = Number(numStr);
+    if (!Number.isNaN(n)) {
+      const pct = Math.abs(n) >= 1 && str.includes('%') ? n : n * 100;
+      const text = pct.toFixed(1) + '%';
+      return { text };
+    }
+  }
+  const openPositionStripped = str.replace(/^[\s\-–—]+(?=open\s+positions?$)/i, '').trim();
+  return { text: openPositionStripped, isBold: isTicker };
 }
 
 /** Format summary cell to match sheet: no long decimals. Uses column label (from first summary row) to decide format. */
@@ -154,6 +177,7 @@ function formatSummaryValue(label: string, val: unknown): string {
   if (val == null || val === '') return '—';
   const s = String(val).trim();
   if (s.toLowerCase() === 'back to home page') return '—';
+  if (/^[\s\-–—]+open\s+positions?$/i.test(s)) return s.replace(/^[\s\-–—]+/, '').trim();
   const h = label.toLowerCase();
   if (h.includes('momentum picks') || h.includes('stop loss')) return s;
   if (h.includes('start') || h.includes('date') || h.includes('buy') || h.includes('exit')) {
@@ -306,20 +330,101 @@ export function PortfolioDetailPage({
                   }
                 }
               }
-              if (summaryCols.length === 0) return null;
+              // Truncate summary columns: Macro ETF/3x at "Avg Holding Time"; others at "Net Avg Return" (+ optional CAGR)
+              const headerLabel = (key: string) =>
+                headerRow ? String(getVal(headerRow as Record<string, unknown>, key) ?? '').trim() : '';
+              const resolvedLabel = (key: string) =>
+                (labelByCol[key] || headerLabel(key)).replace(/,/g, '').trim();
+              const isMacroPortfolio = portfolioPage === 'macro-etf' || portfolioPage === 'macro-3x';
+              const avgHoldingTimeIdx = summaryCols.findIndex((key) =>
+                resolvedLabel(key).toLowerCase().includes('avg holding time')
+              );
+              const netAvgReturnIdx = summaryCols.findIndex((key) =>
+                resolvedLabel(key).toLowerCase().includes('net avg return')
+              );
+              const nextColAfterNetAvg = summaryCols[netAvgReturnIdx + 1];
+              const includeNextCagr =
+                !isMacroPortfolio &&
+                netAvgReturnIdx >= 0 &&
+                nextColAfterNetAvg &&
+                resolvedLabel(nextColAfterNetAvg).toUpperCase() === 'CAGR';
+              const summaryColsFiltered = isMacroPortfolio && avgHoldingTimeIdx >= 0
+                ? summaryCols.slice(0, avgHoldingTimeIdx + 1)
+                : netAvgReturnIdx >= 0
+                  ? summaryCols.slice(0, netAvgReturnIdx + 1 + (includeNextCagr ? 1 : 0))
+                  : summaryCols;
+              // For cumulative row removal: year columns sit after first CAGR; use first col after slice to detect 10000 row if needed
+              const isYearColumn = (label: string) => /^20(1[8-9]|2[0-6])$/.test(label.replace(/,/g, '').trim());
+              const yearColKeys = summaryCols.filter(
+                (key) => isYearColumn(resolvedLabel(key))
+              );
+              const firstYearKey = yearColKeys[0];
+              // Remove the row that contains cumulative year values (10,000, 14,025, … 102,769) per client
+              const summaryRowsToShow = firstYearKey
+                ? summaryRowsFiltered.filter((row) => {
+                    const v = getVal(row as Record<string, unknown>, firstYearKey);
+                    const n = Number(v);
+                    return !(n >= 9999 && n <= 10001);
+                  })
+                : summaryRowsFiltered;
+              // Remove rows that have no data in the truncated columns (all empty or "—")
+              const summaryRowsToShowFiltered = summaryRowsToShow
+                .filter((row) =>
+                  summaryColsFiltered.some((key) => {
+                    const val = getVal(row as Record<string, unknown>, key);
+                    const label = labelByCol[key] || '';
+                    const raw = val != null ? String(val).trim() : '';
+                    const display = label
+                      ? formatSummaryValue(label, val)
+                      : raw === ''
+                        ? '\u00a0'
+                        : /^-?[\d.]+$/.test(raw)
+                          ? formatSummaryValue('', val)
+                          : raw;
+                    return display !== '—' && display !== '\u00a0' && String(display).trim() !== '';
+                  })
+                )
+                .filter((row) => {
+                  // Remove the redundant name line (sheet title + dashes) below the main header on all sheets
+                  const nonEmpty = summaryColsFiltered
+                    .map((key) => {
+                      const val = getVal(row as Record<string, unknown>, key);
+                      const label = labelByCol[key] || '';
+                      const raw = val != null ? String(val).trim() : '';
+                      const display = label
+                        ? formatSummaryValue(label, val)
+                        : raw === ''
+                          ? '\u00a0'
+                          : /^-?[\d.]+$/.test(raw)
+                            ? formatSummaryValue('', val)
+                            : raw;
+                      return display;
+                    })
+                    .filter((d) => d !== '—' && d !== '\u00a0' && String(d).trim() !== '');
+                  const normalize = (v: unknown) => String(v).replace(/\s+/g, ' ').trim();
+                  const titleNorm = normalize(titleText);
+                  const onlyTitle =
+                    nonEmpty.length === 1 && normalize(nonEmpty[0]) === titleNorm;
+                  const onlyOpenPositions =
+                    nonEmpty.length === 1 &&
+                    /^open positions?$/i.test(normalize(nonEmpty[0]));
+                  // Drop both the duplicated title row and the OPEN POSITIONS label row
+                  return !onlyTitle && !onlyOpenPositions;
+                });
+              if (summaryColsFiltered.length === 0) return null;
               return (
                 <div className="sticky top-14 z-20 bg-slate-700 text-white overflow-hidden border-x border-slate-600 shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs sm:text-sm border-collapse">
                       <tbody>
-                        {summaryRowsFiltered.map((row, rIdx) => (
+                        {summaryRowsToShowFiltered.map((row, rIdx) => (
                           <tr key={row.row_index ?? rIdx}>
-                            {summaryCols.map((key) => {
+                            {summaryColsFiltered.map((key) => {
                               const val = getVal(row as Record<string, unknown>, key);
                               const label = labelByCol[key] || '';
                               const raw = val != null ? String(val).trim() : '';
                               const display = label ? formatSummaryValue(label, val) : (raw === '' ? '\u00a0' : /^-?[\d.]+$/.test(raw) ? formatSummaryValue('', val) : raw);
-                              const isLabelRow = rIdx < 2;
+                              const isLabelRow = rIdx === 0;
                               const labelLower = label.toLowerCase();
                               const isSummaryReturnCol = labelLower.includes('return $') || labelLower.includes('returns %') || labelLower.includes('return %') || labelLower.includes('net avg return');
                               const num = Number(val);
@@ -383,7 +488,11 @@ export function PortfolioDetailPage({
                             ? isDow30ColoredColumn(label) && lower.includes('%')
                             : isStrategyReturnPctColumn(label);
                         });
-                        return dataRows.map((row, idx) => {
+                        const macroDetailRows =
+                          (portfolioPage === 'macro-etf' || portfolioPage === 'macro-3x')
+                            ? dataRows.slice(0, -2)
+                            : dataRows;
+                        return macroDetailRows.map((row, idx) => {
                           const returnVal = coloredReturnCol ? getVal(row as Record<string, unknown>, coloredReturnCol.key) : null;
                           const returnNum = Number(returnVal);
                           const rowIsPositive = !Number.isNaN(returnNum) && returnNum > 0;
