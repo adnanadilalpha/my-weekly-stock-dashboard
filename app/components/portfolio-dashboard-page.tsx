@@ -30,12 +30,13 @@ function getCol(row: Record<string, unknown>, key: string): string | number | nu
   return val == null ? null : (val as string | number);
 }
 
-/** Format as percentage: sheet stores either decimal (0.37 → 37%) or already scaled (9.27 → 927%) */
+/** Format as percentage: sheet stores either decimal (0.37 → 37%, -0.1 → -10%) or already in % (9.066 → 9.1%) */
 function formatPct(val: string | number | null): string {
   if (val == null) return '—';
   const n = Number(val);
   if (Number.isNaN(n)) return String(val);
-  const pct = Math.abs(n) >= 1 ? n : n * 100;
+  const pct =
+    n > 0 && n < 1 ? n * 100 : n > -1 && n < 0 ? n * 100 : n;
   return pct.toFixed(1) + '%';
 }
 
@@ -137,12 +138,15 @@ export function PortfolioDashboardPage({
       const pct = Math.abs(n) >= 1 ? n : n * 100;
       return Math.round(pct) + '%';
     }
+    if (key === 'column_9' || key === 'column_13') {
+      const n = Number(value);
+      if (Number.isNaN(n)) return s;
+      return (n * 100).toFixed(1) + '%';
+    }
     if (
-      key === 'column_9' ||
       key === 'column_10' ||
       key === 'column_11' ||
-      key === 'column_12' ||
-      key === 'column_13'
+      key === 'column_12'
     ) return formatPct(value);
     if (key === 'column_15') return formatInt(value); // Holding Time: whole days
     return s;
