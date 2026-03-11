@@ -42,6 +42,9 @@ const RECAP_NAMES_SET: Set<string> = new Set([
   PORTFOLIO_NAMES.NASDAQ100,
   PORTFOLIO_NAMES.MACRO_ETF,
   PORTFOLIO_NAMES.MACRO_2_3X,
+  // Combined performance row – include both expected spellings just in case
+  'COMBINED PERFORMAN',
+  'COMBINED PERFORMANCE',
   '  Macro ETF',      // sheet has leading spaces
   '  Macro 2-3xETF',
 ]);
@@ -85,7 +88,7 @@ export function usePerformanceRecap() {
     return (r.column_2 ?? r.column2 ?? null) as string | null;
   }
 
-  /** Only rows that are one of our five portfolios (by column_2, trimmed) */
+  /** Only rows that are one of our portfolios or combined performance (by column_2, trimmed) */
   const portfolioRows = rows.filter((r) => RECAP_NAMES_SET.has(normalizeName(getCol2(r))));
 
   return { rows, portfolioRows, loading, error, refetch: fetchData };

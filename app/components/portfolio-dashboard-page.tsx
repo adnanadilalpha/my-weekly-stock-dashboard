@@ -48,14 +48,6 @@ function formatInt(val: string | number | null): string {
   return Math.round(n).toLocaleString();
 }
 
-/** Currency, rounded to whole dollars for cleaner match to sheet */
-function formatCurrency(val: string | number | null): string {
-  if (val == null) return '—';
-  const n = Number(val);
-  if (Number.isNaN(n)) return String(val);
-  return '$' + Math.round(n).toLocaleString();
-}
-
 /** Sheet date pattern: M/D/YYYY (e.g. 10/3/2022, 1/24/2025) – human-readable */
 function formatDateSheet(val: string | number | null): string | null {
   if (val == null) return null;
@@ -87,13 +79,10 @@ export function PortfolioDashboardPage({
   const etfNames = new Set<string>([PORTFOLIO_NAMES.MACRO_ETF, PORTFOLIO_NAMES.MACRO_2_3X]);
   const getCol2 = (r: typeof portfolioRows[0]) => normalizeCol2(String((r as unknown as Record<string, unknown>).column_2 ?? (r as unknown as Record<string, unknown>).column2 ?? ''));
 
+  /** Only columns shown in the tracker sheet: Portfolio Performance, Start, Returns %, Hit Rate, Avg Gain, Avg Loss, Net Avg Return, CAGR, Holding Time (days), Access */
   const tableColumns: { key: string; header: string }[] = [
     { key: 'column_2', header: 'Portfolio Performance' },
     { key: 'column_3', header: 'Start' },
-    { key: 'column_4', header: 'Initial Value' },
-    { key: 'column_5', header: 'Cash Invested' },
-    { key: 'column_7', header: 'Portfolio Value' },
-    { key: 'column_8', header: 'Return $' },
     { key: 'column_9', header: 'Returns %' },
     { key: 'column_10', header: 'Hit Rate' },
     { key: 'column_11', header: 'Avg Gain' },
@@ -101,6 +90,7 @@ export function PortfolioDashboardPage({
     { key: 'column_13', header: 'Net Avg Return' },
     { key: 'column_14', header: 'CAGR' },
     { key: 'column_15', header: 'Holding Time (days)' },
+    { key: 'column_16', header: 'Access' },
   ];
 
   const hasRowData = (r: typeof portfolioRows[0]) => {
@@ -111,8 +101,33 @@ export function PortfolioDashboardPage({
       return v != null && String(v).trim() !== '';
     });
   };
-  const weeklyRows = portfolioRows.filter((r) => weeklyNames.has(getCol2(r)) && hasRowData(r));
+  const combinedRow = portfolioRows.find((r) => {
+    const name = getCol2(r);
+    const n = normalizeCol2(name);
+    return n.toUpperCase().startsWith('COMBINED');
+  });
+
+  const weeklyRows = [
+    ...(combinedRow && hasRowData(combinedRow) ? [combinedRow] : []),
+    ...portfolioRows.filter(
+      (r) =>
+        (!combinedRow || (r as { row_index: number }).row_index !== (combinedRow as { row_index: number }).row_index) &&
+        weeklyNames.has(getCol2(r)) &&
+        hasRowData(r),
+    ),
+  ];
   const etfRows = portfolioRows.filter((r) => etfNames.has(getCol2(r)) && hasRowData(r));
+
+  // For Combined Performance: if Start is blank, use the earliest non-empty Start from weekly portfolios
+  const weeklyNonCombined = portfolioRows.filter(
+    (r) =>
+      (!combinedRow || (r as { row_index: number }).row_index !== (combinedRow as { row_index: number }).row_index) &&
+      weeklyNames.has(getCol2(r)) &&
+      hasRowData(r),
+  );
+  const earliestWeeklyStartRaw = weeklyNonCombined
+    .map((r) => getCol(r as unknown as Record<string, unknown>, 'column_3'))
+    .find((v) => v != null && String(v).trim() !== '');
 
   const formatCell = (key: string, value: string | number | null): string => {
     if (value == null || value === '') return '—';
@@ -123,15 +138,6 @@ export function PortfolioDashboardPage({
       if (dateText) return dateText;
       return s;
     }
-    if (key === 'column_4') return formatInt(value); // Initial Value: 10,000
-    if (key === 'column_5') {
-      // Cash Invested / Invested %: "n/a" or 96.85%
-      if (s.toLowerCase() === 'n/a') return 'N/A';
-      const n = Number(value);
-      if (!Number.isNaN(n)) return n >= 1 ? formatPct(value) : (n * 100).toFixed(2) + '%';
-      return s;
-    }
-    if (key === 'column_7' || key === 'column_8') return formatCurrency(value);
     if (key === 'column_14') {
       const n = Number(value);
       if (Number.isNaN(n)) return s;
@@ -149,32 +155,40 @@ export function PortfolioDashboardPage({
       key === 'column_12'
     ) return formatPct(value);
     if (key === 'column_15') return formatInt(value); // Holding Time: whole days
+    if (key === 'column_16') return s; // Access Here – rendered as link in cell
     return s;
   };
 
-  /** Return $, Returns %, Net Avg Return: highlight when positive (match sheet) */
+  /** Returns %, Net Avg Return: highlight when positive (match sheet) */
   const isPositiveHighlightCol = (key: string) =>
-    key === 'column_8' || key === 'column_9' || key === 'column_13';
+    key === 'column_9' || key === 'column_13';
 
   const renderRow = (row: typeof portfolioRows[0]) => {
     const r = row as unknown as Record<string, unknown>;
     const name = getCol2(row);
     const page = NAME_TO_PAGE[name];
+    const isCombined = name && normalizeCol2(name).toUpperCase().startsWith('COMBINED');
     const handleClick = () => {
-      if (page) onSelectPortfolio(page);
+      if (!isCombined && page) onSelectPortfolio(page);
     };
 
     return (
       <tr
         key={(row as { row_index: number }).row_index}
-        className="border-b border-slate-200 hover:bg-slate-200 hover:border-l-4 hover:border-l-emerald-600 cursor-pointer group transition-colors"
-        onClick={handleClick}
+        className={`border-b border-slate-200 group transition-colors ${
+          isCombined ? '' : 'hover:bg-slate-200 hover:border-l-4 hover:border-l-emerald-600 cursor-pointer'
+        }`}
+        onClick={isCombined ? undefined : handleClick}
       >
         {tableColumns.map((col, idx) => {
-          const raw = idx === 0 ? name : getCol(r, col.key);
+          let raw = idx === 0 ? name : getCol(r, col.key);
+          if (isCombined && col.key === 'column_3' && (raw == null || String(raw).trim() === '')) {
+            raw = earliestWeeklyStartRaw ?? raw;
+          }
           const display = formatCell(col.key, raw as string | number | null);
           const num = typeof raw === 'number' ? raw : Number(raw);
           const isPositive = !Number.isNaN(num) && num > 0 && isPositiveHighlightCol(col.key);
+          const isAccessCol = col.key === 'column_16';
           return (
             <td
               key={col.key}
@@ -182,56 +196,38 @@ export function PortfolioDashboardPage({
                 idx === 0 ? 'font-medium text-slate-900' : 'text-slate-700 tabular-nums'
               } ${isPositive ? 'bg-emerald-700 text-white' : ''}`}
             >
-              {display}
+              {isAccessCol && page ? (
+                <span
+                  role="link"
+                  tabIndex={0}
+                  className="text-emerald-600 hover:underline cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClick();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleClick();
+                    }
+                  }}
+                >
+                  Access Here
+                </span>
+              ) : isAccessCol ? (
+                '—'
+              ) : (
+                display
+              )}
             </td>
           );
         })}
         <td className="px-2 py-4 text-slate-400 group-hover:text-slate-600 w-10 text-left align-middle">
-          <ChevronRight className="w-4 h-4 inline-block" aria-hidden />
+          {!isCombined && page && <ChevronRight className="w-4 h-4 inline-block" aria-hidden />}
         </td>
       </tr>
     );
   };
-
-  const TableSection = ({
-    title,
-    rows: sectionRows,
-  }: {
-    title: string;
-    rows: typeof weeklyRows;
-  }) => (
-    <section>
-      <h2 className="text-sm font-semibold text-slate-600 mb-2">{title}</h2>
-      <div className="border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm table-fixed">
-            <colgroup>
-              {tableColumns.map((col) => (
-                <col key={col.key} className="min-w-0" />
-              ))}
-              <col className="w-10" />
-            </colgroup>
-            <thead>
-              <tr className="bg-slate-100 border-b border-slate-200">
-                {tableColumns.map((col) => (
-                  <th
-                    key={col.key}
-                    className="px-2 py-4 font-semibold text-slate-700 text-xs text-left whitespace-normal leading-tight overflow-hidden"
-                  >
-                    {col.header}
-                  </th>
-                ))}
-                <th className="px-2 py-4 w-10" aria-label="View" />
-              </tr>
-            </thead>
-            <tbody className="bg-white">
-              {sectionRows.map(renderRow)}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  );
 
   return (
     <div className="min-h-screen bg-white">
@@ -244,7 +240,7 @@ export function PortfolioDashboardPage({
       />
       <main className="p-4 sm:p-6 max-w-[1400px] mx-auto w-full space-y-8">
         <div>
-          <h1 className="text-lg font-semibold text-slate-900">Portfolio Dashboard</h1>
+          <h1 className="text-lg font-semibold text-slate-900">Portfolio Performance</h1>
           <p className="text-sm text-slate-500 mt-0.5">Performance recap from your tracker</p>
         </div>
 
@@ -259,10 +255,58 @@ export function PortfolioDashboardPage({
           </div>
         )}
         {!loading && !error && (
-          <>
-            <TableSection title={GROUP_WEEKLY_MOMENTUM} rows={weeklyRows} />
-            <TableSection title={GROUP_ETF} rows={etfRows} />
-          </>
+          <section>
+            <div className="border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm table-fixed">
+                  <colgroup>
+                    {tableColumns.map((col) => (
+                      <col key={col.key} className="min-w-0" />
+                    ))}
+                    <col className="w-10" />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-slate-900 text-white border-b border-slate-200">
+                      {tableColumns.map((col) => (
+                        <th
+                          key={col.key}
+                          className="px-2 py-4 font-semibold text-xs text-left whitespace-normal leading-tight overflow-hidden"
+                        >
+                          {col.header}
+                        </th>
+                      ))}
+                      <th className="px-2 py-4 w-10" aria-label="View" />
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white">
+                    {weeklyRows.length > 0 && (
+                      <tr className="bg-amber-50 border-b border-slate-200">
+                        <td
+                          colSpan={tableColumns.length + 1}
+                          className="px-2 py-3 text-xs font-semibold text-amber-800"
+                        >
+                          {GROUP_WEEKLY_MOMENTUM}
+                        </td>
+                      </tr>
+                    )}
+                    {weeklyRows.map(renderRow)}
+
+                    {etfRows.length > 0 && (
+                      <tr className="bg-amber-50 border-t border-b border-slate-200">
+                        <td
+                          colSpan={tableColumns.length + 1}
+                          className="px-2 py-3 text-xs font-semibold text-amber-800"
+                        >
+                          {GROUP_ETF}
+                        </td>
+                      </tr>
+                    )}
+                    {etfRows.map(renderRow)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         )}
       </main>
     </div>
