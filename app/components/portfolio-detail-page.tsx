@@ -117,7 +117,8 @@ function formatCell(
     }
     if (isPercent) {
       const isPositionReturnPct = /return\s*%/.test(h) && !/returns\s*%/.test(h);
-      let pct = n >= 1 || n <= -1 ? n : n * 100;
+      // Tracker "Returns %" is always a decimal fraction (0.45 → 45%; 1.099 → 109.9%), same as dashboard column_9
+      let pct = h.includes('returns %') ? n * 100 : n >= 1 || n <= -1 ? n : n * 100;
       if (isPositionReturnPct && Math.abs(pct) < 50 && pct !== 0) {
         pct = n * 100;
       }
@@ -197,6 +198,9 @@ function formatSummaryValue(label: string, val: unknown): string {
     if (h.includes('cagr')) {
       const pct = Math.abs(n) >= 1 ? n : n * 100;
       return Math.round(pct) + '%';
+    }
+    if (h.includes('returns %')) {
+      return (n * 100).toFixed(1) + '%';
     }
     if ((h.includes('return') && h.includes('%')) || h.includes('hit rate') || h.includes('avg gain') || h.includes('avg loss') || h.includes('net avg')) {
       const isPositionReturnPct = /return\s*%/.test(h) && !/returns\s*%/.test(h);
