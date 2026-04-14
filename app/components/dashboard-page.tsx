@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { RefreshCw, Star, Check, X, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { AppHeader } from './app-header';
+import { TickerIcon } from './ui/ticker-icon';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { useDashboardData } from '../../lib/hooks/useDashboardData';
@@ -191,16 +192,16 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
   };
 
   const renderTableSection = (title: string, data: typeof marketSegmentsData) => (
-    <div className="mb-6 sm:mb-8 last:mb-0">
+    <div className="mb-7 sm:mb-9 last:mb-0">
       {/* Section Headers */}
       <div className="grid grid-cols-[2fr_3fr_5fr] gap-0 mb-0">
-        <div className="bg-neutral-900 text-white px-2 sm:px-4 py-2 text-center font-semibold border-r border-neutral-700 text-xs sm:text-sm">
+        <div className="bg-slate-900 text-white px-3 sm:px-4 py-2.5 text-center font-semibold border-r border-slate-700 text-xs sm:text-sm tracking-wide">
           {title}
         </div>
-        <div className="bg-neutral-900 text-white px-2 sm:px-4 py-2 text-center font-semibold border-r border-neutral-700 text-xs sm:text-sm">
+        <div className="bg-slate-900 text-white px-3 sm:px-4 py-2.5 text-center font-semibold border-r border-slate-700 text-xs sm:text-sm tracking-wide">
           PERFORMANCE
         </div>
-        <div className="bg-neutral-900 text-white px-2 sm:px-4 py-2 text-center font-semibold text-xs sm:text-sm">
+        <div className="bg-slate-900 text-white px-3 sm:px-4 py-2.5 text-center font-semibold text-xs sm:text-sm tracking-wide">
           {timeframe === 'D' ? 'DAILY' : 'WEEKLY'} CHART TREND
         </div>
       </div>
@@ -218,54 +219,59 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
           <col className="w-[13%]" />
         </colgroup>
         <thead>
-          <tr className="bg-neutral-100 border-b border-neutral-300">
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-left text-xs sm:text-sm">Segment</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">Ticker</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">1M</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">3M</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">vs 1Y High</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">Trend Score (0-5)</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 border-r border-neutral-300 text-center text-xs sm:text-sm">Rating</th>
-            <th className="px-2 sm:px-4 py-2 sm:py-2.5 font-semibold text-neutral-900 text-center text-xs sm:text-sm">Outlook</th>
+          <tr className="bg-slate-50 border-b border-slate-200">
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-left text-xs sm:text-sm">Segment</th>
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-left text-xs sm:text-sm">Ticker</th>
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">1M</th>
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">3M</th>
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">vs 1Y High</th>
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">Trend Score (0-5)</th>
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">Rating</th>
+            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 text-center text-xs sm:text-sm">Outlook</th>
           </tr>
         </thead>
         <tbody>
           {data.map((row, idx) => (
             <tr 
               key={idx} 
-              className="border-b border-neutral-200 hover:bg-neutral-50 cursor-pointer transition-colors"
+              className="border-b border-slate-100 hover:bg-slate-50/70 cursor-pointer transition-colors"
               onClick={() => onNavigate('ticker-analysis', row.ticker)}
             >
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-900 border-r border-neutral-200 truncate text-xs sm:text-sm">{row.segment}</td>
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-neutral-700 border-r border-neutral-200 text-center italic text-xs sm:text-sm">{row.ticker}</td>
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
+              <td className="px-3 sm:px-4 py-2.5 text-slate-900 border-r border-slate-100 truncate text-xs sm:text-sm">{row.segment}</td>
+              <td className="px-3 sm:px-4 py-2.5 text-slate-700 border-r border-slate-100 text-left text-xs sm:text-sm">
+                <span className="inline-flex items-center gap-1.5 font-medium">
+                  <TickerIcon ticker={row.ticker} size={14} />
+                  <span>{row.ticker}</span>
+                </span>
+              </td>
+              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-slate-900 font-medium text-xs sm:text-sm">
                 <div className="flex items-center gap-0.5 sm:gap-1">
                   <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf1M)}</span>
                   <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</span>
                 </div>
               </td>
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
+              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-slate-900 font-medium text-xs sm:text-sm">
                 <div className="flex items-center gap-0.5 sm:gap-1">
                   <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf3M)}</span>
                   <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</span>
                 </div>
               </td>
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
+              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-slate-900 font-medium text-xs sm:text-sm">
                 <div className="flex items-center gap-0.5 sm:gap-1">
                   <span className="flex-shrink-0 text-[10px] sm:text-xs">{getVsHighIcon(row.vsHigh)}</span>
                   <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</span>
                 </div>
               </td>
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-xs sm:text-sm">
+              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-xs sm:text-sm">
                 <div className="flex items-center justify-center gap-1 sm:gap-2">
                   <div className="flex gap-0.5 flex-shrink-0">
                     {renderStars(row.trendScore)}
                   </div>
-                  <span className="text-neutral-900 font-medium whitespace-nowrap">| {row.trendScore}</span>
+                  <span className="text-slate-900 font-medium whitespace-nowrap">| {row.trendScore}</span>
                 </div>
               </td>
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-900 border-r border-neutral-200 text-xs sm:text-sm">{row.rating}</td>
-              <td className="px-2 sm:px-4 py-2 sm:py-2.5 text-center text-neutral-700 italic text-xs sm:text-sm truncate">{row.outlook}</td>
+              <td className="px-3 sm:px-4 py-2.5 text-center text-slate-900 border-r border-slate-100 text-xs sm:text-sm">{row.rating}</td>
+              <td className="px-3 sm:px-4 py-2.5 text-center text-slate-700 italic text-xs sm:text-sm truncate">{row.outlook}</td>
             </tr>
           ))}
         </tbody>
@@ -274,7 +280,7 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
   );
 
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="min-h-screen bg-slate-50">
       <AppHeader
         userEmail={userEmail}
         currentAppMode={currentAppMode}
@@ -284,25 +290,25 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
         onBack={() => onNavigate('index')}
         backLabel="Back to MWS"
       />
-      <main className="p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+      <main className="p-4 sm:p-6 lg:p-8 w-full max-w-none">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
           <div>
-            <h1 className="font-semibold text-sm sm:text-base text-neutral-900">MWS&apos;s Momentum Pulse Check</h1>
+            <h1 className="font-semibold text-base text-slate-900">MWS&apos;s Momentum Pulse Check</h1>
             {lastUpdated && (
-              <span className="text-xs text-neutral-500">last updated {lastUpdated}</span>
+              <span className="text-xs text-slate-500">last updated {lastUpdated}</span>
             )}
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex border border-neutral-300 rounded overflow-hidden">
+            <div className="flex border border-slate-300 rounded-md overflow-hidden bg-white">
               <button
                 onClick={() => setTimeframe('D')}
-                className={`px-2 sm:px-3 py-1 text-xs transition-colors ${timeframe === 'D' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-100'}`}
+                className={`px-2 sm:px-3 py-1 text-xs transition-colors ${timeframe === 'D' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
               >
                 D
               </button>
               <button
                 onClick={() => setTimeframe('W')}
-                className={`px-2 sm:px-3 py-1 text-xs border-l border-neutral-300 transition-colors ${timeframe === 'W' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-700 hover:bg-neutral-100'}`}
+                className={`px-2 sm:px-3 py-1 text-xs border-l border-slate-300 transition-colors ${timeframe === 'W' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
               >
                 W
               </button>
@@ -341,7 +347,7 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
         )}
         
         {!loading && !error && (
-          <div className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 overflow-x-auto">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 overflow-x-auto">
             <div className="min-w-[800px]">
             {renderTableSection('MARKET SEGMENTS', marketSegmentsData)}
             {renderTableSection('SECTORS', sectorsData)}

@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Badge } from './ui/badge';
+import { TickerIcon } from './ui/ticker-icon';
 import { AppHeader } from './app-header';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
@@ -147,6 +148,7 @@ function getBenchmarkNameFromData(data: any, type: string | null): string {
 
 export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTicker, currentAppMode, onGoToPortfolio, onGoToMWS }: TickerAnalysisPageProps) {
   const [ticker, setTicker] = useState(initialTicker);
+  const [trendTimeframe, setTrendTimeframe] = useState<'D' | 'W'>('W');
 
   // Fetch data from Supabase
   const { data: supabaseData, type, loading, error, refetch } = useTickerData(ticker);
@@ -466,7 +468,7 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
   }
 
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="min-h-screen bg-slate-50">
       <AppHeader
         userEmail={userEmail}
         currentAppMode={currentAppMode}
@@ -476,23 +478,28 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
         onBack={() => onNavigate('index')}
         backLabel="Back to MWS"
       />
-      <main className="p-4 sm:p-6 max-w-[1400px] mx-auto">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
+      <main className="p-4 sm:p-6 lg:p-8 w-full max-w-none">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-5">
           <div className="flex items-center gap-2">
             <Select value={ticker} onValueChange={setTicker}>
-              <SelectTrigger className="w-full sm:w-[180px] h-9 bg-white">
+              <SelectTrigger className="w-full sm:w-[180px] h-9 bg-white border-slate-300">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
                 {allTickers.map((t) => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
+                  <SelectItem key={t} value={t}>
+                    <span className="flex items-center gap-2">
+                      <TickerIcon ticker={t} size={14} />
+                      <span>{t}</span>
+                    </span>
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <span className="text-xs text-neutral-500 hidden sm:inline whitespace-nowrap">last updated {data.lastUpdated}</span>
+            <span className="text-xs text-slate-500 hidden sm:inline whitespace-nowrap">last updated {data.lastUpdated}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-neutral-500 sm:hidden flex-1">last updated {data.lastUpdated}</span>
+            <span className="text-xs text-slate-500 sm:hidden flex-1">last updated {data.lastUpdated}</span>
             <Button
               onClick={handleRefresh}
               disabled={loading}
@@ -505,111 +512,127 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
             </Button>
           </div>
         </div>
-        <div className="space-y-3 sm:space-y-4">
+        <div className="space-y-4 sm:space-y-5">
           {/* Company Name Banner */}
-          <div className="bg-neutral-900 text-white px-4 sm:px-6 py-2 sm:py-3 rounded">
-            <h1 className="text-lg sm:text-xl font-medium truncate">{data.name}</h1>
+          <div className="bg-white border border-slate-200 px-4 sm:px-6 py-3 rounded-xl">
+            <h1 className="text-lg sm:text-xl font-semibold text-slate-900 truncate flex items-center gap-2">
+              <TickerIcon ticker={ticker} size={22} />
+              <span className="truncate">{data.name}</span>
+            </h1>
           </div>
 
           {/* PERFORMANCE Section */}
-          <div className="bg-white border border-neutral-200 rounded-lg">
-            <div className="px-4 sm:px-6 py-2 sm:py-3 border-b border-neutral-200 bg-neutral-50">
-              <h2 className="font-semibold text-sm sm:text-base text-neutral-900">PERFORMANCE</h2>
+          <div className="bg-white border border-slate-200 rounded-xl">
+            <div className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-slate-50/80">
+              <h2 className="font-semibold text-sm sm:text-base tracking-wide text-slate-900">PERFORMANCE</h2>
             </div>
-            <div className="px-4 sm:px-6 py-3 sm:py-4 space-y-3">
+            <div className="px-4 sm:px-6 py-4 space-y-4">
               <div>
-                <p className="font-medium text-sm sm:text-base text-neutral-900">{data.performance.summary}</p>
-                <p className="text-xs sm:text-sm text-neutral-600 mt-1">{data.performance.description}</p>
+                <p className="font-medium text-sm sm:text-base text-slate-900">{data.performance.summary}</p>
+                <p className="text-xs sm:text-sm text-slate-600 mt-1">{data.performance.description}</p>
               </div>
 
               {/* Performance Table */}
-              <div className="border border-neutral-300 rounded overflow-x-auto">
+              <div className="border border-slate-200 rounded-lg overflow-x-auto">
                 <table className="w-full text-xs sm:text-sm min-w-[600px]">
                   <thead>
-                    <tr className="bg-neutral-50 border-b border-neutral-300">
-                      <th className="px-2 sm:px-4 py-2 text-left text-neutral-900 border-r border-neutral-300 w-1/4">Ticker</th>
-                      <th className="px-2 sm:px-4 py-2 text-center text-neutral-900 border-r border-neutral-300 w-1/4">1-month</th>
-                      <th className="px-2 sm:px-4 py-2 text-center text-neutral-900 border-r border-neutral-300 w-1/4">3-month</th>
-                      <th className="px-2 sm:px-4 py-2 text-center text-neutral-900 w-1/4">${ticker} performance vs:</th>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-3 sm:px-4 py-2.5 text-left text-slate-900 border-r border-slate-200 w-1/4">Ticker</th>
+                      <th className="px-3 sm:px-4 py-2.5 text-center text-slate-900 border-r border-slate-200 w-1/4">1-month</th>
+                      <th className="px-3 sm:px-4 py-2.5 text-center text-slate-900 border-r border-slate-200 w-1/4">3-month</th>
+                      <th className="px-3 sm:px-4 py-2.5 text-center text-slate-900 w-1/4">${ticker} performance vs:</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-b border-neutral-300">
-                      <td className="px-2 sm:px-4 py-2 font-medium text-neutral-900 border-r border-neutral-300">
-                        ${ticker} ({data.name.split(' ')[0]})
+                    <tr className="border-b border-slate-200">
+                      <td className="px-3 sm:px-4 py-2.5 font-medium text-slate-900 border-r border-slate-200">
+                        <div className="flex items-center gap-2">
+                          <TickerIcon ticker={ticker} size={16} />
+                          <span>${ticker} ({data.name.split(' ')[0]})</span>
+                        </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
+                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.oneMonth)}</div>
                           <div className="flex-1 text-center tabular-nums">{data.performance.oneMonth > 0 ? '+' : ''}{data.performance.oneMonth}%</div>
                         </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
+                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.threeMonth)}</div>
                           <div className="flex-1 text-center tabular-nums">{data.performance.threeMonth > 0 ? '+' : ''}{data.performance.threeMonth}%</div>
                         </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2">
+                      <td className="px-3 sm:px-4 py-2.5">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(data.performance.vsHigh1Y)}</div>
                           <div className="flex-1 text-center tabular-nums">
-                            <span className="text-xs text-neutral-600">1Y High:</span> {data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%
+                            <span className="text-xs text-slate-600">1Y High:</span> {data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%
                           </div>
                         </div>
                       </td>
                     </tr>
-                    <tr className="border-b border-neutral-300">
-                      <td className="px-2 sm:px-4 py-2 text-neutral-700 border-r border-neutral-300 truncate">
-                        {(supabaseData as any).first_benchmark_name || `$${data.performance.benchmarks.first?.ticker || 'N/A'}`}
+                    <tr className="border-b border-slate-200">
+                      <td className="px-3 sm:px-4 py-2.5 text-slate-700 border-r border-slate-200 truncate">
+                        <div className="flex items-center gap-2">
+                          <TickerIcon ticker={data.performance.benchmarks.first?.ticker} size={16} />
+                          <span className="truncate">
+                            {(supabaseData as any).first_benchmark_name || `$${data.performance.benchmarks.first?.ticker || 'N/A'}`}
+                          </span>
+                        </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
+                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.oneMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.oneMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
+                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.threeMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.threeMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2">
+                      <td className="px-3 sm:px-4 py-2.5">
                         {(() => {
                           const comparison = getComparisonIcon(data.performance.vsSP500_Benchmark);
                           return (
                             <div className="flex items-center">
                               <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{comparison.icon || ''}</div>
-                              <div className="flex-1 text-center text-xs sm:text-sm text-neutral-700">{comparison.text}</div>
+                              <div className="flex-1 text-center text-xs sm:text-sm text-slate-700">{comparison.text}</div>
                             </div>
                           );
                         })()}
                       </td>
                     </tr>
                     <tr>
-                      <td className="px-2 sm:px-4 py-2 text-neutral-700 border-r border-neutral-300 truncate">
-                        {(supabaseData as any).second_benchmark_name || `$${data.performance.benchmarks.sector?.ticker || 'N/A'}`}
+                      <td className="px-3 sm:px-4 py-2.5 text-slate-700 border-r border-slate-200 truncate">
+                        <div className="flex items-center gap-2">
+                          <TickerIcon ticker={data.performance.benchmarks.sector?.ticker} size={16} />
+                          <span className="truncate">
+                            {(supabaseData as any).second_benchmark_name || `$${data.performance.benchmarks.sector?.ticker || 'N/A'}`}
+                          </span>
+                        </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
+                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.oneMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.oneMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
+                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.threeMonth || 0)}</div>
                           <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.threeMonth || 0}%</div>
                         </div>
                       </td>
-                      <td className="px-2 sm:px-4 py-2">
+                      <td className="px-3 sm:px-4 py-2.5">
                         {(() => {
                           const comparison = getComparisonIcon(data.performance.vsBenchmark2);
                           return (
                             <div className="flex items-center">
                               <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{comparison.icon || ''}</div>
-                              <div className="flex-1 text-center text-xs sm:text-sm text-neutral-700">{comparison.text}</div>
+                              <div className="flex-1 text-center text-xs sm:text-sm text-slate-700">{comparison.text}</div>
                             </div>
                           );
                         })()}
@@ -623,30 +646,46 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
 
           {/* Helper function to render trend section */}
           {(() => {
-            const renderTrendSection = (title: string, trendData: any) => {
+            const renderTrendSection = (trendData: any) => {
               if (!trendData) return null;
               
               return (
-                <div className="bg-white border border-neutral-200 rounded-lg">
-                  <div className="px-4 sm:px-6 py-2 sm:py-3 border-b border-neutral-200 bg-neutral-50">
-                    <h2 className="font-semibold text-sm sm:text-base text-neutral-900">{title}</h2>
+                <div className="bg-white border border-slate-200 rounded-xl">
+                  <div className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between gap-3">
+                    <h2 className="font-semibold text-sm sm:text-base tracking-wide text-slate-900">
+                      {trendTimeframe === 'D' ? 'DAILY CHART TREND' : 'WEEKLY CHART TREND'}
+                    </h2>
+                    <div className="flex border border-slate-300 rounded-md overflow-hidden">
+                      <button
+                        onClick={() => setTrendTimeframe('D')}
+                        className={`px-2 sm:px-3 py-1 text-xs transition-colors ${trendTimeframe === 'D' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
+                      >
+                        D
+                      </button>
+                      <button
+                        onClick={() => setTrendTimeframe('W')}
+                        className={`px-2 sm:px-3 py-1 text-xs border-l border-slate-300 transition-colors ${trendTimeframe === 'W' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
+                      >
+                        W
+                      </button>
+                    </div>
                   </div>
-                  <div className="px-4 sm:px-6 py-3 sm:py-4 space-y-3 sm:space-y-4">
+                  <div className="px-4 sm:px-6 py-4 space-y-4">
                     {/* Rating and Status */}
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 pb-3 border-b border-neutral-200">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 pb-3 border-b border-slate-200">
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="flex">
                           {renderStars(trendData.rating)}
                         </div>
-                        <span className="text-base sm:text-lg font-semibold text-neutral-900">| {typeof trendData.rating === 'number' ? trendData.rating.toFixed(1) : trendData.rating}</span>
+                        <span className="text-base sm:text-lg font-semibold text-slate-900">| {typeof trendData.rating === 'number' ? trendData.rating.toFixed(1) : trendData.rating}</span>
                       </div>
                       <div className="text-left sm:text-right">
-                        <p className="text-xs sm:text-sm font-medium text-neutral-900">{trendData.direction} | Outlook: {trendData.outlook}</p>
+                        <p className="text-xs sm:text-sm font-medium text-slate-900">{trendData.direction} | Outlook: {trendData.outlook}</p>
                       </div>
                     </div>
 
                     {/* Description */}
-                    <p className="text-xs sm:text-sm text-neutral-700 leading-relaxed bg-neutral-50 border border-neutral-200 rounded p-3 sm:p-4">
+                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg p-3 sm:p-4">
                       {trendData.description}
                     </p>
 
@@ -654,20 +693,20 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                       {/* Trend Signals */}
                       <div>
-                        <h3 className="font-semibold text-sm sm:text-base text-neutral-900 mb-2 sm:mb-3 pb-2 border-b border-neutral-200">Trend Signals</h3>
+                        <h3 className="font-semibold text-sm sm:text-base text-slate-900 mb-2 sm:mb-3 pb-2 border-b border-slate-200">Trend Signals</h3>
                         <div className="space-y-2">
                           {trendData.signals.map((signal: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-neutral-100 pb-2 last:border-0">
-                              <span className="text-neutral-700 pr-2">{signal.label}</span>
+                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-slate-100 pb-2 last:border-0">
+                              <span className="text-slate-700 pr-2">{signal.label}</span>
                               <span className="flex items-center gap-1 flex-shrink-0">
                                 {typeof signal.value === 'number' && signal.value !== 0 ? (
-                                  <span className="text-neutral-900">
+                                  <span className="text-slate-900">
                                     {typeof signal.value === 'number' ? signal.value.toFixed(1) : signal.value}%
                                   </span>
                                 ) : typeof signal.value === 'number' ? (
-                                  <span className="text-neutral-900">0%</span>
+                                  <span className="text-slate-900">0%</span>
                                 ) : (
-                                  <span className="text-neutral-900">{signal.value}</span>
+                                  <span className="text-slate-900">{signal.value}</span>
                                 )}
                                 {/* Use stored icon from sheet if available, otherwise fallback to generated icon */}
                                 {signal.icon ? (
@@ -683,12 +722,12 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
 
                       {/* Key Levels */}
                       <div>
-                        <h3 className="font-semibold text-sm sm:text-base text-neutral-900 mb-2 sm:mb-3 pb-2 border-b border-neutral-200">Key Levels</h3>
+                        <h3 className="font-semibold text-sm sm:text-base text-slate-900 mb-2 sm:mb-3 pb-2 border-b border-slate-200">Key Levels</h3>
                         <div className="space-y-2">
                           {trendData.keyLevels.map((level: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-neutral-100 pb-2 last:border-0">
-                              <span className="text-neutral-700 pr-2">{level.label}</span>
-                              <span className="font-medium text-neutral-900 flex-shrink-0">{level.value}</span>
+                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-slate-100 pb-2 last:border-0">
+                              <span className="text-slate-700 pr-2">{level.label}</span>
+                              <span className="font-medium text-slate-900 flex-shrink-0">{level.value}</span>
                             </div>
                           ))}
                         </div>
@@ -699,15 +738,8 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
               );
             };
 
-            return (
-              <>
-                {/* WEEKLY CHART TREND Section */}
-                {renderTrendSection('WEEKLY CHART TREND', data.weeklyTrend)}
-                
-                {/* DAILY CHART TREND Section */}
-                {renderTrendSection('DAILY CHART TREND', data.dailyTrend)}
-              </>
-            );
+            const activeTrend = trendTimeframe === 'D' ? data.dailyTrend : data.weeklyTrend;
+            return renderTrendSection(activeTrend);
           })()}
         </div>
       </main>

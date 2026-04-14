@@ -4,6 +4,7 @@ import { FileText, BarChart3, TrendingUp, LayoutDashboard, Layers, Search } from
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
+import { TickerIcon } from './ui/ticker-icon';
 import { AppHeader } from './app-header';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
@@ -132,9 +133,12 @@ const TICKER_MAP: Record<string, string> = {
 
 export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, onGoToPortfolio, onGoToMWS }: IndexPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<Array<{ name: string; ticker: string }>>([]);
 
-  const allItems = [...SEGMENTS, ...SECTORS, ...LARGE_CAPS];
+  const searchableItems = [...SEGMENTS, ...SECTORS, ...LARGE_CAPS].map((name) => ({
+    name,
+    ticker: TICKER_MAP[name] || name,
+  }));
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -142,21 +146,22 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
       setSearchResults([]);
       return;
     }
-    const results = allItems.filter(item =>
-      item.toLowerCase().includes(query.toLowerCase())
+    const normalizedQuery = query.trim().toLowerCase();
+    const results = searchableItems.filter((item) =>
+      item.name.toLowerCase().includes(normalizedQuery) ||
+      item.ticker.toLowerCase().includes(normalizedQuery)
     );
     setSearchResults(results);
   };
 
-  const handleSelectResult = (item: string) => {
-    const ticker = TICKER_MAP[item] || item;
+  const handleSelectResult = (ticker: string) => {
     onNavigate('ticker-analysis', ticker);
     setSearchQuery('');
     setSearchResults([]);
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="min-h-screen bg-slate-50">
       <AppHeader
         userEmail={userEmail}
         currentAppMode={currentAppMode}
@@ -164,7 +169,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
       />
-      <main className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4 sm:space-y-6">
+      <main className="p-4 sm:p-6 max-w-[1220px] mx-auto space-y-5 sm:space-y-6">
         <div>
           <h1 className="text-neutral-900 text-lg sm:text-xl">MWS&apos;s Momentum Pulse Check</h1>
           <p className="text-xs sm:text-sm text-neutral-600 mt-0.5">Market Analysis Dashboard</p>
@@ -178,28 +183,37 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
               placeholder="Search all tickers, segments, sectors, and large caps..."
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 bg-white border-2 border-neutral-200 rounded-lg focus:border-neutral-900 focus:outline-none focus:ring-0 transition-colors text-sm sm:text-base text-neutral-900 placeholder:text-neutral-400"
+              className="w-full pl-10 sm:pl-12 pr-3 sm:pr-4 py-3 sm:py-4 bg-white border border-slate-300 rounded-xl focus:border-slate-900 focus:outline-none focus:ring-0 transition-colors text-sm sm:text-base text-slate-900 placeholder:text-slate-400"
             />
           </div>
           
           {/* Search Results Dropdown */}
           {searchResults.length > 0 && (
-            <div className="absolute top-full mt-2 w-full bg-white border-2 border-neutral-200 rounded-lg shadow-lg max-h-64 sm:max-h-96 overflow-y-auto z-50">
+            <div className="absolute top-full mt-2 w-full bg-white border border-slate-200 rounded-xl max-h-64 sm:max-h-96 overflow-y-auto z-50">
               <div className="p-2">
                 <div className="text-xs text-neutral-500 px-2 sm:px-3 py-1.5 sm:py-2 font-medium">
                   {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found
                 </div>
                 {searchResults.map((result, idx) => (
+                  (() => {
+                    const resultTicker = result.ticker;
+                    return (
                   <button
                     key={idx}
-                    onClick={() => handleSelectResult(result)}
+                    onClick={() => handleSelectResult(resultTicker)}
                     className="w-full text-left px-2 sm:px-3 py-2 sm:py-2.5 hover:bg-neutral-100 rounded transition-colors flex items-center justify-between group"
                   >
-                    <span className="text-xs sm:text-sm text-neutral-900 font-medium truncate pr-2">{result}</span>
+                    <span className="text-xs sm:text-sm text-neutral-900 font-medium truncate pr-2 flex items-center gap-2">
+                      <TickerIcon ticker={resultTicker} size={14} />
+                      <span className="truncate">{result.name}</span>
+                      <span className="text-neutral-500">{resultTicker}</span>
+                    </span>
                     <svg className="w-3 h-3 sm:w-4 sm:h-4 text-neutral-400 group-hover:text-neutral-900 group-hover:translate-x-1 transition-all flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
+                    );
+                  })()
                 ))}
               </div>
             </div>
@@ -210,7 +224,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
           <button
             onClick={() => onNavigate('readme')}
-            className="group flex items-start gap-3 sm:gap-4 p-4 sm:p-5 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all text-left cursor-pointer transform hover:-translate-y-0.5"
+            className="group flex items-start gap-3 sm:gap-4 p-4 sm:p-5 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors text-left cursor-pointer"
           >
             <div className="p-2 sm:p-3 bg-neutral-100 rounded-lg group-hover:bg-neutral-900 transition-colors flex-shrink-0">
               <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-700 group-hover:text-white transition-colors" />
@@ -228,7 +242,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
 
           <button
             onClick={() => onNavigate('ticker-analysis')}
-            className="group flex items-start gap-3 sm:gap-4 p-4 sm:p-5 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all text-left cursor-pointer transform hover:-translate-y-0.5"
+            className="group flex items-start gap-3 sm:gap-4 p-4 sm:p-5 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors text-left cursor-pointer"
           >
             <div className="p-2 sm:p-3 bg-neutral-100 rounded-lg group-hover:bg-neutral-900 transition-colors flex-shrink-0">
               <Search className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-700 group-hover:text-white transition-colors" />
@@ -246,7 +260,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
 
           <button
             onClick={() => onNavigate('dashboard')}
-            className="group flex items-start gap-3 sm:gap-4 p-4 sm:p-5 bg-white border-2 border-neutral-200 rounded-lg hover:border-neutral-900 hover:shadow-lg transition-all text-left cursor-pointer transform hover:-translate-y-0.5"
+            className="group flex items-start gap-3 sm:gap-4 p-4 sm:p-5 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors text-left cursor-pointer"
           >
             <div className="p-2 sm:p-3 bg-neutral-100 rounded-lg group-hover:bg-neutral-900 transition-colors flex-shrink-0">
               <LayoutDashboard className="w-4 h-4 sm:w-5 sm:h-5 text-neutral-700 group-hover:text-white transition-colors" />
@@ -266,7 +280,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
         {/* Two Column Layout for Desktop, Stacked for Mobile */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* SEGMENT Ticker Pages */}
-          <Card>
+          <Card className="border-slate-200 shadow-none">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-neutral-700" />
@@ -283,7 +297,10 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
                     className="justify-start h-auto py-2 text-xs sm:text-sm hover:bg-neutral-100 hover:border-neutral-400"
                     onClick={() => onNavigate('ticker-analysis', TICKER_MAP[segment])}
                   >
-                    {segment}
+                    <span className="flex items-center gap-2">
+                      <TickerIcon ticker={TICKER_MAP[segment]} size={14} />
+                      <span>{segment}</span>
+                    </span>
                   </Button>
                 ))}
               </div>
@@ -291,7 +308,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
           </Card>
 
           {/* SECTOR Ticker Pages */}
-          <Card>
+          <Card className="border-slate-200 shadow-none">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Layers className="w-5 h-5 text-neutral-700" />
@@ -308,7 +325,12 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
                     className="justify-start h-auto py-2 px-3 text-xs sm:text-sm hover:bg-neutral-100 hover:border-neutral-400 text-left whitespace-normal leading-tight"
                     onClick={() => onNavigate('ticker-analysis', TICKER_MAP[sector])}
                   >
-                    <span className="block w-full overflow-wrap-anywhere">{sector}</span>
+                    <span className="block w-full overflow-wrap-anywhere">
+                      <span className="inline-flex items-center gap-2">
+                        <TickerIcon ticker={TICKER_MAP[sector]} size={14} />
+                        <span>{sector}</span>
+                      </span>
+                    </span>
                   </Button>
                 ))}
               </div>
@@ -318,7 +340,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
         </div>
 
         {/* LARGE CAPS Ticker Pages - Full Width */}
-        <Card>
+        <Card className="border-slate-200 shadow-none">
           <CardHeader>
             <div className="flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-neutral-700" />
@@ -335,7 +357,12 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
                   className="justify-start h-auto py-2 px-2 sm:px-3 text-xs sm:text-sm hover:bg-neutral-100 hover:border-neutral-400 text-left whitespace-normal leading-tight"
                   onClick={() => onNavigate('ticker-analysis', TICKER_MAP[stock])}
                 >
-                  <span className="block w-full overflow-wrap-anywhere">{stock}</span>
+                  <span className="block w-full overflow-wrap-anywhere">
+                    <span className="inline-flex items-center gap-2">
+                      <TickerIcon ticker={TICKER_MAP[stock]} size={14} />
+                      <span>{stock}</span>
+                    </span>
+                  </span>
                 </Button>
               ))}
             </div>

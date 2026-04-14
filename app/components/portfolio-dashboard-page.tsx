@@ -192,7 +192,7 @@ export function PortfolioDashboardPage({
           return (
             <td
               key={col.key}
-              className={`px-2 py-4 text-sm overflow-hidden text-ellipsis text-left ${
+              className={`px-3 py-3.5 text-sm overflow-hidden text-ellipsis text-left ${
                 idx === 0 ? 'font-medium text-slate-900' : 'text-slate-700 tabular-nums'
               } ${isPositive ? 'bg-emerald-700 text-white' : ''}`}
             >
@@ -222,7 +222,7 @@ export function PortfolioDashboardPage({
             </td>
           );
         })}
-        <td className="px-2 py-4 text-slate-400 group-hover:text-slate-600 w-10 text-left align-middle">
+        <td className="px-3 py-3.5 text-slate-400 group-hover:text-slate-600 w-10 text-left align-middle">
           {!isCombined && page && <ChevronRight className="w-4 h-4 inline-block" aria-hidden />}
         </td>
       </tr>
@@ -230,7 +230,7 @@ export function PortfolioDashboardPage({
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-slate-50">
       <AppHeader
         userEmail={userEmail}
         currentAppMode={currentAppMode}
@@ -238,7 +238,7 @@ export function PortfolioDashboardPage({
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
       />
-      <main className="p-4 sm:p-6 max-w-[1400px] mx-auto w-full space-y-8">
+      <main className="p-4 sm:p-6 max-w-[1220px] mx-auto w-full space-y-7">
         <div>
           <h1 className="text-lg font-semibold text-slate-900">Portfolio Performance</h1>
           <p className="text-sm text-slate-500 mt-0.5">Performance recap from your tracker</p>
@@ -256,7 +256,7 @@ export function PortfolioDashboardPage({
         )}
         {!loading && !error && (
           <section>
-            <div className="border border-slate-200 overflow-hidden">
+            <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm table-fixed">
                   <colgroup>
@@ -270,12 +270,12 @@ export function PortfolioDashboardPage({
                       {tableColumns.map((col) => (
                         <th
                           key={col.key}
-                          className="px-2 py-4 font-semibold text-xs text-left whitespace-normal leading-tight overflow-hidden"
+                          className="px-3 py-3.5 font-semibold text-xs text-left whitespace-normal leading-tight overflow-hidden"
                         >
                           {col.header}
                         </th>
                       ))}
-                      <th className="px-2 py-4 w-10" aria-label="View" />
+                      <th className="px-3 py-3.5 w-10" aria-label="View" />
                     </tr>
                   </thead>
                   <tbody className="bg-white">
@@ -283,7 +283,7 @@ export function PortfolioDashboardPage({
                       <tr className="bg-amber-50 border-b border-slate-200">
                         <td
                           colSpan={tableColumns.length + 1}
-                          className="px-2 py-3 text-xs font-semibold text-amber-800"
+                          className="px-3 py-3 text-xs font-semibold text-amber-800"
                         >
                           {GROUP_WEEKLY_MOMENTUM}
                         </td>
@@ -295,7 +295,7 @@ export function PortfolioDashboardPage({
                       <tr className="bg-amber-50 border-t border-b border-slate-200">
                         <td
                           colSpan={tableColumns.length + 1}
-                          className="px-2 py-3 text-xs font-semibold text-amber-800"
+                          className="px-3 py-3 text-xs font-semibold text-amber-800"
                         >
                           {GROUP_ETF}
                         </td>
