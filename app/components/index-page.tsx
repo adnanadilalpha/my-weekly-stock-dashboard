@@ -7,7 +7,8 @@ import { Badge } from './ui/badge';
 import { AppHeader } from './app-header';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getAllTickers, tickerMatchesSearchQuery } from '../../lib/queries/ticker';
 
 interface IndexPageProps {
   userEmail: string;
@@ -133,8 +134,28 @@ const TICKER_MAP: Record<string, string> = {
 export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, onGoToPortfolio, onGoToMWS }: IndexPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<string[]>([]);
+  const [dbTickers, setDbTickers] = useState<string[]>([]);
 
-  const allItems = [...SEGMENTS, ...SECTORS, ...LARGE_CAPS];
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const rows = await getAllTickers();
+        if (mounted) setDbTickers(rows);
+      } catch {
+        // Keep static options if database ticker list fetch fails.
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const allItems = useMemo(() => {
+    const curated = [...SEGMENTS, ...SECTORS, ...LARGE_CAPS];
+    const merged = new Set<string>([...curated, ...dbTickers]);
+    return Array.from(merged);
+  }, [dbTickers]);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -142,9 +163,7 @@ export function IndexPage({ userEmail, onSignOut, onNavigate, currentAppMode, on
       setSearchResults([]);
       return;
     }
-    const results = allItems.filter(item =>
-      item.toLowerCase().includes(query.toLowerCase())
-    );
+    const results = allItems.filter(item => tickerMatchesSearchQuery(item, query));
     setSearchResults(results);
   };
 

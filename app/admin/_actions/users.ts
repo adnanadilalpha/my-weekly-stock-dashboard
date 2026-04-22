@@ -1,0 +1,351 @@
+'use server';
+
+import { getAdminSupabase } from '@/lib/server/supabase-admin';
+import { err, ok, withAdmin, type ActionResult } from './_shared';
+
+export type AdminUserRow = {
+  id: string;
+  email: string;
+  role: 'Admin' | 'User' | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type UserStats = {
+  total: number;
+  admins: number;
+  regular: number;
+  addedThisWeek: number;
+};
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const trimmed = v.trim().toLowerCase();
+  if (!EMAIL_RE.test(trimmed) || trimmed.length > 254) return null;
+  return trimmed;
+}
+
+function normalizeRole(v: unknown): 'Admin' | 'User' | null {
+  if (v === 'Admin' || v === 'User') return v;
+  return null;
+}
+
+export type ListUsersInput = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  roleFilter?: 'all' | 'admin' | 'user';
+};
+
+export type ListUsersResult = {
+  users: AdminUserRow[];
+  stats: UserStats;
+  totalCount: number;
+  page: number;
+  pageSize: number;
+};
+
+const MAX_USER_PAGE = 100;
+const DEFAULT_USER_PAGE = 50;
+
+function sanitizeUserSearch(raw: string): string {
+  return raw.replace(/[%_,]/g, '').trim().slice(0, 120);
+}
+
+export async function listUsersAction(
+  accessToken: string,
+  input?: ListUsersInput
+): Promise<ActionResult<ListUsersResult>> {
+  return withAdmin(accessToken, async () => {
+    const admin = getAdminSupabase();
+    const page = Math.max(0, Math.floor(input?.page ?? 0));
+    const pageSize = Math.min(MAX_USER_PAGE, Math.max(1, Math.floor(input?.pageSize ?? DEFAULT_USER_PAGE)));
+    const searchRaw = typeof input?.search === 'string' ? input.search : '';
+    const search = sanitizeUserSearch(searchRaw);
+    const roleFilter = input?.roleFilter ?? 'all';
+
+    const sinceWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    let listQ = admin
+      .from('authorized_users')
+      .select('id, email, role, created_at, updated_at', { count: 'exact' })
+      .order('created_at', { ascending: false });
+    if (search) listQ = listQ.ilike('email', `%${search}%`);
+    if (roleFilter === 'admin') listQ = listQ.eq('role', 'Admin');
+    if (roleFilter === 'user') listQ = listQ.or('role.eq.User,role.is.null');
+
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+
+    const [listRes, totalRes, adminsRes, weekRes] = await Promise.all([
+      listQ.range(from, to),
+      admin.from('authorized_users').select('id', { count: 'exact', head: true }),
+      admin.from('authorized_users').select('id', { count: 'exact', head: true }).eq('role', 'Admin'),
+      admin.from('authorized_users').select('id', { count: 'exact', head: true }).gte('created_at', sinceWeek),
+    ]);
+
+    if (listRes.error) return err('Failed to load users.', 'db_error');
+    if (totalRes.error || adminsRes.error || weekRes.error) return err('Failed to load user stats.', 'db_error');
+
+    const users = (listRes.data ?? []) as AdminUserRow[];
+    const total = totalRes.count ?? 0;
+    const admins = adminsRes.count ?? 0;
+    const stats: UserStats = {
+      total,
+      admins,
+      regular: Math.max(0, total - admins),
+      addedThisWeek: weekRes.count ?? 0,
+    };
+
+    return ok({
+      users,
+      stats,
+      totalCount: listRes.count ?? 0,
+      page,
+      pageSize,
+    });
+  });
+}
+
+type AdminClient = ReturnType<typeof getAdminSupabase>;
+
+type InsertInviteResult =
+  | { ok: true; row: AdminUserRow; inviteWarning?: string }
+  | { ok: false; code: 'duplicate' | 'db_error'; message?: string };
+
+async function insertAuthorizedUserAndInvite(
+  admin: AdminClient,
+  email: string,
+  role: 'Admin' | 'User'
+): Promise<InsertInviteResult> {
+  const { data, error } = await admin
+    .from('authorized_users')
+    .insert({ email, role })
+    .select('id, email, role, created_at, updated_at')
+    .single();
+
+  if (error) {
+    if (error.code === '23505') return { ok: false, code: 'duplicate' };
+    return { ok: false, code: 'db_error', message: error.message };
+  }
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? '';
+  const redirectTo = siteUrl ? `${siteUrl.replace(/\/$/, '')}/admin` : undefined;
+  const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+    redirectTo,
+    data: { role },
+  });
+  if (inviteError && !/already.*registered|already.*exists/i.test(inviteError.message)) {
+    return { ok: true, row: data as AdminUserRow, inviteWarning: inviteError.message };
+  }
+
+  return { ok: true, row: data as AdminUserRow };
+}
+
+export async function createUserAction(
+  accessToken: string,
+  input: { email: string; role: 'Admin' | 'User' }
+): Promise<ActionResult<AdminUserRow>> {
+  return withAdmin(accessToken, async () => {
+    const email = normalizeEmail(input.email);
+    const role = normalizeRole(input.role);
+    if (!email) return err('Invalid email address.', 'validation');
+    if (!role) return err('Invalid role.', 'validation');
+
+    const admin = getAdminSupabase();
+    const result = await insertAuthorizedUserAndInvite(admin, email, role);
+    if (!result.ok) {
+      if (result.code === 'duplicate') return err('A user with that email already exists.', 'duplicate');
+      return err('Failed to create user.', 'db_error');
+    }
+    if (result.inviteWarning) {
+      return err(`User added but invite email failed: ${result.inviteWarning}`, 'invite_failed');
+    }
+    return ok(result.row);
+  });
+}
+
+export type BulkCreateRowInput = { email: string; role: 'Admin' | 'User' };
+
+export type BulkCreateUserResultItem = {
+  email: string;
+  role?: 'Admin' | 'User';
+  status: 'created' | 'duplicate' | 'duplicate_in_file' | 'invalid' | 'db_error' | 'created_invite_failed';
+  message?: string;
+};
+
+export type BulkCreateUsersResult = {
+  results: BulkCreateUserResultItem[];
+  summary: {
+    created: number;
+    duplicate: number;
+    duplicateInFile: number;
+    invalid: number;
+    dbErrors: number;
+    inviteFailed: number;
+  };
+};
+
+const MAX_BULK_USERS = 200;
+
+export async function bulkCreateUsersAction(
+  accessToken: string,
+  input: { rows: BulkCreateRowInput[] }
+): Promise<ActionResult<BulkCreateUsersResult>> {
+  return withAdmin(accessToken, async () => {
+    const rowsIn = Array.isArray(input.rows) ? input.rows : [];
+    if (rowsIn.length === 0) return err('No users to add.', 'validation');
+    if (rowsIn.length > MAX_BULK_USERS) {
+      return err(`You can add at most ${MAX_BULK_USERS} users per import. Split into multiple files or batches.`, 'validation');
+    }
+
+    const admin = getAdminSupabase();
+    const seen = new Set<string>();
+    const results: BulkCreateUserResultItem[] = [];
+
+    for (const raw of rowsIn) {
+      const email = normalizeEmail(raw.email);
+      const role = normalizeRole(raw.role);
+      const rawEmailPreview =
+        typeof raw.email === 'string' ? raw.email.trim().slice(0, 254) : String(raw.email ?? '').slice(0, 254);
+
+      if (!email) {
+        results.push({
+          email: rawEmailPreview || '(empty)',
+          status: 'invalid',
+          message: 'Invalid email address.',
+        });
+        continue;
+      }
+      if (!role) {
+        results.push({
+          email,
+          status: 'invalid',
+          message: 'Role must be Admin or User.',
+        });
+        continue;
+      }
+      if (seen.has(email)) {
+        results.push({
+          email,
+          role,
+          status: 'duplicate_in_file',
+          message: 'This email appears more than once in the import.',
+        });
+        continue;
+      }
+      seen.add(email);
+
+      const outcome = await insertAuthorizedUserAndInvite(admin, email, role);
+      if (!outcome.ok) {
+        if (outcome.code === 'duplicate') {
+          results.push({ email, role, status: 'duplicate' });
+        } else {
+          results.push({
+            email,
+            role,
+            status: 'db_error',
+            message: outcome.message ?? 'Database error.',
+          });
+        }
+        continue;
+      }
+      if (outcome.inviteWarning) {
+        results.push({
+          email,
+          role,
+          status: 'created_invite_failed',
+          message: outcome.inviteWarning,
+        });
+      } else {
+        results.push({ email, role, status: 'created' });
+      }
+    }
+
+    const summary = {
+      created: results.filter((r) => r.status === 'created').length,
+      duplicate: results.filter((r) => r.status === 'duplicate').length,
+      duplicateInFile: results.filter((r) => r.status === 'duplicate_in_file').length,
+      invalid: results.filter((r) => r.status === 'invalid').length,
+      dbErrors: results.filter((r) => r.status === 'db_error').length,
+      inviteFailed: results.filter((r) => r.status === 'created_invite_failed').length,
+    };
+
+    return ok({ results, summary });
+  });
+}
+
+export async function updateUserRoleAction(
+  accessToken: string,
+  input: { id: string; role: 'Admin' | 'User' }
+): Promise<ActionResult<AdminUserRow>> {
+  return withAdmin(accessToken, async (ctx) => {
+    const role = normalizeRole(input.role);
+    if (!role) return err('Invalid role.', 'validation');
+    if (typeof input.id !== 'string' || input.id.length < 10) return err('Invalid id.', 'validation');
+
+    const admin = getAdminSupabase();
+
+    // Prevent an admin from demoting themselves while last remaining admin.
+    if (role !== 'Admin') {
+      const { data: target } = await admin
+        .from('authorized_users')
+        .select('email')
+        .eq('id', input.id)
+        .maybeSingle();
+      if (target?.email?.toLowerCase() === ctx.email) {
+        const { count } = await admin
+          .from('authorized_users')
+          .select('*', { count: 'exact', head: true })
+          .eq('role', 'Admin');
+        if ((count ?? 0) <= 1) return err('Cannot demote the last remaining admin.', 'guard');
+      }
+    }
+
+    const { data, error } = await admin
+      .from('authorized_users')
+      .update({ role, updated_at: new Date().toISOString() })
+      .eq('id', input.id)
+      .select('id, email, role, created_at, updated_at')
+      .single();
+
+    if (error) return err('Failed to update user.', 'db_error');
+    return ok(data as AdminUserRow);
+  });
+}
+
+export async function deleteUserAction(
+  accessToken: string,
+  input: { id: string }
+): Promise<ActionResult<{ id: string }>> {
+  return withAdmin(accessToken, async (ctx) => {
+    if (typeof input.id !== 'string' || input.id.length < 10) return err('Invalid id.', 'validation');
+
+    const admin = getAdminSupabase();
+    const { data: target } = await admin
+      .from('authorized_users')
+      .select('email, role')
+      .eq('id', input.id)
+      .maybeSingle();
+
+    if (!target) return err('User not found.', 'not_found');
+
+    // Guard: cannot delete yourself; cannot delete the last admin.
+    if (target.email?.toLowerCase() === ctx.email) {
+      return err('You cannot delete your own account.', 'guard');
+    }
+    if (target.role === 'Admin') {
+      const { count } = await admin
+        .from('authorized_users')
+        .select('*', { count: 'exact', head: true })
+        .eq('role', 'Admin');
+      if ((count ?? 0) <= 1) return err('Cannot delete the last remaining admin.', 'guard');
+    }
+
+    const { error } = await admin.from('authorized_users').delete().eq('id', input.id);
+    if (error) return err('Failed to delete user.', 'db_error');
+    return ok({ id: input.id });
+  });
+}

@@ -1,0 +1,46 @@
+.admin-shell {
+  font-family: Inter, sans-serif;
+}
+
+.admin-navy {
+  background-color: #0d1b2e;
+}
+
+.admin-surface {
+  background-color: #ffffff;
+}
+
+.admin-page-bg {
+  background-color: #f9fafb;
+}
+
+.admin-border {
+  border-color: #e5e7eb;
+}
+
+.admin-border-soft {
+  border-color: #f3f4f6;
+}
+
+.admin-text-main {
+  color: #111827;
+}
+
+.admin-text-muted {
+  color: #6b7280;
+}
+
+.admin-green {
+  color: #15803d;
+}
+
+.admin-green-bg {
+  background-color: #15803d;
+}
+
+.admin-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}

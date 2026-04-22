@@ -12,34 +12,81 @@ export interface TickerResult {
   type: TickerType | null;
 }
 
+const POSTGREST_PAGE = 1000;
+
+function tickerLookupVariants(raw: string): string[] {
+  const u = raw.trim().toUpperCase();
+  if (!u) return [];
+  const dotted = u.replace(/-/g, '.');
+  const hyphened = u.replace(/\./g, '-');
+  return [...new Set([u, dotted, hyphened])];
+}
+
+/** Loosen search so BF.A matches BF-A and vice versa (display names unchanged). */
+function normTickerSearchKey(s: string): string {
+  return s.trim().toLowerCase().replace(/-/g, '.');
+}
+
+export function tickerMatchesSearchQuery(item: string, query: string): boolean {
+  const q = query.trim();
+  if (!q) return true;
+  const ql = q.toLowerCase();
+  const tl = item.toLowerCase();
+  if (tl.includes(ql)) return true;
+  const tKey = normTickerSearchKey(item);
+  const qKey = normTickerSearchKey(q);
+  return tKey.includes(qKey);
+}
+
+async function selectAllTickersFromTable(table: string): Promise<string[]> {
+  const out: string[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('ticker')
+      .range(from, from + POSTGREST_PAGE - 1);
+
+    if (error) {
+      console.error(`Error fetching tickers from ${table}:`, error);
+      break;
+    }
+
+    const rows = data ?? [];
+    for (const r of rows) {
+      const t = r?.ticker;
+      if (t != null && String(t).trim() !== '') out.push(String(t).trim());
+    }
+    if (rows.length < POSTGREST_PAGE) break;
+    from += POSTGREST_PAGE;
+  }
+  return out;
+}
+
 /**
  * Unified function to find and fetch any ticker across all tables
  */
 export async function getTickerData(ticker: string): Promise<TickerResult> {
-  const upperTicker = ticker.toUpperCase();
+  for (const t of tickerLookupVariants(ticker)) {
+    const segment = await getMarketSegmentByTicker(t);
+    if (segment) {
+      return { data: segment, type: 'segment' };
+    }
 
-  // Try market segments first
-  const segment = await getMarketSegmentByTicker(upperTicker);
-  if (segment) {
-    return { data: segment, type: 'segment' };
-  }
+    const sector = await getSectorByTicker(t);
+    if (sector) {
+      return { data: sector, type: 'sector' };
+    }
 
-  // Try sectors
-  const sector = await getSectorByTicker(upperTicker);
-  if (sector) {
-    return { data: sector, type: 'sector' };
-  }
+    const megaCap = await getMegaCapByTicker(t);
+    if (megaCap) {
+      return { data: megaCap, type: 'mega_cap' };
+    }
 
-  // Try mega caps
-  const megaCap = await getMegaCapByTicker(upperTicker);
-  if (megaCap) {
-    return { data: megaCap, type: 'mega_cap' };
-  }
-
-  // Try other stocks
-  const otherStock = await getOtherStockByTicker(upperTicker);
-  if (otherStock) {
-    return { data: otherStock, type: 'other_stock' };
+    const otherStock = await getOtherStockByTicker(t);
+    if (otherStock) {
+      return { data: otherStock, type: 'other_stock' };
+    }
   }
 
   return { data: null, type: null };
@@ -49,16 +96,19 @@ export async function getTickerData(ticker: string): Promise<TickerResult> {
  * Get all available tickers from all tables
  */
 export async function getAllTickers(): Promise<string[]> {
-  const { data: segmentsData } = await supabase.from('market_segments').select('ticker');
-  const { data: sectorsData } = await supabase.from('sectors').select('ticker');
-  const { data: megaCapsData } = await supabase.from('mega_caps').select('ticker');
-  const { data: otherStocksData } = await supabase.from('other_stocks').select('ticker');
+  const [segmentsTickers, sectorsTickers, megaCapsTickers, otherStocksTickers] =
+    await Promise.all([
+      selectAllTickersFromTable('market_segments'),
+      selectAllTickersFromTable('sectors'),
+      selectAllTickersFromTable('mega_caps'),
+      selectAllTickersFromTable('other_stocks'),
+    ]);
 
   const allTickers = [
-    ...(segmentsData?.map(s => s.ticker) || []),
-    ...(sectorsData?.map(s => s.ticker) || []),
-    ...(megaCapsData?.map(s => s.ticker) || []),
-    ...(otherStocksData?.map(s => s.ticker) || [])
+    ...segmentsTickers,
+    ...sectorsTickers,
+    ...megaCapsTickers,
+    ...otherStocksTickers,
   ];
 
   return [...new Set(allTickers)].sort();

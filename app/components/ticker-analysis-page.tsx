@@ -10,7 +10,7 @@ import { AppHeader } from './app-header';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { useTickerData } from '../../lib/hooks/useTickerData';
-import { getTickerData } from '../../lib/queries/ticker';
+import { getAllTickers, getTickerData } from '../../lib/queries/ticker';
 
 interface TickerAnalysisPageProps {
   userEmail: string;
@@ -159,9 +159,26 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
   const [benchmarkTicker, setBenchmarkTicker] = useState<string | null>(null);
   const [benchmarkName, setBenchmarkName] = useState<string>('N/A');
   const [benchmarksLoading, setBenchmarksLoading] = useState(false);
+  const [dbTickers, setDbTickers] = useState<string[]>([]);
 
   // All available tickers for the dropdown
-  const allTickers = [...MARKET_SEGMENTS, ...SECTORS, ...LARGE_CAPS].sort();
+  const fallbackTickers = useMemo(() => [...MARKET_SEGMENTS, ...SECTORS, ...LARGE_CAPS].sort(), []);
+  const allTickers = dbTickers.length > 0 ? dbTickers : fallbackTickers;
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const rows = await getAllTickers();
+        if (mounted && rows.length > 0) setDbTickers(rows);
+      } catch {
+        // Keep static fallback tickers if dynamic list fails.
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleRefresh = async () => {
     await refetch();
@@ -297,6 +314,19 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
   // Transform Supabase data to expected format
   const data = useMemo(() => {
     if (!supabaseData) return null;
+
+    const toNumeric = (value: unknown): number | null => {
+      if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null;
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        const parsed = Number(trimmed);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    };
     
     // Get name based on type
     let name = '';
@@ -322,9 +352,9 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
       : 'N/A';
 
     // PERFORMANCE DATA - Use new simplified fields with fallback to old fields
-    const perf1M = (supabaseData as any)['1m_percent'] ?? supabaseData.daily_1m_percent;
-    const perf3M = (supabaseData as any)['3m_percent'] ?? supabaseData.daily_3m_percent;
-    const vsHigh1Y = (supabaseData as any)['vs_1y_high'] ?? supabaseData.daily_vs_1y_high;
+    const perf1M = toNumeric((supabaseData as any)['1m_percent'] ?? supabaseData.daily_1m_percent);
+    const perf3M = toNumeric((supabaseData as any)['3m_percent'] ?? supabaseData.daily_3m_percent);
+    const vsHigh1Y = toNumeric((supabaseData as any)['vs_1y_high'] ?? supabaseData.daily_vs_1y_high);
     const perfSummary = supabaseData.daily_performance_summary;
     const perfDescription = supabaseData.daily_performance_description;
     const vsSpyComparison = supabaseData.daily_vs_spy_comparison;
@@ -338,9 +368,9 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
       performance: {
         summary: perfSummary || 'N/A',
         description: perfDescription || 'N/A',
-        oneMonth: perf1M ?? 0,
-        threeMonth: perf3M ?? 0,
-        vsHigh1Y: vsHigh1Y ?? 0,
+        oneMonth: perf1M,
+        threeMonth: perf3M,
+        vsHigh1Y: vsHigh1Y,
         performanceStrength: (supabaseData as any)['performance_strength'] ?? supabaseData.daily_performance_strength ?? null,
         distanceToHighs: (supabaseData as any)['distance_to_highs'] ?? supabaseData.daily_distance_to_highs ?? null,
         price1M: supabaseData.price_1m ?? null,
@@ -355,14 +385,14 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
           first: {
             ticker: (supabaseData as any).first_benchmark_ticker ?? (firstBenchmarkTicker || 'N/A'),
             name: firstBenchmarkName,
-            oneMonth: (supabaseData as any).first_benchmark_1m_percent ?? firstBenchmarkData?.daily_1m_percent ?? (firstBenchmarkData as any)?.['1m_percent'] ?? 0,
-            threeMonth: (supabaseData as any).first_benchmark_3m_percent ?? firstBenchmarkData?.daily_3m_percent ?? (firstBenchmarkData as any)?.['3m_percent'] ?? 0
+            oneMonth: toNumeric((supabaseData as any).first_benchmark_1m_percent ?? firstBenchmarkData?.daily_1m_percent ?? (firstBenchmarkData as any)?.['1m_percent'] ?? null),
+            threeMonth: toNumeric((supabaseData as any).first_benchmark_3m_percent ?? firstBenchmarkData?.daily_3m_percent ?? (firstBenchmarkData as any)?.['3m_percent'] ?? null)
           },
           sector: { 
             ticker: (supabaseData as any).second_benchmark_ticker ?? (benchmarkTicker || 'N/A'),
             name: benchmarkName,
-            oneMonth: (supabaseData as any).second_benchmark_1m_percent ?? sectorBenchmarkData?.daily_1m_percent ?? (sectorBenchmarkData as any)?.['1m_percent'] ?? 0,
-            threeMonth: (supabaseData as any).second_benchmark_3m_percent ?? sectorBenchmarkData?.daily_3m_percent ?? (sectorBenchmarkData as any)?.['3m_percent'] ?? 0
+            oneMonth: toNumeric((supabaseData as any).second_benchmark_1m_percent ?? sectorBenchmarkData?.daily_1m_percent ?? (sectorBenchmarkData as any)?.['1m_percent'] ?? null),
+            threeMonth: toNumeric((supabaseData as any).second_benchmark_3m_percent ?? sectorBenchmarkData?.daily_3m_percent ?? (sectorBenchmarkData as any)?.['3m_percent'] ?? null)
           }
         }
       },
@@ -372,21 +402,34 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
   }, [supabaseData, ticker, type, firstBenchmarkData, firstBenchmarkTicker, firstBenchmarkName, sectorBenchmarkData, benchmarkTicker, benchmarkName]);
 
   // Get performance color and icon based on value (matching sheet logic)
-  const getPerformanceColor = (value: number) => {
+  const getPerformanceColor = (value: number | null) => {
     // Background colors removed - keeping for text color if needed
     return '';
   };
 
-  const getPerformanceIcon = (value: number) => {
+  const getPerformanceIcon = (value: number | null) => {
+    if (value === null) return '⚪️';
     if (value > 0) return '🟩';
     if (value === 0) return '🟨';
     return '🟥';
   };
 
-  const getVsHighIcon = (value: number) => {
-    if (value > -5) return '✅';
-    if (value > -10) return '⚪️';
+  const getVsHighIcon = (value: number | null) => {
+    if (value === null) return '⚪️';
+    // value is stored as a decimal fraction (e.g. -0.05 = -5% below the 52-week high)
+    if (value > -0.05) return '✅';
+    if (value > -0.10) return '⚪️';
     return '❌';
+  };
+
+  const formatPercentValue = (value: number | null | undefined) => {
+    if (value == null || !Number.isFinite(value)) return 'N/A';
+    // Data is commonly stored as decimal fractions (0.12 => 12%).
+    // If value is already in percent points (abs > 1), keep it as-is.
+    const percent = Math.abs(value) <= 1 ? value * 100 : value;
+    const rounded = Number(percent.toFixed(2));
+    const sign = rounded > 0 ? '+' : '';
+    return `${sign}${rounded}%`;
   };
 
   // Helper function to get comparison icon and text
@@ -541,20 +584,20 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                       <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.oneMonth)}</div>
-                          <div className="flex-1 text-center tabular-nums">{data.performance.oneMonth > 0 ? '+' : ''}{data.performance.oneMonth}%</div>
+                          <div className="flex-1 text-center tabular-nums">{formatPercentValue(data.performance.oneMonth)}</div>
                         </div>
                       </td>
                       <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.threeMonth)}</div>
-                          <div className="flex-1 text-center tabular-nums">{data.performance.threeMonth > 0 ? '+' : ''}{data.performance.threeMonth}%</div>
+                          <div className="flex-1 text-center tabular-nums">{formatPercentValue(data.performance.threeMonth)}</div>
                         </div>
                       </td>
                       <td className="px-2 sm:px-4 py-2">
                         <div className="flex items-center">
                           <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(data.performance.vsHigh1Y)}</div>
                           <div className="flex-1 text-center tabular-nums">
-                            <span className="text-xs text-neutral-600">1Y High:</span> {data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%
+                            <span className="text-xs text-neutral-600">1Y High:</span> {formatPercentValue(data.performance.vsHigh1Y)}
                           </div>
                         </div>
                       </td>
@@ -565,14 +608,14 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                       </td>
                       <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.oneMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.oneMonth || 0}%</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.oneMonth ?? null)}</div>
+                          <div className="flex-1 text-center tabular-nums">{formatPercentValue(data.performance.benchmarks.first?.oneMonth)}</div>
                         </div>
                       </td>
                       <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.threeMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.threeMonth || 0}%</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.threeMonth ?? null)}</div>
+                          <div className="flex-1 text-center tabular-nums">{formatPercentValue(data.performance.benchmarks.first?.threeMonth)}</div>
                         </div>
                       </td>
                       <td className="px-2 sm:px-4 py-2">
@@ -593,14 +636,14 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                       </td>
                       <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.oneMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.oneMonth || 0}%</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.oneMonth ?? null)}</div>
+                          <div className="flex-1 text-center tabular-nums">{formatPercentValue(data.performance.benchmarks.sector?.oneMonth)}</div>
                         </div>
                       </td>
                       <td className="px-2 sm:px-4 py-2 border-r border-neutral-300">
                         <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.threeMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.threeMonth || 0}%</div>
+                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.threeMonth ?? null)}</div>
+                          <div className="flex-1 text-center tabular-nums">{formatPercentValue(data.performance.benchmarks.sector?.threeMonth)}</div>
                         </div>
                       </td>
                       <td className="px-2 sm:px-4 py-2">
@@ -660,16 +703,17 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
                             <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-neutral-100 pb-2 last:border-0">
                               <span className="text-neutral-700 pr-2">{signal.label}</span>
                               <span className="flex items-center gap-1 flex-shrink-0">
-                                {typeof signal.value === 'number' && signal.value !== 0 ? (
+                                {typeof signal.value === 'number' ? (
                                   <span className="text-neutral-900">
-                                    {typeof signal.value === 'number' ? signal.value.toFixed(1) : signal.value}%
+                                    {(() => {
+                                      const pct = signal.value * 100;
+                                      const sign = pct > 0 ? '+' : '';
+                                      return `${sign}${pct.toFixed(1)}%`;
+                                    })()}
                                   </span>
-                                ) : typeof signal.value === 'number' ? (
-                                  <span className="text-neutral-900">0%</span>
                                 ) : (
                                   <span className="text-neutral-900">{signal.value}</span>
                                 )}
-                                {/* Use stored icon from sheet if available, otherwise fallback to generated icon */}
                                 {signal.icon ? (
                                   <span>{signal.icon}</span>
                                 ) : signal.isNegative && signal.value !== 'N/A' ? (

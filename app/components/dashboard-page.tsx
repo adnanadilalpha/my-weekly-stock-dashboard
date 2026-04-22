@@ -57,6 +57,22 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
     await refetch();
   };
 
+  const toNumeric = (value: unknown): number | null => {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (typeof value === 'string') {
+      const parsed = Number(value.trim());
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const formatPercentValue = (value: number | null) => {
+    if (value == null) return 'N/A';
+    const percent = Math.abs(value) <= 1 ? value * 100 : value;
+    const rounded = Number(percent.toFixed(2));
+    return `${rounded > 0 ? '+' : ''}${rounded}%`;
+  };
+
   // Get the most recent update date from all data
   const getLastUpdatedDate = (): string | null => {
     const allItems = [...segments, ...sectors];
@@ -99,9 +115,9 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
   const transformToTableData = (item: any, getSegmentName: (item: any) => string) => {
     const isDaily = timeframe === 'D';
     // Performance data - use new simplified fields with fallback to old fields
-    const perf1M = item['1m_percent'] ?? item.daily_1m_percent;
-    const perf3M = item['3m_percent'] ?? item.daily_3m_percent;
-    const vsHigh = item['vs_1y_high'] ?? item.daily_vs_1y_high;
+    const perf1M = toNumeric(item['1m_percent'] ?? item.daily_1m_percent);
+    const perf3M = toNumeric(item['3m_percent'] ?? item.daily_3m_percent);
+    const vsHigh = toNumeric(item['vs_1y_high'] ?? item.daily_vs_1y_high);
     // Only trend data switches based on timeframe
     const trendScore = isDaily ? item.daily_trend_score : item.weekly_trend_score;
     const rating = isDaily ? item.daily_rating : item.weekly_rating;
@@ -110,9 +126,9 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
     return {
       segment: getSegmentName(item),
       ticker: item.ticker,
-      perf1M: perf1M ?? 0,
-      perf3M: perf3M ?? 0,
-      vsHigh: vsHigh ?? 0,
+      perf1M: perf1M,
+      perf3M: perf3M,
+      vsHigh: vsHigh,
       trendScore: trendScore ?? 0,
       rating: rating ?? 'N/A',
       outlook: outlook ?? 'N/A',
@@ -156,13 +172,15 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
     return '';
   };
 
-  const getPerformanceIcon = (value: number) => {
+  const getPerformanceIcon = (value: number | null) => {
+    if (value === null) return '⚪️';
     if (value > 0) return '🟩';
     if (value === 0) return '🟨';
     return '🟥';
   };
 
-  const getVsHighIcon = (value: number) => {
+  const getVsHighIcon = (value: number | null) => {
+    if (value === null) return '⚪️';
     if (value > -5) return '✅';
     if (value > -10) return '⚪️';
     return '❌';
@@ -241,19 +259,19 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
               <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
                 <div className="flex items-center gap-0.5 sm:gap-1">
                   <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf1M)}</span>
-                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</span>
+                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{formatPercentValue(row.perf1M)}</span>
                 </div>
               </td>
               <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
                 <div className="flex items-center gap-0.5 sm:gap-1">
                   <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf3M)}</span>
-                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</span>
+                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{formatPercentValue(row.perf3M)}</span>
                 </div>
               </td>
               <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-neutral-900 font-medium text-xs sm:text-sm">
                 <div className="flex items-center gap-0.5 sm:gap-1">
                   <span className="flex-shrink-0 text-[10px] sm:text-xs">{getVsHighIcon(row.vsHigh)}</span>
-                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</span>
+                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{formatPercentValue(row.vsHigh)}</span>
                 </div>
               </td>
               <td className="px-2 sm:px-4 py-2 sm:py-2.5 border-r border-neutral-200 text-xs sm:text-sm">

@@ -11,6 +11,9 @@ import { PortfolioDashboardPage } from './components/portfolio-dashboard-page';
 import { PortfolioDetailPage } from './components/portfolio-detail-page';
 import type { PageView, AppMode, PortfolioPage } from './types';
 import { supabase } from '@/lib/supabase-client';
+import { getAppEnv } from '@/lib/supabase-env';
+
+const isDevBypassEnabled = getAppEnv() === 'dev';
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -22,6 +25,13 @@ export default function Home() {
   const [selectedTicker, setSelectedTicker] = useState('SPY');
 
   useEffect(() => {
+    if (isDevBypassEnabled) {
+      setUserEmail('dev@local');
+      setIsAuthenticated(true);
+      setIsLoading(false);
+      return;
+    }
+
     // Check initial session
     const checkSession = async () => {
       try {
@@ -72,6 +82,15 @@ export default function Home() {
   };
 
   const handleSignOut = async () => {
+    if (isDevBypassEnabled) {
+      setUserEmail('dev@local');
+      setIsAuthenticated(true);
+      setAppMode('hub');
+      setCurrentPage('index');
+      setPortfolioPage('dashboard');
+      return;
+    }
+
     try {
       await supabase.auth.signOut();
       setUserEmail('');
