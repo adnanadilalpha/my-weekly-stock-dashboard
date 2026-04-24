@@ -53,6 +53,18 @@ const DEFAULT_PAGE_SIZE = 50;
 const ALL_PREVIEW_PER_TABLE = 30;
 const ALL_PREVIEW_CAP = 100;
 
+/**
+ * Per-table minimal column sets for list queries.
+ * Only selects columns that actually exist in each table (verified against schema),
+ * skipping heavy EMA / indicator / benchmark columns that are never used in the list view.
+ */
+const TABLE_LIST_COLS: Record<TickerTable, string> = {
+  market_segments: 'id,ticker,name,daily_current_price,weekly_current_price,daily_1m_percent,volume,is_active,last_updated,updated_at',
+  sectors:         'id,ticker,sector_name,daily_current_price,weekly_current_price,daily_1m_percent,volume,is_active,last_updated,updated_at',
+  mega_caps:       'id,ticker,company_name,sector_etf,daily_current_price,weekly_current_price,daily_1m_percent,volume,is_active,last_updated,updated_at',
+  other_stocks:    'id,ticker,company_name,sector_etf,daily_current_price,weekly_current_price,daily_1m_percent,volume,is_active,last_updated,updated_at',
+};
+
 function asString(v: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v.trim() : null;
 }
@@ -154,6 +166,7 @@ function applyTickerSearch(q: any, table: TickerTable, search: string) {
   const safe = sanitizeSearch(search);
   if (!safe) return q;
   const p = `%${safe}%`;
+  // With pg_trgm GIN indices, ilike '%term%' is now index-accelerated on all columns below.
   switch (table) {
     case 'market_segments':
       return q.or(`ticker.ilike.${p},name.ilike.${p}`);
@@ -244,11 +257,21 @@ export async function listTickersAction(
     const stats = await aggregateTickerStats(admin);
 
     if (sourceTable === 'all') {
+      // When a search term is active, raise the per-table cap so inactive / older
+      // tickers are not crowded out by the preview limit.
+      const perTableLimit = search.trim() ? ALL_PREVIEW_CAP : ALL_PREVIEW_PER_TABLE;
       const results = await Promise.all(
         TICKER_TABLES.map((table) => {
-          let q = applySort(applyStatusFilter(applyTickerSearch(admin.from(table).select('*'), table, search), status), sort);
-          q = q.limit(ALL_PREVIEW_PER_TABLE);
-          return q;
+          // In search mode ignore the status filter so inactive tickers are always findable.
+          const effectiveStatus = search.trim() ? 'all' : status;
+          const q = applySort(
+            applyStatusFilter(
+              applyTickerSearch(admin.from(table).select(TABLE_LIST_COLS[table]), table, search),
+              effectiveStatus
+            ),
+            sort
+          );
+          return q.limit(perTableLimit);
         })
       );
       const mapped: AdminTickerRow[] = [];
@@ -284,9 +307,17 @@ export async function listTickersAction(
       return ok(preview);
     }
 
+    // Single-table paged query — status filter respected as chosen by user.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q: any = applySort(
-      applyStatusFilter(applyTickerSearch(admin.from(sourceTable).select('*', { count: 'exact' }), sourceTable, search), status),
+      applyStatusFilter(
+        applyTickerSearch(
+          admin.from(sourceTable).select(TABLE_LIST_COLS[sourceTable], { count: 'exact' }),
+          sourceTable,
+          search
+        ),
+        status
+      ),
       sort
     );
     const from = page * pageSize;
@@ -330,5 +361,84 @@ export async function toggleTickerActiveAction(
       return err('Failed to update ticker status.', 'db_error');
     }
     return ok({ id: input.id, active: input.active });
+  });
+}
+
+export async function deleteTickerAction(
+  accessToken: string,
+  input: { source_table: TickerTable; id: string }
+): Promise<ActionResult<{ id: string }>> {
+  return withAdmin(accessToken, async () => {
+    if (!TICKER_TABLES.includes(input.source_table)) return err('Invalid ticker table.', 'validation');
+    if (typeof input.id !== 'string' || input.id.length < 10) return err('Invalid ticker id.', 'validation');
+    const admin = getAdminSupabase();
+
+    // Resolve ticker symbol first so we can clean up the candidates table
+    const { data: tickerRow, error: fetchErr } = await admin
+      .from(input.source_table)
+      .select('ticker')
+      .eq('id', input.id)
+      .single();
+    if (fetchErr || !tickerRow) return err('Ticker not found.', 'not_found');
+
+    const { error } = await admin.from(input.source_table).delete().eq('id', input.id);
+    if (error) return err('Failed to delete ticker.', 'db_error');
+
+    // Also remove from import candidates if present (ignore errors — best effort)
+    await admin
+      .from('ticker_import_candidates')
+      .delete()
+      .eq('ticker', (tickerRow as { ticker: string }).ticker);
+
+    return ok({ id: input.id });
+  });
+}
+
+export async function bulkDeleteTickersAction(
+  accessToken: string,
+  input: { rows: { source_table: TickerTable; id: string }[] }
+): Promise<ActionResult<{ deleted: number }>> {
+  return withAdmin(accessToken, async () => {
+    if (!Array.isArray(input?.rows) || input.rows.length === 0) return err('No rows provided.', 'validation');
+    if (input.rows.length > 500) return err('Too many rows in one request.', 'validation');
+    const admin = getAdminSupabase();
+
+    const grouped = new Map<TickerTable, string[]>();
+    for (const row of input.rows) {
+      if (!TICKER_TABLES.includes(row.source_table)) return err('Invalid ticker table.', 'validation');
+      if (typeof row.id !== 'string' || row.id.length < 10) return err('Invalid ticker id.', 'validation');
+      const arr = grouped.get(row.source_table) ?? [];
+      arr.push(row.id);
+      grouped.set(row.source_table, arr);
+    }
+
+    const allTickers: string[] = [];
+    let deleted = 0;
+    for (const [table, ids] of grouped.entries()) {
+      const uniqueIds = Array.from(new Set(ids));
+
+      // Resolve ticker symbols for candidate cleanup
+      const { data: tickerRows } = await admin
+        .from(table)
+        .select('ticker')
+        .in('id', uniqueIds);
+      if (tickerRows) {
+        for (const r of tickerRows as { ticker: string }[]) allTickers.push(r.ticker);
+      }
+
+      const { data, error } = await admin.from(table).delete().in('id', uniqueIds).select('id');
+      if (error) return err(`Failed to delete tickers from ${table}.`, 'db_error');
+      deleted += (data ?? []).length;
+    }
+
+    // Remove from import candidates (best effort, ignore errors)
+    if (allTickers.length > 0) {
+      await admin
+        .from('ticker_import_candidates')
+        .delete()
+        .in('ticker', allTickers);
+    }
+
+    return ok({ deleted });
   });
 }

@@ -111,6 +111,22 @@ export async function listUsersAction(
 
 type AdminClient = ReturnType<typeof getAdminSupabase>;
 
+const AUTH_LIST_PAGE_SIZE = 1000;
+const AUTH_LIST_MAX_PAGES = 50;
+
+async function findAuthUserIdByEmail(admin: AdminClient, email: string): Promise<string | null> {
+  const needle = email.trim().toLowerCase();
+  for (let page = 1; page <= AUTH_LIST_MAX_PAGES; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: AUTH_LIST_PAGE_SIZE });
+    if (error) return null;
+    const users = data?.users ?? [];
+    const hit = users.find((u) => u.email?.toLowerCase() === needle);
+    if (hit?.id) return hit.id;
+    if (users.length < AUTH_LIST_PAGE_SIZE) return null;
+  }
+  return null;
+}
+
 type InsertInviteResult =
   | { ok: true; row: AdminUserRow; inviteWarning?: string }
   | { ok: false; code: 'duplicate' | 'db_error'; message?: string };
@@ -344,8 +360,103 @@ export async function deleteUserAction(
       if ((count ?? 0) <= 1) return err('Cannot delete the last remaining admin.', 'guard');
     }
 
+    // Delete from authorized_users table first.
     const { error } = await admin.from('authorized_users').delete().eq('id', input.id);
     if (error) return err('Failed to delete user.', 'db_error');
+
+    // Also delete from Supabase Auth so the account is fully removed.
+    try {
+      const authUserId = await findAuthUserIdByEmail(admin, (target as { email: string }).email);
+      if (authUserId) await admin.auth.admin.deleteUser(authUserId);
+    } catch {
+      // Auth deletion is best-effort — the table row is already gone, so login is blocked.
+    }
+
     return ok({ id: input.id });
+  });
+}
+
+/**
+ * Creates a fully-verified admin user directly in Supabase Auth (email_confirm: true,
+ * no invite email sent) and adds them to the authorized_users table with role Admin.
+ */
+export async function createAdminWithPasswordAction(
+  accessToken: string,
+  input: { email: string; password: string }
+): Promise<ActionResult<AdminUserRow>> {
+  return withAdmin(accessToken, async () => {
+    const email = normalizeEmail(input.email);
+    if (!email) return err('Invalid email address.', 'validation');
+    const password = typeof input.password === 'string' ? input.password.trim() : '';
+    if (password.length < 8) return err('Password must be at least 8 characters.', 'validation');
+
+    const admin = getAdminSupabase();
+
+    // Create auth user — email_confirm: true skips the verification email entirely.
+    const { error: authError } = await admin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { role: 'Admin' },
+    });
+    if (authError) {
+      const msg = authError.message ?? '';
+      if (/already registered|already exists|unique/i.test(msg)) {
+        return err('A user with that email already exists in auth.', 'duplicate');
+      }
+      return err(`Failed to create auth user: ${msg}`, 'db_error');
+    }
+
+    // Upsert into authorized_users (handles case where email was already listed).
+    const { data: row, error: dbError } = await admin
+      .from('authorized_users')
+      .upsert({ email, role: 'Admin' }, { onConflict: 'email' })
+      .select('id, email, role, created_at, updated_at')
+      .single();
+    if (dbError) return err('Auth user created but failed to add to authorized list.', 'db_error');
+
+    return ok(row as AdminUserRow);
+  });
+}
+
+/**
+ * Sets the Supabase Auth password for an authorized user (Admin or User),
+ * matched by email in `authorized_users`. Caller must be an admin.
+ */
+export async function updateAuthorizedUserPasswordAction(
+  accessToken: string,
+  input: { id: string; newPassword: string }
+): Promise<ActionResult<{ ok: true }>> {
+  return withAdmin(accessToken, async () => {
+    if (typeof input.id !== 'string' || input.id.length < 10) return err('Invalid user.', 'validation');
+    const newPassword = typeof input.newPassword === 'string' ? input.newPassword.trim() : '';
+    if (newPassword.length < 8) return err('Password must be at least 8 characters.', 'validation');
+
+    const admin = getAdminSupabase();
+    const { data: target, error: targetErr } = await admin
+      .from('authorized_users')
+      .select('id, email')
+      .eq('id', input.id)
+      .maybeSingle();
+
+    if (targetErr || !target?.email) return err('User not found.', 'not_found');
+
+    const authUserId = await findAuthUserIdByEmail(admin, target.email);
+    if (!authUserId) {
+      return err(
+        'No login account found for this email yet. The user must accept their invite or complete signup before a password can be set.',
+        'not_found'
+      );
+    }
+
+    const { error: updateErr } = await admin.auth.admin.updateUserById(authUserId, { password: newPassword });
+    if (updateErr) return err(`Failed to update password: ${updateErr.message}`, 'auth_error');
+
+    await admin
+      .from('authorized_users')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', input.id);
+
+    return ok({ ok: true });
   });
 }

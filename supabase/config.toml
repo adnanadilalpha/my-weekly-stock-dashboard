@@ -1,0 +1,8 @@
+[functions.update-stock-data]
+verify_jwt = false
+
+[functions.collect-stock-data]
+verify_jwt = false
+
+[functions.import-candidates-data]
+verify_jwt = false

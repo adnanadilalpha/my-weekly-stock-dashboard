@@ -9,6 +9,7 @@ export default function AdminLoginForm() {
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -78,8 +79,13 @@ export default function AdminLoginForm() {
             </label>
             <input
               id="admin-email"
+              name="email"
               type="email"
               autoComplete="email"
+              inputMode="email"
+              placeholder="admin@example.com"
+              spellCheck={false}
+              autoCapitalize="none"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -93,17 +99,63 @@ export default function AdminLoginForm() {
               <label htmlFor="admin-password" className="admin-text-main mb-1 block text-sm font-medium">
                 Password
               </label>
-              <input
-                id="admin-password"
-                type="password"
-                autoComplete="current-password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="admin-input w-full rounded-lg px-3 py-2 text-sm"
-                disabled={busy}
-              />
+              <div className="relative">
+                <input
+                  id="admin-password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Enter your password"
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="admin-input w-full rounded-lg px-3 py-2 pr-10 text-sm"
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  disabled={busy}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  className="admin-text-muted absolute inset-y-0 right-0 flex w-10 items-center justify-center disabled:opacity-60"
+                >
+                  {showPassword ? (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    >
+                      <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.11 1 12c.75-1.78 1.87-3.35 3.23-4.62" />
+                      <path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c5 0 9.27 3.89 11 8a10.96 10.96 0 0 1-1.68 2.79" />
+                      <path d="M14.12 14.12a3 3 0 0 1-4.24-4.24" />
+                      <path d="m1 1 22 22" />
+                    </svg>
+                  ) : (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4"
+                      aria-hidden="true"
+                    >
+                      <path d="M2.06 12C3.79 7.89 8.06 4 13.06 4s9.27 3.89 11 8c-1.73 4.11-6 8-11 8s-9.27-3.89-11-8z" />
+                      <circle cx="13.06" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
@@ -136,6 +188,7 @@ export default function AdminLoginForm() {
                 setMode('forgot');
                 setError(null);
                 setInfo(null);
+                setShowPassword(false);
               }}
             >
               Forgot password?
@@ -148,6 +201,7 @@ export default function AdminLoginForm() {
                 setMode('signin');
                 setError(null);
                 setInfo(null);
+                setShowPassword(false);
               }}
             >
               Back to sign in

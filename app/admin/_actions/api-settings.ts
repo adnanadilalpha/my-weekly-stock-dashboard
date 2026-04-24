@@ -2,6 +2,7 @@
 
 import { getAdminSupabase } from '@/lib/server/supabase-admin';
 import { encrypt, fingerprint, decrypt } from '@/lib/server/crypto';
+import { pickActiveEdgeProgressRow } from '../_lib/api-health-progress';
 import { err, ok, withAdmin, type ActionResult } from './_shared';
 
 export type ApiKeyMetadata = {
@@ -380,51 +381,26 @@ export async function getApiDashboardMetricsAction(accessToken: string): Promise
   });
 }
 
-type EdgeProgressPayload = {
-  type: 'progress';
-  mode: 'collect' | 'import';
-  phase: string;
-  done: number;
-  total: number;
-  percent: number;
-};
-
-function parseEdgeProgressPayload(raw: string | null): EdgeProgressPayload | null {
-  if (!raw) return null;
-  const idx = raw.indexOf('__progress__');
-  if (idx < 0) return null;
-  try {
-    const parsed = JSON.parse(raw.slice(idx + '__progress__'.length).trim()) as EdgeProgressPayload;
-    if (parsed?.type !== 'progress') return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
 /** Any in-flight edge job (manual, cron, or another tab) — same rows the admin UI polls for progress. */
 async function findActiveEdgeJob(
   admin: ReturnType<typeof getAdminSupabase>
 ): Promise<{ message: string; mode: 'collect' | 'import'; phase: string; percent: number } | null> {
   const { data, error } = await admin
     .from('api_health_log')
-    .select('error_message')
+    .select('id, provider, run_at, duration_ms, tickers_updated, tickers_failed, status, error_message, triggered_by')
     .order('id', { ascending: false })
     .limit(80);
   if (error || !data?.length) return null;
-  for (const row of data) {
-    const p = parseEdgeProgressPayload((row as { error_message: string | null }).error_message);
-    if (p && p.percent < 100) {
-      const label = p.mode === 'import' ? 'Ticker import' : 'Ticker data collection';
-      return {
-        mode: p.mode,
-        phase: p.phase,
-        percent: p.percent,
-        message: `${label} is already running (${p.phase}, ${p.percent}%). Wait for it to finish — this may be the hourly schedule, another admin, or a job you started earlier.`,
-      };
-    }
-  }
-  return null;
+  const active = pickActiveEdgeProgressRow(data as ApiHealthRow[]);
+  if (!active) return null;
+  const p = active.progress;
+  const label = p.mode === 'import' ? 'Ticker import' : 'Ticker data collection';
+  return {
+    mode: p.mode,
+    phase: p.phase,
+    percent: p.percent,
+    message: `${label} is already running (${p.phase}, ${p.percent}%). Wait for it to finish — this may be the hourly schedule, another admin, or a job you started earlier.`,
+  };
 }
 
 export async function listApiHealthAction(
@@ -438,6 +414,7 @@ export async function listApiHealthAction(
       .from('api_health_log')
       .select('id, provider, run_at, duration_ms, tickers_updated, tickers_failed, status, error_message, triggered_by')
       .order('run_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(limit);
     if (input?.provider && PROVIDER_RE.test(input.provider)) {
       q = q.eq('provider', input.provider);
@@ -484,6 +461,7 @@ export async function runTickerDataCollectionAction(
           done: 0,
           total: 0,
           percent: 0,
+          heartbeat_at: Date.now(),
           updated: 0,
           failed: 0,
           imported: 0,
@@ -632,6 +610,7 @@ export async function runImportCandidatesAction(
           done: 0,
           total: 0,
           percent: 0,
+          heartbeat_at: Date.now(),
           updated: 0,
           failed: 0,
           imported: 0,
@@ -753,6 +732,7 @@ export async function runManualTickerUpdateAction(
           done: 0,
           total: tickers.length,
           percent: 0,
+          heartbeat_at: Date.now(),
           updated: 0,
           failed: 0,
           imported: 0,

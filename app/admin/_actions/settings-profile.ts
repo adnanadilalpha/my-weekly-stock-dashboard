@@ -1,10 +1,11 @@
 'use server';
 
+import { createClient } from '@supabase/supabase-js';
+import { getSupabaseConfig } from '@/lib/supabase-env';
 import { getAdminSupabase } from '@/lib/server/supabase-admin';
 import { err, ok, withAdmin, type ActionResult } from './_shared';
 
-type AdminPreferences = {
-  two_factor_enabled: boolean;
+export type AdminPreferences = {
   email_alerts: boolean;
   weekly_summary: boolean;
   system_updates: boolean;
@@ -18,7 +19,6 @@ export type AdminProfileSettings = {
 };
 
 const DEFAULT_PREFERENCES: AdminPreferences = {
-  two_factor_enabled: false,
   email_alerts: true,
   weekly_summary: true,
   system_updates: true,
@@ -55,7 +55,6 @@ export async function getProfileSettingsAction(accessToken: string): Promise<Act
     const md = (user.user_metadata ?? {}) as Record<string, unknown>;
     const prefsRaw = (md.preferences ?? {}) as Record<string, unknown>;
     const preferences: AdminPreferences = {
-      two_factor_enabled: asBool(md.two_factor_enabled, DEFAULT_PREFERENCES.two_factor_enabled),
       email_alerts: asBool(prefsRaw.email_alerts, DEFAULT_PREFERENCES.email_alerts),
       weekly_summary: asBool(prefsRaw.weekly_summary, DEFAULT_PREFERENCES.weekly_summary),
       system_updates: asBool(prefsRaw.system_updates, DEFAULT_PREFERENCES.system_updates),
@@ -76,6 +75,7 @@ export async function saveProfileSettingsAction(
     email: string;
     preferences: AdminPreferences;
     newPassword?: string;
+    currentPassword?: string;
   }
 ): Promise<ActionResult<AdminProfileSettings>> {
   return withAdmin(accessToken, async (ctx) => {
@@ -88,6 +88,23 @@ export async function saveProfileSettingsAction(
     }
     const pw = typeof input.newPassword === 'string' ? input.newPassword.trim() : '';
     if (pw && pw.length < 8) return err('New password must be at least 8 characters.', 'validation');
+    const currentPw = typeof input.currentPassword === 'string' ? input.currentPassword : '';
+    if (pw) {
+      if (!currentPw.trim()) {
+        return err('Enter your current password to set a new one.', 'validation');
+      }
+      const { url, anonKey } = getSupabaseConfig();
+      const verifyClient = createClient(url, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { error: signErr } = await verifyClient.auth.signInWithPassword({
+        email: ctx.email,
+        password: currentPw,
+      });
+      if (signErr) {
+        return err('Current password is incorrect.', 'validation');
+      }
+    }
 
     const admin = getAdminSupabase();
     const userRes = await admin.auth.admin.getUserById(ctx.userId);
@@ -96,7 +113,6 @@ export async function saveProfileSettingsAction(
     const nextMd = {
       ...existingMd,
       full_name: fullName,
-      two_factor_enabled: Boolean(input.preferences.two_factor_enabled),
       preferences: {
         email_alerts: Boolean(input.preferences.email_alerts),
         weekly_summary: Boolean(input.preferences.weekly_summary),
@@ -132,7 +148,6 @@ export async function saveProfileSettingsAction(
       email,
       role: roleRes.data?.role ?? 'Admin',
       preferences: {
-        two_factor_enabled: Boolean(input.preferences.two_factor_enabled),
         email_alerts: Boolean(input.preferences.email_alerts),
         weekly_summary: Boolean(input.preferences.weekly_summary),
         system_updates: Boolean(input.preferences.system_updates),

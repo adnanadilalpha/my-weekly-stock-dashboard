@@ -12,12 +12,9 @@ import {
   ema,
   pctReturn,
   distanceFrom52wHigh,
-  trendScore,
   ratingLabel,
-  ratingOutlook,
   type FormulaParams,
   type RatingLabelMap,
-  type ScoreInputs,
 } from './compute.ts';
 import {
   FinnhubProvider,
@@ -28,6 +25,9 @@ import {
   YahooFinanceProvider,
   type MarketDataProvider,
 } from './providers.ts';
+
+type PerformanceTemplateMap = Record<string, { label: string; description: string }>;
+type TrendTemplateMap = Record<string, string>;
 
 const TICKER_TABLES = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
 type TickerTable = (typeof TICKER_TABLES)[number];
@@ -49,6 +49,21 @@ const MIN_WEEKLY_CANDLES = 30; // 30-week EMA
 const MARKET_SEGMENT_TICKERS = new Set(['SPY', 'QQQ', 'IWM', 'TLT', 'UUP', 'GLD', 'SLV', 'IBIT', 'ETHA', 'USO']);
 const SECTOR_TICKERS = new Set(['XLK', 'XLC', 'SMH', 'XLY', 'XLF', 'XLI', 'XLE', 'XLB', 'XLRE', 'XLU', 'XLV', 'XLP']);
 export type StockEdgeForcedMode = 'auto' | 'collect' | 'import_candidates';
+
+// Prod-aligned benchmark mapping for market-segment tickers.
+// first = primary broad comparison, second = segment peer comparison.
+const MARKET_SEGMENT_BENCHMARKS: Record<string, { first: string; second: string }> = {
+  SPY: { first: 'DIA', second: 'QQQ' },
+  QQQ: { first: 'SPY', second: 'DIA' },
+  IWM: { first: 'SPY', second: 'QQQ' },
+  TLT: { first: 'SPY', second: 'BND' },
+  UUP: { first: 'SPY', second: 'TLT' },
+  GLD: { first: 'SPY', second: 'SLV' },
+  SLV: { first: 'SPY', second: 'GLD' },
+  IBIT: { first: 'SPY', second: 'ETHA' },
+  ETHA: { first: 'SPY', second: 'IBIT' },
+  USO: { first: 'SPY', second: 'XLE' },
+};
 
 function edgeSelfSlug(forcedMode: StockEdgeForcedMode): string {
   if (forcedMode === 'collect') return 'collect-stock-data';
@@ -86,6 +101,35 @@ const MEGA_CAP_SECTOR_ETF: Record<string, string> = {
   // Energy → XLE
   XOM:'XLE', CVX:'XLE',
 };
+
+const SECTOR_ETF_NAMES: Record<string, string> = {
+  SPY: '$SPY (S&P500)',
+  QQQ: '$QQQ (Nasdaq)',
+  DIA: '$DIA (Dow Jones)',
+  BND: '$BND (Bonds)',
+  IBIT: '$IBIT (Bitcoin)',
+  ETHA: '$ETHA (Ehtereum)',
+  GLD: '$GLD (Gold)',
+  SLV: '$SLV (Silver)',
+  TLT: '$TLT (Treasuries)',
+  XLK: '$XLK (Technology)',
+  XLC: '$XLC (Communication Services)',
+  XLY: '$XLY (Consumer Discretionary)',
+  XLP: '$XLP (Consumer Staples)',
+  XLF: '$XLF (Financials)',
+  XLV: '$XLV (Healthcare)',
+  XLI: '$XLI (Industrials)',
+  XLB: '$XLB (Materials)',
+  XLE: '$XLE (Energy)',
+  XLRE: '$XLRE (Real Estate)',
+  XLU: '$XLU (Utilities)',
+  SMH: '$SMH (Semiconductors)',
+};
+
+const TREND_SIGNAL_THRESHOLDS = {
+  weekly: { short: 0.01, long: 0.02, cross: 0.015, slopeShort: 0.01, slopeLong: 0.01 },
+  daily: { short: 0.01, long: 0.01, cross: 0.005, slopeShort: 0.01, slopeLong: 0.01 },
+} as const;
 
 // Map Finnhub industry strings to sector ETF tickers.
 const INDUSTRY_TO_SECTOR_ETF: Record<string, string> = {
@@ -156,6 +200,12 @@ type BenchmarkSnapshot = {
   name: string;
   ret1m: number | null; // decimal, e.g. 0.05 = +5 %
   ret3m: number | null;
+};
+
+type BenchmarkSnapshots = {
+  spy: BenchmarkSnapshot;
+  qqq: BenchmarkSnapshot;
+  byTicker: Record<string, BenchmarkSnapshot>;
 };
 
 export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
@@ -293,6 +343,8 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     return new Response(JSON.stringify({ error: 'Formula settings missing.' }), { status: 500 });
   }
   const ratingLabels = await loadRatingLabels(db);
+  const performanceLabels = await loadPerformanceLabels(db);
+  const trendTemplates = await loadTrendTemplates(db);
 
   // --- Pre-fetch benchmark snapshots (once per run, reused per ticker) ------
   // These two calls happen before the main collection loop so every ticker
@@ -312,7 +364,7 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
   if (importFromCandidatesMode) {
     let candImported = 0, candFailed = 0, candSkipped = 0, hadMore = false;
     try {
-      const result = await importFromCandidates(db, sortedProviders, params, ratingLabels, benchmarks, callDelayMs, {
+      const result = await importFromCandidates(db, sortedProviders, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, callDelayMs, {
         runLogId, startedAt: started, triggeredBy, providerName: primary.name,
       });
       candImported = result.imported;
@@ -332,21 +384,21 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     }
     const status: 'ok' | 'partial' | 'error' = candFailed === 0 ? 'ok' : candImported === 0 ? 'error' : 'partial';
     if (hadMore) {
-      // Keep progress payload in the same run log row while chaining.
-      // Logging final summary here would replace __progress__ and cause UI resets.
+      // Keep __progress__ on the same row (do not call logRun here). Do not set `duration_ms`:
+      // live runs use `duration_ms: null` from `updateRunProgress`; setting it here made the
+      // admin UI treat the job as stuck when the chained request never ran.
       await db
         .from('api_health_log')
         .update({
           provider: primary.name,
           status: 'partial',
           triggered_by: triggeredBy,
-          duration_ms: Date.now() - started,
           tickers_updated: candImported,
           tickers_failed: candFailed,
         })
         .eq('id', runLogId ?? -1);
       const selfUrl = `${supabaseUrl}/functions/v1/${edgeSelfSlug(forcedMode)}`;
-      const chainFetch = fetch(selfUrl, {
+      const chainPromise = fetch(selfUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -357,10 +409,41 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
           import_from_candidates: true,
           run_log_id: runLogId ?? undefined,
         }),
-      }).catch((e) => console.warn('[chain] candidates self-invoke failed', e));
+      })
+        .then(async (res) => {
+          if (res?.ok) return;
+          if (!runLogId) return;
+          const detail = res
+            ? `${res.status} ${(await res.text().catch(() => '')).slice(0, 400)}`.trim()
+            : 'no response';
+          await logRun(db, {
+            runLogId,
+            provider: primary.name,
+            status: 'error',
+            error: `Chained import failed to start: ${detail || 'unknown'}`.slice(0, 900),
+            triggeredBy,
+            durationMs: Date.now() - started,
+            tickersUpdated: candImported,
+            tickersFailed: candFailed,
+          });
+        })
+        .catch(async (e) => {
+          if (!runLogId) return;
+          console.warn('[chain] candidates self-invoke failed', e);
+          await logRun(db, {
+            runLogId,
+            provider: primary.name,
+            status: 'error',
+            error: `Chained import request failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 900),
+            triggeredBy,
+            durationMs: Date.now() - started,
+            tickersUpdated: candImported,
+            tickersFailed: candFailed,
+          });
+        });
       try {
         // @ts-ignore – Supabase Deno runtime global
-        EdgeRuntime.waitUntil(chainFetch);
+        EdgeRuntime.waitUntil(chainPromise);
       } catch { /* fire-and-forget */ }
       console.info('[chain] more candidates remain, next batch triggered');
     } else {
@@ -374,6 +457,18 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
         tickersUpdated: candImported,
         tickersFailed: candFailed,
       });
+      await notifyAdminTickerSessionComplete(db, {
+        kind: 'candidates_import',
+        provider: primary.name,
+        status,
+        triggeredBy,
+        durationMs: Date.now() - started,
+        tickersUpdated: candImported,
+        tickersFailed: candFailed,
+        imported: candImported,
+        skipped: candSkipped,
+        diagSummary: candFailed > 0 ? `failed=${candFailed}, skipped=${candSkipped}` : null,
+      });
       console.info('[chain] candidates import session complete');
     }
     return new Response(
@@ -384,7 +479,7 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
 
   if (importMode) {
     try {
-      const catalog = await importTickerUniverse(db, sortedProviders, params, ratingLabels, benchmarks, importLimit, callDelayMs, {
+      const catalog = await importTickerUniverse(db, sortedProviders, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, importLimit, callDelayMs, {
         runLogId,
         startedAt: started,
         mode,
@@ -512,7 +607,7 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
           if (result.quoteProvider !== result.historyProvider && result.historyProvider) {
             fallbackUsed += 1;
           }
-          const patch = buildUpdatePatch(result, params, ratingLabels, benchmarks, bucket.table);
+          const patch = buildUpdatePatch(result, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, bucket.table, row.ticker);
           // Keep sector_etf current for mega_caps on every collect cycle (hardcoded, no extra API call).
           if (bucket.table === 'mega_caps') {
             const etf = MEGA_CAP_SECTOR_ETF[row.ticker];
@@ -524,6 +619,9 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
             errors.push(`${bucket.table}/${row.ticker}: ${upErr.message}`);
           } else {
             updated += 1;
+            if (result.history) {
+              await upsertPriceHistory(db, row.ticker, result.history);
+            }
           }
           // Detailed per-ticker log so you can see exactly what was fetched and computed.
           console.info('[collect]', {
@@ -571,18 +669,19 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
   }
 
   const status: 'ok' | 'partial' | 'error' = failed === 0 ? 'ok' : updated === 0 ? 'error' : 'partial';
+  const runDiag =
+    [
+      `diag:missing_history=${missingHistory},fallback_used=${fallbackUsed},stopped_for_budget=${stoppedForBudget ? 1 : 0}`,
+      errors.slice(0, 3).join(' | ') || null,
+      importMode ? `imported=${imported},skipped=${skipped}` : null,
+    ]
+      .filter(Boolean)
+      .join(' | ') || null;
   await logRun(db, {
     runLogId,
     provider: primary.name,
     status,
-    error:
-      [
-        `diag:missing_history=${missingHistory},fallback_used=${fallbackUsed},stopped_for_budget=${stoppedForBudget ? 1 : 0}`,
-        errors.slice(0, 3).join(' | ') || null,
-        importMode ? `imported=${imported},skipped=${skipped}` : null,
-      ]
-        .filter(Boolean)
-        .join(' | ') || null,
+    error: runDiag,
     triggeredBy,
     durationMs: Date.now() - started,
     tickersUpdated: updated,
@@ -594,6 +693,21 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
   // Pass session_started_at so the next batch uses the same staleness cutoff
   // and the chain stops automatically when all stale tickers are processed.
   const willChain = !targetTickers && (stoppedForBudget || totalLoaded >= MAX_TICKERS_PER_RUN);
+  if (!willChain) {
+    await notifyAdminTickerSessionComplete(db, {
+      kind: 'collect_session',
+      provider: primary.name,
+      status,
+      triggeredBy,
+      durationMs: Date.now() - started,
+      tickersUpdated: updated,
+      tickersFailed: failed,
+      imported: importMode ? imported : undefined,
+      skipped: importMode ? skipped : undefined,
+      importMode,
+      diagSummary: runDiag,
+    });
+  }
   if (willChain) {
     const selfUrl = `${supabaseUrl}/functions/v1/${edgeSelfSlug(forcedMode)}`;
     const chainFetch = fetch(selfUrl, {
@@ -659,6 +773,40 @@ async function loadRatingLabels(db: ReturnType<typeof createClient>): Promise<Pa
   return out;
 }
 
+async function loadPerformanceLabels(db: ReturnType<typeof createClient>): Promise<PerformanceTemplateMap> {
+  const out: PerformanceTemplateMap = {};
+  const { data, error } = await db
+    .from('formula_performance_templates')
+    .select('strength,distance_to_highs,benchmark_relation,label,description');
+  if (!error) {
+    for (const row of data ?? []) {
+      const strength = String((row as { strength: string }).strength ?? '').trim();
+      const distance = String((row as { distance_to_highs: string }).distance_to_highs ?? '').trim();
+      const relation = String((row as { benchmark_relation: string }).benchmark_relation ?? '').trim();
+      const key = `${strength}|${distance}|${relation}`;
+      out[key] = {
+        label: String((row as { label: string }).label ?? '').trim() || `${strength} performer`,
+        description: String((row as { description: string }).description ?? '').trim(),
+      };
+    }
+  }
+  return out;
+}
+
+async function loadTrendTemplates(db: ReturnType<typeof createClient>): Promise<TrendTemplateMap> {
+  const out: TrendTemplateMap = {};
+  const { data } = await db.from('formula_trend_templates').select('tier,outlook,timeframe,description');
+  for (const row of data ?? []) {
+    const tier = String((row as { tier: string }).tier ?? '').trim();
+    const outlook = String((row as { outlook: string }).outlook ?? '').trim();
+    const timeframe = String((row as { timeframe: string }).timeframe ?? '').trim();
+    const description = String((row as { description: string }).description ?? '').trim();
+    if (!tier || !outlook || !timeframe) continue;
+    out[`${tier}|${outlook}|${timeframe}`] = description;
+  }
+  return out;
+}
+
 // -----------------------------------------------------------------------------
 // Benchmark snapshots
 // -----------------------------------------------------------------------------
@@ -671,7 +819,7 @@ async function loadRatingLabels(db: ReturnType<typeof createClient>): Promise<Pa
 async function loadBenchmarkSnapshots(
   providers: MarketDataProvider[],
   callDelayMs: number
-): Promise<{ spy: BenchmarkSnapshot; qqq: BenchmarkSnapshot }> {
+): Promise<BenchmarkSnapshots> {
   const fetchOne = async (ticker: string, name: string): Promise<BenchmarkSnapshot> => {
     try {
       const result = await fetchTickerWithFallback(providers, ticker, callDelayMs);
@@ -692,11 +840,25 @@ async function loadBenchmarkSnapshots(
     }
   };
 
-  const spy = await fetchOne('SPY', '$SPY (S&P500)');
-  await sleep(callDelayMs);
-  const qqq = await fetchOne('QQQ', '$QQQ (Nasdaq)');
-  await sleep(callDelayMs);
-  return { spy, qqq };
+  const toName = (ticker: string): string => SECTOR_ETF_NAMES[ticker] ?? `$${ticker}`;
+  const tickers = Array.from(new Set([
+    'SPY',
+    'QQQ',
+    'DIA',
+    'BND',
+    ...Object.values(MARKET_SEGMENT_BENCHMARKS).flatMap((v) => [v.first, v.second]),
+    ...Object.values(MEGA_CAP_SECTOR_ETF),
+  ]));
+  const byTicker: Record<string, BenchmarkSnapshot> = {};
+  for (const ticker of tickers) {
+    byTicker[ticker] = await fetchOne(ticker, toName(ticker));
+    await sleep(callDelayMs);
+  }
+  return {
+    spy: byTicker.SPY ?? { ticker: 'SPY', name: '$SPY (S&P500)', ret1m: null, ret3m: null },
+    qqq: byTicker.QQQ ?? { ticker: 'QQQ', name: '$QQQ (Nasdaq)', ret1m: null, ret3m: null },
+    byTicker,
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -788,7 +950,9 @@ async function importTickerUniverse(
   providers: MarketDataProvider[],
   params: FormulaParams,
   ratingLabels: Partial<RatingLabelMap>,
-  benchmarks: { spy: BenchmarkSnapshot; qqq: BenchmarkSnapshot },
+  performanceLabels: PerformanceTemplateMap,
+  trendTemplates: TrendTemplateMap,
+  benchmarks: BenchmarkSnapshots,
   limit: number,
   callDelayMs: number,
   progress: { runLogId: number | null; startedAt: number; mode: 'collect' | 'import' }
@@ -879,7 +1043,7 @@ async function importTickerUniverse(
           continue;
         }
 
-        const patch = buildUpdatePatch(result, params, ratingLabels, benchmarks, table);
+        const patch = buildUpdatePatch(result, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, table, ticker);
         const { error: upErr } = await db.from(table).update(patch).eq('ticker', ticker);
         if (upErr) {
           failed += 1;
@@ -955,7 +1119,9 @@ async function importFromCandidates(
   providers: MarketDataProvider[],
   params: FormulaParams,
   ratingLabels: Partial<RatingLabelMap>,
-  benchmarks: { spy: BenchmarkSnapshot; qqq: BenchmarkSnapshot },
+  performanceLabels: PerformanceTemplateMap,
+  trendTemplates: TrendTemplateMap,
+  benchmarks: BenchmarkSnapshots,
   callDelayMs: number,
   progress: { runLogId: number | null; startedAt: number; triggeredBy: string; providerName: string }
 ): Promise<{ imported: number; failed: number; skipped: number; hadMore: boolean }> {
@@ -1119,7 +1285,7 @@ async function importFromCandidates(
         continue;
       }
 
-      const patch = buildUpdatePatch(result, params, ratingLabels, benchmarks, targetTable);
+      const patch = buildUpdatePatch(result, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, targetTable, ticker);
       // Write sector ETF for tables that carry the column.
       if (sectorEtf && (targetTable === 'mega_caps' || targetTable === 'other_stocks')) {
         (patch as Record<string, unknown>).sector_etf = sectorEtf;
@@ -1218,14 +1384,20 @@ async function importFromCandidates(
  */
 function benchmarkComparisonText(
   tickerRet1m: number | null,
+  tickerRet3m: number | null,
   benchRet1m: number | null,
+  benchRet3m: number | null,
   benchTicker: string,
   params: FormulaParams
 ): string {
-  if (tickerRet1m === null || benchRet1m === null) return `$${benchTicker}: In line`;
-  const diff = tickerRet1m - benchRet1m;
-  if (diff >= params.benchmark_leading) return `$${benchTicker}: Leading`;
-  if (diff <= -params.benchmark_lagging) return `$${benchTicker}: Lagging`;
+  if (tickerRet1m === null || tickerRet3m === null || benchRet1m === null || benchRet3m === null) {
+    return `$${benchTicker}: In line`;
+  }
+  const s1m = benchmarkComponentScore(tickerRet1m - benchRet1m, params.benchmark_leading, params.benchmark_lagging);
+  const s3m = benchmarkComponentScore(tickerRet3m - benchRet3m, params.benchmark_leading, params.benchmark_lagging);
+  const total = s1m + s3m;
+  if (total > 4) return `$${benchTicker}: Leading`;
+  if (total <= 1.1) return `$${benchTicker}: Lagging`;
   return `$${benchTicker}: In line`;
 }
 
@@ -1237,10 +1409,19 @@ function buildUpdatePatch(
   result: TickerFetchResult,
   params: FormulaParams,
   ratingLabels: Partial<RatingLabelMap>,
-  benchmarks: { spy: BenchmarkSnapshot; qqq: BenchmarkSnapshot },
-  table: TickerTable
+  performanceLabels: PerformanceTemplateMap,
+  trendTemplates: TrendTemplateMap,
+  benchmarks: BenchmarkSnapshots,
+  table: TickerTable,
+  ticker: string
 ): Record<string, unknown> {
   const hasSectorCol = TABLES_WITH_SECTOR_COMPARISON.has(table);
+  const marketBench = table === 'market_segments' ? MARKET_SEGMENT_BENCHMARKS[ticker] : null;
+  const sectorBenchmarkTicker = MEGA_CAP_SECTOR_ETF[ticker];
+  const firstBenchmarkTicker = marketBench?.first ?? benchmarks.spy.ticker;
+  const secondBenchmarkTicker = marketBench?.second ?? sectorBenchmarkTicker ?? benchmarks.qqq.ticker;
+  const firstBenchmark = benchmarks.byTicker[firstBenchmarkTicker] ?? benchmarks.spy;
+  const secondBenchmark = benchmarks.byTicker[secondBenchmarkTicker] ?? benchmarks.qqq;
 
   const patch: Record<string, unknown> = {
     daily_current_price: result.quote.currentPrice,
@@ -1248,27 +1429,41 @@ function buildUpdatePatch(
     last_updated: result.quote.fetchedAt,
     updated_at: new Date().toISOString(),
     // Always write benchmark identity fields so the UI never shows "$N/A".
-    first_benchmark_ticker: benchmarks.spy.ticker,
-    first_benchmark_name: benchmarks.spy.name,
-    second_benchmark_ticker: benchmarks.qqq.ticker,
-    second_benchmark_name: benchmarks.qqq.name,
-    first_benchmark_1m_percent: benchmarks.spy.ret1m,
-    first_benchmark_3m_percent: benchmarks.spy.ret3m,
-    second_benchmark_1m_percent: benchmarks.qqq.ret1m,
-    second_benchmark_3m_percent: benchmarks.qqq.ret3m,
+    first_benchmark_ticker: firstBenchmark.ticker,
+    first_benchmark_name: firstBenchmark.name,
+    second_benchmark_ticker: secondBenchmark.ticker,
+    second_benchmark_name: secondBenchmark.name,
+    first_benchmark_1m_percent: firstBenchmark.ret1m,
+    first_benchmark_3m_percent: firstBenchmark.ret3m,
+    second_benchmark_1m_percent: secondBenchmark.ret1m,
+    second_benchmark_3m_percent: secondBenchmark.ret3m,
   };
 
   // Benchmark comparison strings are written even without ticker history so
   // rows always have meaningful text in those columns.
-  const spyComparison = benchmarkComparisonText(null, benchmarks.spy.ret1m, 'SPY', params);
-  const qqqComparison = benchmarkComparisonText(null, benchmarks.qqq.ret1m, 'QQQ', params);
-  patch.daily_vs_spy_comparison       = spyComparison;
-  patch.daily_vs_benchmark_comparison = qqqComparison;
-  patch.weekly_vs_spy_comparison       = spyComparison;
-  patch.weekly_vs_benchmark_comparison = qqqComparison;
+  const firstComparison = benchmarkComparisonText(
+    null,
+    null,
+    firstBenchmark.ret1m,
+    firstBenchmark.ret3m,
+    firstBenchmark.ticker,
+    params
+  );
+  const secondComparison = benchmarkComparisonText(
+    null,
+    null,
+    secondBenchmark.ret1m,
+    secondBenchmark.ret3m,
+    secondBenchmark.ticker,
+    params
+  );
+  patch.daily_vs_spy_comparison       = firstComparison;
+  patch.daily_vs_benchmark_comparison = secondComparison;
+  patch.weekly_vs_spy_comparison       = firstComparison;
+  patch.weekly_vs_benchmark_comparison = secondComparison;
   if (hasSectorCol) {
-    patch.daily_vs_sector_comparison  = qqqComparison;
-    patch.weekly_vs_sector_comparison = qqqComparison;
+    patch.daily_vs_sector_comparison  = secondComparison;
+    patch.weekly_vs_sector_comparison = secondComparison;
   }
 
   if (!result.history) return patch;
@@ -1295,36 +1490,46 @@ function buildUpdatePatch(
   const weeklyPriceVsShort = weeklyEmaShort !== null ? pctReturn(now, weeklyEmaShort) : null;
   const weeklyPriceVsLong  = weeklyEmaLong  !== null ? pctReturn(now, weeklyEmaLong)  : null;
 
-  const dailyInputs: ScoreInputs = {
-    return1m: ret1m,
-    return3m: ret3m,
-    vs1yHigh,
-    priceVsShortEma: dailyPriceVsShort,
-    priceVsLongEma:  dailyPriceVsLong,
-  };
-  const weeklyInputs: ScoreInputs = {
-    return1m: ret1m,
-    return3m: ret3m,
-    vs1yHigh,
-    priceVsShortEma: weeklyPriceVsShort,
-    priceVsLongEma:  weeklyPriceVsLong,
-  };
+  const dailyEmaCross  = emaCross(dailyEmaShort, dailyEmaLong);
+  const weeklyEmaCross = emaCross(weeklyEmaShort, weeklyEmaLong);
+  const dailySlope9Pct = emaSlopePct(daily, params.ema_daily_short);
+  const dailySlope21Pct = emaSlopePct(daily, params.ema_daily_long);
+  const weeklySlope9Pct = emaSlopePct(weekly, params.ema_weekly_short);
+  const weeklySlope30Pct = emaSlopePct(weekly, params.ema_weekly_long);
 
-  const dailyScore  = trendScore(dailyInputs,  params);
-  const weeklyScore = trendScore(weeklyInputs, params);
+  const dailyScore = trendScoreFromSignals(
+    {
+      priceVsShortEma: dailyPriceVsShort,
+      priceVsLongEma: dailyPriceVsLong,
+      emaCross: dailyEmaCross,
+      slopeShortPct: dailySlope9Pct,
+      slopeLongPct: dailySlope21Pct,
+    },
+    params,
+    TREND_SIGNAL_THRESHOLDS.daily
+  );
+  const weeklyScore = trendScoreFromSignals(
+    {
+      priceVsShortEma: weeklyPriceVsShort,
+      priceVsLongEma: weeklyPriceVsLong,
+      emaCross: weeklyEmaCross,
+      slopeShortPct: weeklySlope9Pct,
+      slopeLongPct: weeklySlope30Pct,
+    },
+    params,
+    TREND_SIGNAL_THRESHOLDS.weekly
+  );
 
   const daily1mScore   = perfComponentScore(ret1m,    params.threshold_1m_bull,  params.threshold_1m_bear);
   const daily3mScore   = perfComponentScore(ret3m,    params.threshold_3m_bull,  params.threshold_3m_bear);
   const dailyVs1yScore = perfComponentScore(vs1yHigh, params.threshold_1yh_strong, params.threshold_1yh_weak);
-  const perfStrength   = performanceStrength(daily1mScore, daily3mScore, dailyVs1yScore);
+  const perfStrength   = performanceStrength(daily1mScore, daily3mScore);
   const distToHighs    = distanceLabel(vs1yHigh);
 
-  const dailyEmaCross  = emaCross(dailyEmaShort, dailyEmaLong);
-  const weeklyEmaCross = emaCross(weeklyEmaShort, weeklyEmaLong);
-  const dailySlope9    = emaSlope(daily,  params.ema_daily_short,  3);
-  const dailySlope21   = emaSlope(daily,  params.ema_daily_long,   3);
-  const weeklySlope9   = emaSlope(weekly, params.ema_weekly_short, 2);
-  const weeklySlope30  = emaSlope(weekly, params.ema_weekly_long,  2);
+  const dailySlope9    = slopeStateFromPct(dailySlope9Pct, TREND_SIGNAL_THRESHOLDS.daily.slopeShort);
+  const dailySlope21   = slopeStateFromPct(dailySlope21Pct, TREND_SIGNAL_THRESHOLDS.daily.slopeLong);
+  const weeklySlope9   = slopeStateFromPct(weeklySlope9Pct, TREND_SIGNAL_THRESHOLDS.weekly.slopeShort);
+  const weeklySlope30  = slopeStateFromPct(weeklySlope30Pct, TREND_SIGNAL_THRESHOLDS.weekly.slopeLong);
   const dailyOutlook   = trendOutlook(dailyScore,  params);
   const weeklyOutlook  = trendOutlook(weeklyScore, params);
   const dailyMonth     = rollingHighLow(daily,  21);
@@ -1347,19 +1552,35 @@ function buildUpdatePatch(
   patch.daily_distance_to_highs    = distToHighs;
   patch.performance_strength       = perfStrength;
   patch.distance_to_highs          = distToHighs;
-  patch.daily_performance_summary     = `${capitalize(perfStrength)} performer | In line vs benchmarks`;
-  patch.daily_performance_description = performanceDescription(perfStrength, distToHighs);
+  const firstComp = benchmarkComparisonText(
+    ret1m,
+    ret3m,
+    firstBenchmark.ret1m,
+    firstBenchmark.ret3m,
+    firstBenchmark.ticker,
+    params
+  );
+  const secondComp = benchmarkComparisonText(
+    ret1m,
+    ret3m,
+    secondBenchmark.ret1m,
+    secondBenchmark.ret3m,
+    secondBenchmark.ticker,
+    params
+  );
+  const benchmarkRelation = relationFromComparison(secondComp);
+  const perfText = performanceText(perfStrength, distToHighs, benchmarkRelation, ticker, performanceLabels);
+  patch.daily_performance_summary = `${perfText.label} | ${benchmarkRelation} vs benchmarks`;
+  patch.daily_performance_description = perfText.description;
 
   // --- Benchmark comparisons — now computed from real provider data ---
-  const spyComp = benchmarkComparisonText(ret1m, benchmarks.spy.ret1m, 'SPY', params);
-  const qqqComp = benchmarkComparisonText(ret1m, benchmarks.qqq.ret1m, 'QQQ', params);
-  patch.daily_vs_spy_comparison        = spyComp;
-  patch.daily_vs_benchmark_comparison  = qqqComp;
-  patch.weekly_vs_spy_comparison       = spyComp;
-  patch.weekly_vs_benchmark_comparison = qqqComp;
+  patch.daily_vs_spy_comparison        = firstComp;
+  patch.daily_vs_benchmark_comparison  = secondComp;
+  patch.weekly_vs_spy_comparison       = firstComp;
+  patch.weekly_vs_benchmark_comparison = secondComp;
   if (hasSectorCol) {
-    patch.daily_vs_sector_comparison  = qqqComp;
-    patch.weekly_vs_sector_comparison = qqqComp;
+    patch.daily_vs_sector_comparison  = secondComp;
+    patch.weekly_vs_sector_comparison = secondComp;
   }
 
   // --- Daily trend ---
@@ -1376,7 +1597,13 @@ function buildUpdatePatch(
   patch.daily_rating            = ratingLabel(dailyScore, params, ratingLabels);
   patch.daily_outlook           = dailyOutlook;
   patch.daily_rating_stars      = starRating(dailyScore);
-  patch.daily_trend_description = trendDescription(dailyScore, dailyOutlook);
+  patch.daily_trend_description = trendDescription(
+    dailyScore,
+    dailyOutlook,
+    String(patch.daily_rating ?? ''),
+    'Daily',
+    trendTemplates
+  );
   patch.daily_price_vs_9ema_icon   = signalIcon(dailyPriceVsShort);
   patch.daily_price_vs_21ema_icon  = signalIcon(dailyPriceVsLong);
   patch.daily_ema9_vs_21ema_icon   = signalIcon(dailyEmaCross);
@@ -1397,7 +1624,13 @@ function buildUpdatePatch(
   patch.weekly_rating            = ratingLabel(weeklyScore, params, ratingLabels);
   patch.weekly_outlook           = weeklyOutlook;
   patch.weekly_rating_stars      = starRating(weeklyScore);
-  patch.weekly_trend_description = trendDescription(weeklyScore, weeklyOutlook);
+  patch.weekly_trend_description = trendDescription(
+    weeklyScore,
+    weeklyOutlook,
+    String(patch.weekly_rating ?? ''),
+    'Weekly',
+    trendTemplates
+  );
   patch.weekly_price_vs_9ema_icon   = signalIcon(weeklyPriceVsShort);
   patch.weekly_price_vs_30ema_icon  = signalIcon(weeklyPriceVsLong);
   patch.weekly_ema9_vs_30ema_icon   = signalIcon(weeklyEmaCross);
@@ -1423,23 +1656,75 @@ function perfComponentScore(value: number | null, bull: number, bear: number): n
   return 1;
 }
 
-function performanceStrength(s1: number, s3: number, sy: number): string {
-  const avg = (s1 + s3 + sy) / 3;
-  if (avg >= 2.2) return 'Strong';
-  if (avg >= 1.0) return 'Mixed';
-  return 'Weak';
+function trendComponentScore(value: number | null, threshold: number): number {
+  if (value === null) return 1;
+  if (value > threshold) return 3;
+  if (value < -threshold) return 0;
+  return 1;
+}
+
+function trendScoreFromSignals(
+  inputs: {
+    priceVsShortEma: number | null;
+    priceVsLongEma: number | null;
+    emaCross: number | null;
+    slopeShortPct: number | null;
+    slopeLongPct: number | null;
+  },
+  p: FormulaParams,
+  thresholds: { short: number; long: number; cross: number; slopeShort: number; slopeLong: number }
+): number {
+  const components = [
+    { score: trendComponentScore(inputs.priceVsShortEma, thresholds.short), weight: p.weight_1m_return },
+    { score: trendComponentScore(inputs.priceVsLongEma, thresholds.long), weight: p.weight_3m_return },
+    { score: trendComponentScore(inputs.emaCross, thresholds.cross), weight: p.weight_vs_1y_high },
+    { score: trendComponentScore(inputs.slopeShortPct, thresholds.slopeShort), weight: p.weight_vs_9ema },
+    { score: trendComponentScore(inputs.slopeLongPct, thresholds.slopeLong), weight: p.weight_vs_30ema },
+  ];
+  const sumProduct = components.reduce((s, c) => s + c.score * c.weight, 0);
+  const raw = (sumProduct / 3) * (5 / components.reduce((s, c) => s + c.weight, 0));
+  return Math.max(0, Math.min(5, Number.isFinite(raw) ? raw : 0));
+}
+
+function benchmarkComponentScore(diff: number | null, leading: number, lagging: number): number {
+  if (diff === null) return 1;
+  if (diff > leading) return 3;
+  if (diff < -lagging) return 0;
+  return 1;
+}
+
+function performanceStrength(s1: number, s3: number): string {
+  const total = s1 + s3;
+  if (total > 4) return 'Strong';
+  if (total <= 1.1) return 'Weak';
+  return 'Mixed';
 }
 
 function distanceLabel(v: number | null): string {
   if (v === null) return 'N/A';
   if (v > -0.05) return 'Close to Highs';
   if (v > -0.1)  return 'Medium distance to Highs';
-  return 'Far below Highs';
+  return 'Far from Highs';
 }
 
 function emaCross(shortEma: number | null, longEma: number | null): number | null {
   if (shortEma === null || longEma === null) return null;
   return pctReturn(shortEma, longEma);
+}
+
+function emaSlopePct(values: number[], period: number): number | null {
+  if (!Array.isArray(values) || values.length < period + 1) return null;
+  const now = ema(values, period);
+  const prev = ema(values.slice(0, values.length - 1), period);
+  if (now === null || prev === null || prev === 0) return null;
+  return now / prev - 1;
+}
+
+function slopeStateFromPct(v: number | null, threshold: number): 'Rising' | 'Flat' | 'Falling' | null {
+  if (v === null) return null;
+  if (v > threshold) return 'Rising';
+  if (v < -threshold) return 'Falling';
+  return 'Flat';
 }
 
 function emaSlope(
@@ -1480,7 +1765,19 @@ function starRating(score: number): string {
   return '*'.repeat(full) + (hasHalf ? '+' : '') + '-'.repeat(5 - full - (hasHalf ? 1 : 0));
 }
 
-function trendDescription(score: number, outlook: 'Extended' | 'Stable' | 'Weak'): string {
+function trendDescription(
+  score: number,
+  outlook: 'Extended' | 'Stable' | 'Weak',
+  rating: string,
+  timeframe: 'Daily' | 'Weekly',
+  templates: TrendTemplateMap
+): string {
+  const outlookKey = trendTemplateOutlookKey(rating, outlook);
+  const tierKey = ratingTierFromText(rating);
+  if (tierKey && outlookKey) {
+    const templated = templates[`${tierKey}|${outlookKey}|${timeframe}`];
+    if (templated && templated.trim()) return templated.trim();
+  }
   const o = outlook.toLowerCase();
   if (score >= 4.2) return `Momentum is strongly bullish with aligned signals. Outlook is ${o}.`;
   if (score >= 3.0) return `Trend is constructive and above key moving averages. Outlook is ${o}.`;
@@ -1506,8 +1803,63 @@ function capitalize(s: string): string {
   return s[0].toUpperCase() + s.slice(1);
 }
 
-function performanceDescription(strength: string, distance: string): string {
-  return `This ticker is currently showing ${strength.toLowerCase()} performance and is ${distance.toLowerCase()}.`;
+function performanceText(
+  strength: string,
+  distance: string,
+  relation: 'Leading' | 'In line' | 'Lagging',
+  ticker: string,
+  templates: PerformanceTemplateMap
+): { label: string; description: string } {
+  const strengthKey: 'Strong' | 'Mixed' | 'Weak' = strength === 'Strong' ? 'Strong' : strength === 'Mixed' ? 'Mixed' : 'Weak';
+  const distanceKey =
+    distance === 'Close to Highs' || distance === 'Medium distance to Highs' || distance === 'Far from Highs'
+      ? distance
+      : 'Medium distance to Highs';
+  const key = `${strengthKey}|${distanceKey}|${relation}`;
+  const picked = templates[key];
+  if (picked) {
+    const description = (picked.description || '')
+      .replace(/\{\{\s*ticker\s*\}\}/gi, `$${ticker.toUpperCase()}`)
+      .replace(/\{\{\s*distance\s*\}\}/gi, distanceKey.toLowerCase())
+      .replace(/\{\{\s*strength\s*\}\}/gi, strengthKey.toLowerCase())
+      .replace(/\{\{\s*benchmark_relation\s*\}\}/gi, relation.toLowerCase());
+    return { label: picked.label || `${strengthKey} performer`, description };
+  }
+  const lowerDistance = distanceKey.toLowerCase();
+  return {
+    label: `${strengthKey} performer`,
+    description: `$${ticker.toUpperCase()} is currently showing ${strengthKey.toLowerCase()} performance, is ${lowerDistance}, and is ${relation.toLowerCase()} vs benchmarks.`,
+  };
+}
+
+function relationFromComparison(text: string): 'Leading' | 'In line' | 'Lagging' {
+  const s = text.toLowerCase();
+  if (s.includes('leading')) return 'Leading';
+  if (s.includes('lagging')) return 'Lagging';
+  return 'In line';
+}
+
+function ratingTierFromText(rating: string): 'strong_bull' | 'bull' | 'neutral' | 'bear' | 'strong_bear' | null {
+  const s = rating.toLowerCase();
+  if (s.includes('strong performer') || (s.includes('strong') && s.includes('uptrend'))) return 'strong_bull';
+  if (s.includes('uptrend') || s.includes('bull')) return 'bull';
+  if (s.includes('sideways') || s.includes('neutral')) return 'neutral';
+  if (s.includes('strong downtrend') || (s.includes('strong') && s.includes('bear'))) return 'strong_bear';
+  if (s.includes('downtrend') || s.includes('bear')) return 'bear';
+  return null;
+}
+
+function trendTemplateOutlookKey(
+  rating: string,
+  outlook: 'Extended' | 'Stable' | 'Weak'
+): 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming' | null {
+  if (outlook === 'Extended') return 'Extended';
+  if (outlook === 'Stable') return 'Stable';
+  const tier = ratingTierFromText(rating);
+  if (!tier) return null;
+  if (tier === 'neutral') return 'Softening';
+  if (tier === 'bear' || tier === 'strong_bear') return 'Reversing';
+  return 'Cooling';
 }
 
 // -----------------------------------------------------------------------------
@@ -1544,6 +1896,55 @@ async function logRun(
   await db.from('api_health_log').insert(payload);
 }
 
+/** One in-app admin notification when a ticker session fully completes (not per chained batch). */
+async function notifyAdminTickerSessionComplete(
+  db: ReturnType<typeof createClient>,
+  input: {
+    kind: 'collect_session' | 'candidates_import';
+    provider: string;
+    status: 'ok' | 'partial' | 'error';
+    triggeredBy: string;
+    durationMs: number;
+    tickersUpdated: number;
+    tickersFailed: number;
+    imported?: number;
+    skipped?: number;
+    importMode?: boolean;
+    diagSummary?: string | null;
+  },
+) {
+  const title =
+    input.kind === 'candidates_import' ? 'Ticker import (candidates) complete' : 'Ticker data refresh complete';
+  const parts: string[] = [
+    `${input.provider}: ${input.status}.`,
+    `Tickers updated: ${input.tickersUpdated}, failed: ${input.tickersFailed}.`,
+  ];
+  if (input.kind === 'candidates_import' && (input.imported != null || input.skipped != null)) {
+    parts.push(`Imported: ${input.imported ?? 0}, skipped: ${input.skipped ?? 0}.`);
+  }
+  if (input.diagSummary) parts.push(input.diagSummary);
+  parts.push(`Run by: ${input.triggeredBy}.`, `Duration: ${Math.round(input.durationMs)} ms.`);
+  const body = parts.join(' ');
+  const { error } = await db.from('admin_notifications').insert({
+    type: 'ticker_update_complete',
+    title,
+    body,
+    metadata: {
+      kind: input.kind,
+      provider: input.provider,
+      status: input.status,
+      tickers_updated: input.tickersUpdated,
+      tickers_failed: input.tickersFailed,
+      duration_ms: input.durationMs,
+      triggered_by: input.triggeredBy,
+      imported: input.imported ?? null,
+      skipped: input.skipped ?? null,
+      import_mode: Boolean(input.importMode),
+    },
+  });
+  if (error) console.warn('[admin-notify] admin_notifications insert failed', error.message);
+}
+
 async function updateRunProgress(
   db: ReturnType<typeof createClient>,
   input: {
@@ -1569,6 +1970,7 @@ async function updateRunProgress(
   const payload = {
     type: 'progress', mode: input.mode, phase: input.phase,
     done, total, percent: pct,
+    heartbeat_at: Date.now(),
     updated: input.updated, failed: input.failed,
     imported: input.imported, skipped: input.skipped,
     elapsedMs: Date.now() - input.startedAt,
@@ -1625,6 +2027,83 @@ async function loadImportProgressSeed(
 // -----------------------------------------------------------------------------
 // Misc utilities
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// Price history helpers — persist daily + weekly closes for chart rendering
+// -----------------------------------------------------------------------------
+
+/**
+ * Convert a flat array of closes (oldest → newest) into price_history rows.
+ * Dates are approximated by walking back from `anchorDate` by trading days
+ * (weekends skipped, public holidays not accounted for — close enough for charts).
+ */
+function closesToRows(
+  ticker: string,
+  closes: number[],
+  interval: 'daily' | 'weekly',
+  anchorDate: Date,
+  maxRows: number,
+): Array<{ ticker: string; bar_date: string; interval: string; close: number }> {
+  const rows: Array<{ ticker: string; bar_date: string; interval: string; close: number }> = [];
+  // How many calendar days to step back per bar.
+  const stepCalendarDays = interval === 'weekly' ? 7 : 1;
+
+  // Start from anchor and walk backward, collecting one date per bar.
+  const dates: string[] = [];
+  let cursor = new Date(anchorDate);
+  const slice = closes.slice(-maxRows);
+
+  for (let i = 0; i < slice.length; i++) {
+    // For daily: skip Sat/Sun when stepping back.
+    if (interval === 'daily') {
+      // Step back by 1 calendar day, skip weekend.
+      cursor.setDate(cursor.getDate() - (i === 0 ? 0 : 1));
+      while (cursor.getDay() === 0 || cursor.getDay() === 6) {
+        cursor.setDate(cursor.getDate() - 1);
+      }
+    } else {
+      if (i > 0) cursor.setDate(cursor.getDate() - stepCalendarDays);
+    }
+    dates.push(cursor.toISOString().slice(0, 10));
+  }
+  // dates[0] = most recent, dates[N-1] = oldest; slice[N-1] = oldest close, slice[0] = newest
+  // We want dates[i] ↔ slice[slice.length - 1 - i]
+  for (let i = 0; i < slice.length; i++) {
+    rows.push({
+      ticker,
+      bar_date: dates[i],
+      interval,
+      close: slice[slice.length - 1 - i],
+    });
+  }
+  return rows;
+}
+
+/**
+ * Upsert daily + weekly closes for one ticker into price_history.
+ * Fire-and-forget errors so a write failure never stops the main collect run.
+ */
+async function upsertPriceHistory(
+  db: ReturnType<typeof createClient>,
+  ticker: string,
+  history: { dailyCloses: number[]; weeklyCloses: number[] },
+): Promise<void> {
+  try {
+    const anchor = new Date();
+    const dailyRows  = closesToRows(ticker, history.dailyCloses,  'daily',  anchor, 252);
+    const weeklyRows = closesToRows(ticker, history.weeklyCloses, 'weekly', anchor, 78);
+    const rows = [...dailyRows, ...weeklyRows];
+    if (rows.length === 0) return;
+    const { error } = await db
+      .from('price_history')
+      .upsert(rows, { onConflict: 'ticker,bar_date,interval', ignoreDuplicates: false });
+    if (error) {
+      console.warn('[price_history] upsert error', { ticker, error: error.message });
+    }
+  } catch (e) {
+    console.warn('[price_history] upsert threw', { ticker, err: String(e) });
+  }
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));

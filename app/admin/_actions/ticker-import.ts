@@ -88,6 +88,11 @@ function fromByteaHex(raw: unknown): Buffer {
 // List / Stats
 // ---------------------------------------------------------------------------
 
+/** Columns needed for the candidates list — avoids fetching heavy unused fields. */
+const CANDIDATE_LIST_COLS =
+  'id,ticker,provider_name,provider_type,provider_status,import_status,' +
+  'is_in_system,existing_table,import_target_table,notes,created_at,updated_at';
+
 export async function listTickerCandidatesAction(
   accessToken: string,
   filter: CandidateListFilter = {}
@@ -99,7 +104,7 @@ export async function listTickerCandidatesAction(
 
     let q = admin
       .from('ticker_import_candidates')
-      .select('*', { count: 'exact' })
+      .select(CANDIDATE_LIST_COLS, { count: 'exact' })
       .order('ticker', { ascending: true })
       .range(offset, offset + limit - 1);
 
@@ -113,12 +118,16 @@ export async function listTickerCandidatesAction(
       q = q.eq('is_in_system', filter.in_system);
     }
     if (filter.search && filter.search.trim()) {
-      q = q.ilike('ticker', `%${filter.search.trim()}%`);
+      // Search across ticker symbol AND provider name (both have GIN trgm indices).
+      const safe = filter.search.trim().replace(/[%_,]/g, '');
+      q = q.or(`ticker.ilike.%${safe}%,provider_name.ilike.%${safe}%`);
     }
 
     const { data, error, count } = await q;
     if (error) return err('Failed to load ticker candidates.', 'db_error');
-    return ok({ rows: (data ?? []) as TickerCandidate[], total_count: count ?? 0 });
+    // Table row shape is correct at runtime; Supabase client types omit / mismatch this table.
+    const rows = (data ?? []) as unknown as TickerCandidate[];
+    return ok({ rows, total_count: count ?? 0 });
   });
 }
 
@@ -479,7 +488,7 @@ export async function importTickerCandidateAction(
     }
 
     const now = new Date().toISOString();
-    const isActive = input.activateImmediately ?? false;
+    const isActive = input.activateImmediately ?? true;
 
     // Insert into the target table with only the required NOT NULL fields
     const insertPayload = buildInsertPayload(candidate, input.targetTable, isActive);
@@ -532,7 +541,7 @@ export async function bulkImportTickerCandidatesAction(
     if (candErr) return err('Failed to load candidates.', 'db_error');
 
     const now = new Date().toISOString();
-    const isActive = input.activateImmediately ?? false;
+    const isActive = input.activateImmediately ?? true;
     const errors: string[] = [];
     let imported = 0, skipped = 0;
 
@@ -864,6 +873,71 @@ export async function addTickerCandidatesAction(
     }
 
     return ok({ added, skipped });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Delete — removes from candidates list AND from system tables if imported
+// ---------------------------------------------------------------------------
+
+export async function deleteTickerCandidatesAction(
+  accessToken: string,
+  input: { ids: string[] }
+): Promise<ActionResult<{ deleted_candidates: number; deleted_from_system: number }>> {
+  return withAdmin(accessToken, async () => {
+    if (!Array.isArray(input.ids) || input.ids.length === 0) return err('No ids provided.', 'validation');
+    if (input.ids.length > 500) return err('Too many rows in one request.', 'validation');
+    const admin = getAdminSupabase();
+
+    // Load candidate rows to find any that were imported into system tables
+    const { data: candidates, error: loadErr } = await admin
+      .from('ticker_import_candidates')
+      .select('id,ticker,is_in_system,existing_table,import_status,import_target_table')
+      .in('id', input.ids);
+    if (loadErr) return err('Failed to load candidates.', 'db_error');
+
+    const rows = (candidates ?? []) as {
+      id: string;
+      ticker: string;
+      is_in_system: boolean | null;
+      existing_table: string | null;
+      import_status: string;
+      import_target_table: string | null;
+    }[];
+
+    // Group tickers by system table for bulk removal
+    const byTable = new Map<TargetTable, string[]>();
+    for (const row of rows) {
+      const wasImported = row.import_status === 'imported' || Boolean(row.is_in_system);
+      const table = (row.existing_table ?? row.import_target_table) as TargetTable | null;
+      if (wasImported && table && TARGET_TABLES.includes(table)) {
+        const arr = byTable.get(table) ?? [];
+        arr.push(row.ticker);
+        byTable.set(table, arr);
+      }
+    }
+
+    // Delete from system tables first
+    let deleted_from_system = 0;
+    for (const [table, tickers] of byTable.entries()) {
+      const { data: deleted, error: delErr } = await admin
+        .from(table)
+        .delete()
+        .in('ticker', tickers)
+        .select('id');
+      if (delErr) return err(`Failed to remove tickers from ${table}: ${delErr.message}`, 'db_error');
+      deleted_from_system += (deleted ?? []).length;
+    }
+
+    // Delete from candidates table
+    const { data: deletedCands, error: candDelErr } = await admin
+      .from('ticker_import_candidates')
+      .delete()
+      .in('id', input.ids)
+      .select('id');
+    if (candDelErr) return err('Failed to delete candidates.', 'db_error');
+
+    return ok({ deleted_candidates: (deletedCands ?? []).length, deleted_from_system });
   });
 }
 

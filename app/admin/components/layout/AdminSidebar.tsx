@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import type { AdminPageKey } from '../AdminPanel';
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
+import { getUnreadAdminNotificationCountAction } from '../../_actions/notifications';
 import { useAdmin } from '../../_lib/admin-context';
 
 interface AdminSidebarProps {
@@ -28,9 +30,33 @@ export default function AdminSidebar({
   mobileOpen,
   onCloseMobile,
 }: AdminSidebarProps) {
-  const { admin, signOut } = useAdmin();
+  const { admin, signOut, getAccessToken } = useAdmin();
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const emailDisplay = admin?.email ?? '';
   const initial = emailDisplay.charAt(0).toUpperCase() || 'A';
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await getUnreadAdminNotificationCountAction(token);
+        if (cancelled || !res.ok) return;
+        setUnreadNotifications(res.data);
+      } catch {
+        if (!cancelled) setUnreadNotifications(0);
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 45_000);
+    const onDirty = () => void tick();
+    window.addEventListener('mws-admin-notifications-dirty', onDirty);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      window.removeEventListener('mws-admin-notifications-dirty', onDirty);
+    };
+  }, [getAccessToken, currentPage]);
 
   const navItems: { id: AdminPageKey; label: string; icon: LucideIcon }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -73,7 +99,7 @@ export default function AdminSidebar({
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                className={`flex h-10 w-full items-center gap-3 rounded-md px-3 text-left transition-colors ${
+                className={`relative flex h-10 w-full items-center gap-3 rounded-md px-3 text-left transition-colors ${
                   isActive
                     ? 'bg-[#15803d]/15 text-white'
                     : 'text-white/70 hover:bg-white/5 hover:text-white'
@@ -83,6 +109,11 @@ export default function AdminSidebar({
                 <span className={`text-sm ${isActive ? 'font-semibold' : 'font-normal'}`}>
                   {item.label}
                 </span>
+                {item.id === 'notifications' && unreadNotifications > 0 && (
+                  <span className="ml-auto min-w-[1.25rem] rounded-full bg-amber-500 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-amber-950">
+                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  </span>
+                )}
               </button>
             );
           })}

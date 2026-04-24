@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase-client';
+import { getAppEnv } from '@/lib/supabase-env';
 import { whoAmIAction, type AdminWhoAmI } from '../_actions/session';
 
 type Status = 'loading' | 'anon' | 'not-admin' | 'admin' | 'error';
@@ -26,6 +27,9 @@ const CACHE_KEY = 'mws.admin.verdict.v1';
 // Cached verdict is trusted for this long before a silent background re-check.
 // Short enough that demotions take effect quickly, long enough to avoid churn on tab switches.
 const CACHE_TTL_MS = 5 * 60 * 1000;
+// Temporarily disabled — use real login even in dev.
+const isDevBypassEnabled = false;
+const devAdmin: AdminWhoAmI = { email: 'dev-admin@local', userId: 'dev-admin' };
 
 function readCache(userId: string): CachedVerdict | null {
   if (typeof window === 'undefined') return null;
@@ -65,6 +69,7 @@ export function useAdminSession(): AdminSession {
   const verifiedUserIdRef = useRef<string | null>(null);
 
   const getAccessToken = useCallback(async () => {
+    if (isDevBypassEnabled) return 'dev-bypass';
     const { data } = await supabase.auth.getSession();
     const t = data.session?.access_token;
     if (!t) throw new Error('No active session.');
@@ -72,6 +77,12 @@ export function useAdminSession(): AdminSession {
   }, []);
 
   const signOut = useCallback(async () => {
+    if (isDevBypassEnabled) {
+      setAdmin(devAdmin);
+      setStatus('admin');
+      setError(null);
+      return;
+    }
     clearCache();
     verifiedUserIdRef.current = null;
     await supabase.auth.signOut();
@@ -80,6 +91,13 @@ export function useAdminSession(): AdminSession {
   }, []);
 
   useEffect(() => {
+    if (isDevBypassEnabled) {
+      setAdmin(devAdmin);
+      setStatus('admin');
+      setError(null);
+      return;
+    }
+
     let cancelled = false;
 
     // Verify against the server. If `silent` is true, do NOT flip UI to 'loading'

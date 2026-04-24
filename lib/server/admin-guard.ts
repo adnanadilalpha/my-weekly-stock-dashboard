@@ -24,6 +24,7 @@ export type AdminContext = {
  * Throws AdminAuthError on any failure — caller should surface a generic 403.
  */
 export async function requireAdmin(accessToken: string | null | undefined): Promise<AdminContext> {
+  // Dev bypass disabled — real auth required.
   if (!accessToken) {
     throw new AdminAuthError('no_token', 'Access token missing.');
   }

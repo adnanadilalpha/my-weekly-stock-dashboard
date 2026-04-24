@@ -44,3 +44,32 @@
   background-color: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
+
+.admin-input {
+  border: 1px solid #e5e7eb;
+  background-color: #ffffff;
+  color: #111827;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.admin-input::placeholder {
+  color: #9ca3af;
+}
+
+.admin-input:hover:not(:disabled) {
+  border-color: #d1d5db;
+}
+
+.admin-input:focus {
+  border-color: #15803d;
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15);
+}
+
+.admin-input:disabled {
+  background-color: #f9fafb;
+  color: #6b7280;
+  cursor: not-allowed;
+}

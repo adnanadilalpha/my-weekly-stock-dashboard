@@ -11,6 +11,7 @@ import {
   type ProviderSymbolHit,
 } from '../../_actions/ticker-import';
 import { useDebouncedValue } from '../../_lib/use-debounced-value';
+import { TickerIcon } from '@/app/components/ui/ticker-icon';
 
 type Props = {
   open: boolean;
@@ -21,6 +22,9 @@ type Props = {
 };
 
 type Tab = 'search' | 'upload';
+
+const SELECT_FIELD =
+  'border border-input bg-input-background text-foreground shadow-sm outline-none ring-offset-background transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30 dark:scheme-dark';
 
 function findTickerColumnKey(sampleRow: Record<string, unknown>): string | undefined {
   for (const k of Object.keys(sampleRow)) {
@@ -33,7 +37,7 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
   const [tab, setTab] = useState<Tab>('search');
   const [providerLabel, setProviderLabel] = useState<string>('');
   const [query, setQuery] = useState('');
-  const debouncedQuery = useDebouncedValue(query.trim(), 320);
+  const debouncedQuery = useDebouncedValue(query.trim(), 250);
   const [hits, setHits] = useState<ProviderSymbolHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -221,32 +225,32 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="admin-card flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl shadow-xl">
-        <div className="admin-border flex shrink-0 items-center justify-between border-b px-5 py-4">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
           <div>
-            <h4 className="admin-text-main text-lg font-semibold">Add tickers</h4>
-            <p className="admin-text-muted mt-0.5 text-xs">
-              Search uses preferred provider: <span className="admin-text-main font-semibold">{providerLabel || '…'}</span>
+            <h4 className="text-lg font-semibold tracking-tight text-foreground">Add tickers</h4>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Search uses preferred provider: <span className="font-semibold text-foreground">{providerLabel || '…'}</span>
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40"
+            className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-muted disabled:opacity-40"
             aria-label="Close"
           >
-            <X size={18} className="admin-text-muted" />
+            <X size={18} />
           </button>
         </div>
 
-        <div className="shrink-0 border-b border-slate-100 px-5 pt-3">
-          <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+        <div className="shrink-0 border-b border-border px-5 pt-3">
+          <div className="flex gap-1 rounded-lg bg-muted/60 p-1">
             <button
               type="button"
               onClick={() => setTab('search')}
-              className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-                tab === 'search' ? 'bg-white text-slate-900 shadow-sm' : 'admin-text-muted'
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+                tab === 'search' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Search
@@ -254,8 +258,8 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
             <button
               type="button"
               onClick={() => setTab('upload')}
-              className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold ${
-                tab === 'upload' ? 'bg-white text-slate-900 shadow-sm' : 'admin-text-muted'
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-semibold transition-colors ${
+                tab === 'upload' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               Spreadsheet
@@ -267,40 +271,43 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
           {tab === 'search' && (
             <div className="space-y-4">
               <div className="relative">
-                <Search size={16} className="admin-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search symbol or company…"
-                  className="admin-border w-full rounded-lg border py-2.5 pl-10 pr-3 text-sm"
+                  className="h-10 w-full rounded-lg border border-input bg-input-background py-2.5 pl-10 pr-3 text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30"
                   autoFocus
                 />
               </div>
               {searching && (
-                <div className="flex items-center gap-2 text-sm admin-text-muted">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 size={16} className="animate-spin" />
                   Searching…
                 </div>
               )}
-              {searchError && !searching && <p className="text-sm text-red-600">{searchError}</p>}
+              {searchError && !searching && <p className="text-sm text-destructive">{searchError}</p>}
               {!searching && hits.length > 0 && (
-                <ul className="admin-border max-h-56 divide-y overflow-auto rounded-lg border">
+                <ul className="max-h-56 divide-y divide-border overflow-auto rounded-lg border border-border">
                   {hits.map((h) => (
                     <li key={h.symbol}>
-                      <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5 hover:bg-slate-50">
+                      <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/50">
                         <input
                           type="checkbox"
                           checked={selected.has(h.symbol)}
                           onChange={() => toggleHit(h.symbol)}
-                          className="mt-1 h-4 w-4 shrink-0 rounded"
+                          className="mt-1 h-4 w-4 shrink-0 rounded border-border"
                         />
+                        <div className="mt-0.5 flex h-7 w-7 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
+                          <TickerIcon ticker={h.symbol} size={28} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+                        </div>
                         <span className="min-w-0 flex-1">
-                          <span className="font-mono font-semibold admin-text-main">{h.symbol}</span>
+                          <span className="font-mono font-semibold text-foreground">{h.symbol}</span>
                           {h.description && (
-                            <span className="admin-text-muted mt-0.5 block truncate text-xs">{h.description}</span>
+                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{h.description}</span>
                           )}
                           {(h.type || h.exchange) && (
-                            <span className="admin-text-muted mt-0.5 block text-[11px]">
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground">
                               {[h.type, h.exchange].filter(Boolean).join(' · ')}
                             </span>
                           )}
@@ -311,11 +318,11 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
                 </ul>
               )}
               {!searching && debouncedQuery.length >= 1 && hits.length === 0 && !searchError && (
-                <p className="text-sm admin-text-muted">No matches. Try another query.</p>
+                <p className="text-sm text-muted-foreground">No matches. Try another query.</p>
               )}
 
-              <div className="admin-border rounded-lg border border-dashed px-3 py-3">
-                <p className="admin-text-muted mb-2 text-xs font-medium uppercase tracking-wide">Quick add</p>
+              <div className="rounded-lg border border-dashed border-border px-3 py-3">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Quick add</p>
                 <div className="flex gap-2">
                   <input
                     value={quickTicker}
@@ -327,13 +334,13 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
                       }
                     }}
                     placeholder="TICKER"
-                    className="admin-border min-w-0 flex-1 rounded-lg border px-3 py-2 font-mono text-sm"
+                    className="min-h-0 min-w-0 flex-1 rounded-lg border border-input bg-input-background px-3 py-2 font-mono text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30"
                   />
                   <button
                     type="button"
                     disabled={busy || !quickTicker.trim()}
                     onClick={() => addQuickOne()}
-                    className="admin-green-bg shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    className="shrink-0 rounded-lg bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground shadow-sm transition-colors hover:bg-secondary/80 disabled:opacity-50"
                   >
                     Add one
                   </button>
@@ -348,17 +355,19 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
                 <button
                   type="button"
                   onClick={downloadSample}
-                  className="admin-border admin-text-muted inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium"
+                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
                 >
                   <FileSpreadsheet size={16} />
                   Sample .xlsx
                 </button>
-                <span className="admin-text-muted text-xs">First sheet: column <code className="rounded bg-slate-100 px-1">ticker</code> (or first column).</span>
+                <span className="text-xs text-muted-foreground">
+                  First sheet: column <code className="rounded bg-muted px-1 font-mono text-foreground">ticker</code> (or first column).
+                </span>
               </div>
               <input
                 type="file"
                 accept=".xlsx,.xls"
-                className="admin-border block w-full cursor-pointer rounded-lg border border-dashed px-3 py-3 text-sm file:mr-3 file:rounded file:border-0 file:bg-slate-200 file:px-3 file:py-1.5 file:text-sm file:font-medium"
+                className="block w-full cursor-pointer rounded-lg border border-dashed border-input bg-input-background px-3 py-3 text-sm text-foreground transition-[color,box-shadow] file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground dark:bg-input/30"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   e.target.value = '';
@@ -366,7 +375,7 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
                 }}
               />
               {sheetRows.length > 0 && (
-                <p className="text-sm admin-text-main">
+                <p className="text-sm text-foreground">
                   <span className="font-semibold">{sheetRows.length}</span> tickers from{' '}
                   <span className="font-medium">{sheetName}</span>
                 </p>
@@ -374,15 +383,15 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
             </div>
           )}
 
-          {localError && <p className="mt-3 text-sm text-red-600">{localError}</p>}
+          {localError && <p className="mt-3 text-sm text-destructive">{localError}</p>}
         </div>
 
-        <div className="admin-border flex shrink-0 flex-wrap justify-end gap-2 border-t px-5 py-4">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border px-5 py-4">
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="admin-border admin-text-muted rounded-lg border px-4 py-2 text-sm font-medium disabled:opacity-50"
+            className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -391,7 +400,7 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
               type="button"
               disabled={busy || selected.size === 0}
               onClick={() => addFromSearch()}
-              className="admin-green-bg inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               <Plus size={16} />
               {busy ? 'Adding…' : `Add selected (${selected.size})`}
@@ -401,7 +410,7 @@ export default function TickerImportAddCandidatesModal({ open, onClose, onAdded,
               type="button"
               disabled={busy || sheetRows.length === 0}
               onClick={() => void submitRows(sheetRows)}
-              className="admin-green-bg inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               <Plus size={16} />
               {busy ? 'Adding…' : `Add ${sheetRows.length} tickers`}

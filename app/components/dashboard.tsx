@@ -1,199 +1,736 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { LogOut, RefreshCw } from 'lucide-react';
-import { StockTable } from './stock-table';
-import { Button } from './ui/button';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Badge } from './ui/badge';
-import { Separator } from './ui/separator';
+/**
+ * MWS hub / “Momentum Pulse Check” home — layout aligned with `weeklystock/hub.jsx` + styles.
+ * Re-exported as `IndexPage` from `index-page.tsx` for `app/page.tsx`.
+ */
 
-interface DashboardProps {
+import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  BookOpen,
+  LayoutGrid,
+  Activity,
+  Search,
+  ChevronRight,
+  RefreshCw,
+  SlidersHorizontal,
+  Layers,
+  BarChart3,
+  Sparkles,
+} from 'lucide-react';
+import { Button } from './ui/button';
+import { TickerIcon } from './ui/ticker-icon';
+import { AppHeader } from './app-header';
+import { MwsHubCustomizeDialog, type CuratedHubRow } from './mws-hub-customize-dialog';
+import type { PageView } from '../types';
+import type { AppMode } from '../types';
+import { getAllTickers, tickerMatchesSearchQuery } from '../../lib/queries/ticker';
+import { useMwsHubPreferences } from '@/lib/hooks/useMwsHubPreferences';
+import { fetchHubTickerMetricsMap } from '@/lib/queries/hub-ticker-metrics';
+import type { HubTickerMetric } from '@/lib/queries/hub-ticker-metrics';
+import type { HubSectionKey } from '@/lib/mws-hub-prefs';
+
+export interface IndexPageProps {
   userEmail: string;
   onSignOut: () => void;
+  onNavigate: (page: PageView, ticker?: string) => void;
+  currentAppMode: AppMode;
+  onGoToPortfolio: () => void;
+  onGoToMWS: () => void;
 }
 
-interface UserPreferences {
-  ticker: string;
-  timeframe: string;
+const SEGMENTS = [
+  'S&P500',
+  'Nasdaq',
+  'Small Caps',
+  'Treasuries',
+  'US Dollar fund',
+  'Gold',
+  'Silver',
+  'Bitcoin',
+  'Ethereum',
+  'Oil',
+];
+
+const SECTORS = [
+  'Technology',
+  'Telecommunication Services',
+  'Semiconductors',
+  'Consumer Cyclicals',
+  'Financials',
+  'Industrials',
+  'Energy',
+  'Materials',
+  'Real Estate',
+  'Utilities',
+  'Healthcare',
+  'Consumer Defensive',
+];
+
+const LARGE_CAPS = [
+  'Nvidia',
+  'Microsoft',
+  'Apple',
+  'Alphabet',
+  'Amazon',
+  'Meta',
+  'Tesla',
+  'JPMorgan',
+  'Walmart',
+  'Eli Lilly',
+  'Broadcom',
+  'Cisco Systems',
+  "McDonald's",
+  'Visa',
+  'Wells Fargo',
+  'Citigroup',
+  'Oracle',
+  'Morgan Stanley',
+  'Applovin',
+  'Mastercard',
+  'Coca-Cola Company',
+  'Intuitive Surgical',
+  'Exxon Mobil',
+  'Goldman Sachs',
+  'Linde',
+  'Johnson & Johnson',
+  'Caterpillar',
+  'Intel',
+  'Palantir',
+  'International Business Machines',
+  'Disney',
+  'Netflix',
+  'Merck',
+  'Qualcomm',
+  'Bank of America',
+  'American Express',
+  'PepsiCo',
+  'Costco',
+  'Lam Research',
+  'Blackstone',
+  'Micron',
+  'Salesforce',
+  'Amgen',
+  'Home Depot',
+  'RTX Corporation',
+  'Charles Schwab',
+  'GE Aerospace',
+  'Thermo Fisher Scientific',
+  'Intuit',
+  'Advanced Micro Devices',
+  'Applied Materials',
+  'GE Vernova',
+  'Procter & Gamble',
+  'Abbott Laboratories',
+  'Uber',
+  'Chevron',
+  'T-Mobile US',
+  'Boeing',
+  'UnitedHealth Group',
+  'Shopify',
+];
+
+const TICKER_MAP: Record<string, string> = {
+  'S&P500': 'SPY',
+  Nasdaq: 'QQQ',
+  'Small Caps': 'IWM',
+  Treasuries: 'TLT',
+  'US Dollar fund': 'UUP',
+  Gold: 'GLD',
+  Silver: 'SLV',
+  Bitcoin: 'IBIT',
+  Ethereum: 'ETHA',
+  Oil: 'USO',
+  Technology: 'XLK',
+  'Telecommunication Services': 'XLC',
+  Semiconductors: 'SMH',
+  'Consumer Cyclicals': 'XLY',
+  Financials: 'XLF',
+  Industrials: 'XLI',
+  Energy: 'XLE',
+  Materials: 'XLB',
+  'Real Estate': 'XLRE',
+  Utilities: 'XLU',
+  Healthcare: 'XLV',
+  'Consumer Defensive': 'XLP',
+  Nvidia: 'NVDA',
+  Microsoft: 'MSFT',
+  Apple: 'AAPL',
+  Alphabet: 'GOOG',
+  Amazon: 'AMZN',
+  Meta: 'META',
+  Tesla: 'TSLA',
+  JPMorgan: 'JPM',
+  Walmart: 'WMT',
+  'Eli Lilly': 'LLY',
+  Broadcom: 'AVGO',
+  'Cisco Systems': 'CSCO',
+  "McDonald's": 'MCD',
+  Visa: 'V',
+  'Wells Fargo': 'WFC',
+  Citigroup: 'C',
+  Oracle: 'ORCL',
+  'Morgan Stanley': 'MS',
+  Applovin: 'APP',
+  Mastercard: 'MA',
+  'Coca-Cola Company': 'KO',
+  'Intuitive Surgical': 'ISRG',
+  'Exxon Mobil': 'XOM',
+  'Goldman Sachs': 'GS',
+  Linde: 'LIN',
+  'Johnson & Johnson': 'JNJ',
+  Caterpillar: 'CAT',
+  Intel: 'INTC',
+  Palantir: 'PLTR',
+  'International Business Machines': 'IBM',
+  Disney: 'DIS',
+  Netflix: 'NFLX',
+  Merck: 'MRK',
+  Qualcomm: 'QCOM',
+  'Bank of America': 'BAC',
+  'American Express': 'AXP',
+  PepsiCo: 'PEP',
+  Costco: 'COST',
+  'Lam Research': 'LRCX',
+  Blackstone: 'BX',
+  Micron: 'MU',
+  Salesforce: 'CRM',
+  Amgen: 'AMGN',
+  'Home Depot': 'HD',
+  'RTX Corporation': 'RTX',
+  'Charles Schwab': 'SCHW',
+  'GE Aerospace': 'GE',
+  'Thermo Fisher Scientific': 'TMO',
+  Intuit: 'INTU',
+  'Advanced Micro Devices': 'AMD',
+  'Applied Materials': 'AMAT',
+  'GE Vernova': 'GEV',
+  'Procter & Gamble': 'PG',
+  'Abbott Laboratories': 'ABT',
+  Uber: 'UBER',
+  Chevron: 'CVX',
+  'T-Mobile US': 'TMUS',
+  Boeing: 'BA',
+  'UnitedHealth Group': 'UNH',
+  Shopify: 'SHOP',
+};
+
+const CURATED_HUB_ROWS: CuratedHubRow[] = [
+  ...SEGMENTS.map((name) => ({ name, ticker: TICKER_MAP[name] })),
+  ...SECTORS.map((name) => ({ name, ticker: TICKER_MAP[name] })),
+  ...LARGE_CAPS.map((name) => ({ name, ticker: TICKER_MAP[name] })),
+];
+
+function formatM1Chip(m1: number | null): string {
+  if (m1 == null || Number.isNaN(m1)) return '—';
+  const pct = Math.abs(m1) <= 1 ? m1 * 100 : m1;
+  const rounded = Number(pct.toFixed(1));
+  const sign = rounded > 0 ? '+' : '';
+  return `${sign}${rounded}%`;
 }
 
-export function Dashboard({ userEmail, onSignOut }: DashboardProps) {
-  const [ticker, setTicker] = useState('AAPL');
-  const [timeframe, setTimeframe] = useState('Weekly');
-  const [lastSynced, setLastSynced] = useState<string>('');
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success'>('idle');
+function dotTone(i: number): 'emerald' | 'amber' | 'rose' {
+  const m = i % 3;
+  if (m === 0) return 'emerald';
+  if (m === 1) return 'amber';
+  return 'rose';
+}
 
-  // Load user preferences on mount
-  useEffect(() => {
-    const savedPrefs = localStorage.getItem('userPreferences');
-    if (savedPrefs) {
-      const prefs: UserPreferences = JSON.parse(savedPrefs);
-      setTicker(prefs.ticker);
-      setTimeframe(prefs.timeframe);
+function scoreToDotTone(score: number | null, fallbackIndex: number): 'emerald' | 'amber' | 'rose' {
+  if (score == null || Number.isNaN(score)) return dotTone(fallbackIndex);
+  if (score >= 3) return 'emerald';
+  if (score >= 2) return 'amber';
+  return 'rose';
+}
+
+function Dot({ tone }: { tone: 'emerald' | 'amber' | 'rose' }) {
+  const cls =
+    tone === 'emerald'
+      ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.2)]'
+      : tone === 'amber'
+        ? 'bg-amber-500'
+        : 'bg-red-500';
+  return <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${cls}`} aria-hidden />;
+}
+
+export function IndexPage({
+  userEmail,
+  onSignOut,
+  onNavigate,
+  currentAppMode,
+  onGoToPortfolio,
+  onGoToMWS,
+}: IndexPageProps) {
+  const { prefs, setPrefs, resetPrefs, loadError, saveError, flushSave } = useMwsHubPreferences();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dbTickers, setDbTickers] = useState<string[]>([]);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [showAllLargeCaps, setShowAllLargeCaps] = useState(false);
+  const [tickersVersion, setTickersVersion] = useState(0);
+  const [metricsMap, setMetricsMap] = useState<Map<string, HubTickerMetric>>(() => new Map());
+  const [metricsLoading, setMetricsLoading] = useState(true);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const loadTickers = useCallback(async () => {
+    try {
+      const rows = await getAllTickers();
+      setDbTickers(rows);
+    } catch {
+      /* keep static lists */
     }
-    
-    // Set initial last synced time
-    const now = new Date();
-    setLastSynced(formatDateTime(now));
   }, []);
 
-  // Save preferences when they change
+  const loadMetrics = useCallback(async () => {
+    setMetricsLoading(true);
+    try {
+      const m = await fetchHubTickerMetricsMap();
+      setMetricsMap(m);
+    } catch {
+      setMetricsMap(new Map());
+    } finally {
+      setMetricsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const prefs: UserPreferences = { ticker, timeframe };
-    localStorage.setItem('userPreferences', JSON.stringify(prefs));
-    
-    // Auto-sync when preferences change
-    handleSync();
-  }, [ticker, timeframe]);
+    void loadTickers();
+  }, [loadTickers, tickersVersion]);
 
-  const formatDateTime = (date: Date) => {
-    return date.toLocaleString('en-US', {
+  useEffect(() => {
+    void loadMetrics();
+  }, [loadMetrics, tickersVersion]);
+
+  const allSearchLabels = useMemo(() => {
+    const curated = [...SEGMENTS, ...SECTORS, ...LARGE_CAPS];
+    const merged = new Set<string>([...curated, ...dbTickers]);
+    return Array.from(merged);
+  }, [dbTickers]);
+
+  const searchHits = useMemo(() => {
+    const q = searchQuery.trim();
+    if (!q) return [];
+    return allSearchLabels
+      .filter((item) => tickerMatchesSearchQuery(item, q))
+      .slice(0, 8)
+      .map((label) => {
+        const ticker = (TICKER_MAP[label] || label).toUpperCase();
+        return { label, ticker, metric: metricsMap.get(ticker) ?? null };
+      });
+  }, [searchQuery, allSearchLabels, metricsMap]);
+
+  const handleSelectHit = (ticker: string) => {
+    onNavigate('ticker-analysis', ticker);
+    setSearchQuery('');
+  };
+
+  const updatedLine = useMemo(() => {
+    return new Date().toLocaleDateString('en-US', {
+      month: 'numeric',
+      day: 'numeric',
       year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: true
     });
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const largePreview = showAllLargeCaps ? LARGE_CAPS : LARGE_CAPS.slice(0, 12);
+
+  const visibleOrder = useMemo(() => {
+    return prefs.order.filter((k) => {
+      if (prefs.hidden[k]) return false;
+      if (k === 'personal' && prefs.personalTickers.length === 0) return false;
+      return true;
+    });
+  }, [prefs.order, prefs.hidden, prefs.personalTickers]);
+
+  const handleCustomizeOpenChange = useCallback(
+    async (open: boolean) => {
+      if (!open) await flushSave();
+      setCustomizeOpen(open);
+    },
+    [flushSave],
+  );
+
+  const TickerPill = ({
+    label,
+    index,
+    tickerOverride,
+  }: {
+    label: string;
+    index: number;
+    tickerOverride?: string;
+  }) => {
+    const ticker = (tickerOverride ?? TICKER_MAP[label] ?? label).toUpperCase();
+    const m = metricsMap.get(ticker);
+    const tone = scoreToDotTone(m?.score ?? null, index);
+    const m1 = m?.m1 ?? null;
+    const chip =
+      m1 == null || Number.isNaN(m1)
+        ? 'bg-muted/80 text-muted-foreground'
+        : m1 >= 0
+          ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+          : 'bg-rose-500/15 text-rose-800 dark:text-rose-300';
+    return (
+      <button
+        type="button"
+        onClick={() => onNavigate('ticker-analysis', ticker)}
+        className="flex w-full min-w-0 items-stretch rounded-[10px] border border-border bg-muted/40 text-left transition-colors hover:border-border hover:bg-card"
+      >
+        <span className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5">
+          <span className="flex h-[26px] w-[26px] shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
+            <TickerIcon ticker={ticker} size={26} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+          </span>
+          <Dot tone={tone} />
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground sm:text-[13px]">{label}</span>
+          <span
+            className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums ${chip}`}
+            title="1M %"
+          >
+            {formatM1Chip(m1)}
+          </span>
+        </span>
+      </button>
+    );
   };
 
-  const handleSync = async () => {
-    setIsSyncing(true);
-    setSyncStatus('syncing');
+  const GroupCard = ({
+    title,
+    count,
+    icon,
+    iconWrapClass,
+    children,
+  }: {
+    title: string;
+    count: number;
+    icon: React.ReactNode;
+    iconWrapClass: string;
+    children: ReactNode;
+  }) => (
+    <div className="overflow-hidden rounded-[18px] border border-border bg-card shadow-sm">
+      <div className="flex items-center justify-between border-b border-border bg-muted/50 px-5 py-[18px]">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg border border-transparent ${iconWrapClass}`}
+          >
+            {icon}
+          </span>
+          <span className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{title}</span>
+        </div>
+        <span className="shrink-0 rounded-full border border-border bg-card px-2.5 py-0.5 font-mono text-xs font-semibold text-muted-foreground">
+          {count}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
 
-    // Simulate sync process:
-    // 1. Save selection to Supabase
-    await new Promise(resolve => setTimeout(resolve, 400));
-    
-    // 2. Background sync applies to sheet control cells
-    await new Promise(resolve => setTimeout(resolve, 600));
-    
-    // 3. Google Sheets recalculates
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    // 4. Fetch updated values + formatting
-    await new Promise(resolve => setTimeout(resolve, 400));
-
-    const now = new Date();
-    setLastSynced(formatDateTime(now));
-    setIsSyncing(false);
-    setSyncStatus('success');
-
-    // Reset success status after brief display
-    setTimeout(() => setSyncStatus('idle'), 2000);
+  const renderSection = (key: HubSectionKey): ReactNode => {
+    switch (key) {
+      case 'personal':
+        return (
+          <GroupCard
+            key="personal"
+            title="YOUR TICKERS"
+            count={prefs.personalTickers.length}
+            icon={<Sparkles className="h-[15px] w-[15px] text-violet-700" />}
+            iconWrapClass="bg-violet-100 dark:bg-violet-950/40"
+          >
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
+              {prefs.personalTickers.map((t, i) => (
+                <TickerPill key={t.ticker} label={t.name || t.ticker} index={i} tickerOverride={t.ticker} />
+              ))}
+            </div>
+          </GroupCard>
+        );
+      case 'segments':
+        return (
+          <GroupCard
+            key="segments"
+            title="Segment ticker page"
+            count={SEGMENTS.length}
+            icon={<Layers className="h-[15px] w-[15px] text-primary" />}
+            iconWrapClass="bg-secondary"
+          >
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
+              {SEGMENTS.map((segment, i) => (
+                <TickerPill key={segment} label={segment} index={i} />
+              ))}
+            </div>
+          </GroupCard>
+        );
+      case 'sectors':
+        return (
+          <GroupCard
+            key="sectors"
+            title="Sector ticker pages"
+            count={SECTORS.length}
+            icon={<BarChart3 className="h-[15px] w-[15px] text-emerald-600" />}
+            iconWrapClass="bg-emerald-100 dark:bg-emerald-950/40"
+          >
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
+              {SECTORS.map((sector, i) => (
+                <TickerPill key={sector} label={sector} index={i} />
+              ))}
+            </div>
+          </GroupCard>
+        );
+      case 'large':
+        return (
+          <GroupCard
+            key="large"
+            title="Large caps ticker pages"
+            count={LARGE_CAPS.length}
+            icon={<LayoutGrid className="h-[15px] w-[15px] text-amber-700" />}
+            iconWrapClass="bg-amber-100 dark:bg-amber-950/40"
+          >
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
+              {largePreview.map((stock, i) => (
+                <TickerPill key={stock} label={stock} index={i} />
+              ))}
+            </div>
+            {!showAllLargeCaps && LARGE_CAPS.length > 12 && (
+              <div className="border-t border-dashed border-border px-5 py-3.5 text-center">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="gap-1.5 text-[13px] text-primary hover:text-foreground"
+                  onClick={() => setShowAllLargeCaps(true)}
+                >
+                  View all {LARGE_CAPS.length} tickers
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
+          </GroupCard>
+        );
+      default:
+        return null;
+    }
   };
 
-  const handleRefresh = () => {
-    handleSync();
-  };
+  const renderedGroups: ReactNode[] = [];
+  {
+    let i = 0;
+    while (i < visibleOrder.length) {
+      const k = visibleOrder[i];
+      const next = visibleOrder[i + 1];
+      const pairSeg =
+        (k === 'segments' && next === 'sectors') || (k === 'sectors' && next === 'segments');
+      if (pairSeg) {
+        const first = k;
+        const second = next as HubSectionKey;
+        const a = renderSection(first);
+        const b = renderSection(second);
+        if (a != null || b != null) {
+          renderedGroups.push(
+            <div
+              key={`seg-row-${i}`}
+              className="flex flex-col gap-5 lg:grid lg:grid-cols-2 lg:grid-rows-1 lg:items-start lg:gap-5"
+            >
+              {a}
+              {b}
+            </div>,
+          );
+        }
+        i += 2;
+      } else {
+        const node = renderSection(k);
+        if (node != null) renderedGroups.push(<div key={k}>{node}</div>);
+        i += 1;
+      }
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-neutral-50">
-      {/* Header */}
-      <header className="bg-white border-b border-neutral-200">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-neutral-900 mb-1">My Weekly Stock</h1>
-              <p className="text-sm text-neutral-600">Real-time sync with Google Sheets</p>
+    <div className="flex min-h-screen flex-col bg-background">
+      <AppHeader
+        userEmail={userEmail}
+        currentAppMode={currentAppMode}
+        onGoToPortfolio={onGoToPortfolio}
+        onGoToMWS={onGoToMWS}
+        onSignOut={onSignOut}
+      />
+
+      <main className="w-full min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-7 lg:px-8 xl:px-10 2xl:px-12">
+        <div className="w-full min-w-0 space-y-5 sm:space-y-6">
+          {/* Page header */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-[1.65rem] md:text-[1.85rem] lg:text-[2rem]">
+                MWS&apos;s Momentum Pulse Check
+              </h1>
+              <p className="mt-1.5 text-xs text-muted-foreground sm:text-sm">
+                Market Analysis Dashboard · updated {updatedLine}
+              </p>
             </div>
-            <Button
-              onClick={onSignOut}
-              variant="outline"
-              size="sm"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
-            </Button>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 gap-2 rounded-lg border-border bg-card"
+                onClick={() => setCustomizeOpen(true)}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Customize
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 gap-2 rounded-lg border-border bg-card"
+                disabled={metricsLoading}
+                onClick={() => {
+                  setTickersVersion((v) => v + 1);
+                  void loadMetrics();
+                }}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${metricsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
           </div>
 
-          {/* Controls */}
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-50 border border-neutral-200 rounded-md">
-              <span className="text-sm text-neutral-600">Email:</span>
-              <span className="text-sm text-neutral-900">{userEmail}</span>
+          {(loadError || saveError) && (
+            <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {loadError && <p>Could not load your saved layout: {loadError.message}</p>}
+              {saveError && <p className={loadError ? 'mt-1' : ''}>Could not save your layout: {saveError.message}</p>}
+            </div>
+          )}
+
+          {/* Search */}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground sm:left-[18px]" />
+            <input
+              ref={searchInputRef}
+              type="search"
+              placeholder="Search all tickers, segments, sectors, and large caps…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-11 w-full rounded-[14px] border border-border bg-card py-2 pl-10 pr-3 text-xs text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:h-[52px] sm:pl-11 sm:pr-24 sm:text-sm"
+            />
+            <div className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 items-center gap-1 text-muted-foreground sm:right-4 sm:flex">
+              <kbd className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-md border border-border bg-muted px-1.5 font-mono text-[11px] text-muted-foreground">
+                ⌘
+              </kbd>
+              <kbd className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-md border border-border bg-muted px-1.5 font-mono text-[11px] text-muted-foreground">
+                K
+              </kbd>
             </div>
 
-            <Separator orientation="vertical" className="h-8" />
-
-            <div className="space-y-1.5">
-              <Label htmlFor="ticker" className="text-sm text-neutral-600">
-                Ticker
-              </Label>
-              <Select value={ticker} onValueChange={setTicker}>
-                <SelectTrigger id="ticker" className="w-[140px] bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="AAPL">AAPL</SelectItem>
-                  <SelectItem value="GOOGL">GOOGL</SelectItem>
-                  <SelectItem value="MSFT">MSFT</SelectItem>
-                  <SelectItem value="AMZN">AMZN</SelectItem>
-                  <SelectItem value="TSLA">TSLA</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="timeframe" className="text-sm text-neutral-600">
-                Timeframe
-              </Label>
-              <Select value={timeframe} onValueChange={setTimeframe}>
-                <SelectTrigger id="timeframe" className="w-[140px] bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Daily">Daily</SelectItem>
-                  <SelectItem value="Weekly">Weekly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button
-              onClick={handleRefresh}
-              disabled={isSyncing}
-              className="mb-0.5"
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Syncing...' : 'Refresh'}
-            </Button>
+            {searchHits.length > 0 && (
+              <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-lg">
+                {searchHits.map((hit, idx) => {
+                  const m1 = hit.metric?.m1 ?? null;
+                  const chipCls =
+                    m1 == null || Number.isNaN(m1)
+                      ? 'bg-muted/80 text-muted-foreground'
+                      : m1 >= 0
+                        ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                        : 'bg-rose-500/15 text-rose-800 dark:text-rose-300';
+                  return (
+                    <button
+                      key={`${hit.ticker}-${idx}`}
+                      type="button"
+                      onClick={() => handleSelectHit(hit.ticker)}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-xs transition-colors hover:bg-muted/60 sm:text-sm"
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                        <span className="flex h-[26px] w-[26px] shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
+                          <TickerIcon ticker={hit.ticker} size={26} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium text-foreground sm:text-sm">{hit.label}</span>
+                          <span className="block truncate font-mono text-xs text-muted-foreground">{hit.ticker}</span>
+                        </span>
+                      </span>
+                      <span
+                        className={`shrink-0 rounded-md px-2 py-1 font-mono text-[11px] font-semibold tabular-nums ${chipCls}`}
+                      >
+                        {formatM1Chip(m1)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Sync Status */}
-          <div className="mt-4 flex items-center gap-2">
-            {syncStatus === 'syncing' && (
-              <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
-                Syncing with Google Sheets…
-              </Badge>
-            )}
-            {syncStatus === 'success' && (
-              <Badge variant="secondary" className="bg-green-50 text-green-700 border-green-200">
-                Sync complete
-              </Badge>
-            )}
-            {lastSynced && (
-              <span className="text-xs text-neutral-500">
-                Last synced: {lastSynced}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            <button
+              type="button"
+              onClick={() => onNavigate('readme')}
+              className="group flex items-center gap-3.5 rounded-2xl border border-border bg-card p-[18px] text-left shadow-sm transition-colors hover:bg-muted/30"
+            >
+              <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                <BookOpen className="h-[18px] w-[18px]" />
               </span>
-            )}
-          </div>
-        </div>
-      </header>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold tracking-tight text-foreground sm:text-[14.5px]">Read Me</div>
+                <div className="mt-0.5 text-xs leading-snug text-muted-foreground sm:text-[13px]">
+                  1-page explanation of the Pulse Check tool
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </button>
 
-      {/* Main Content */}
-      <main className="p-6">
-        <div className="bg-white border border-neutral-200 rounded-lg shadow-sm overflow-hidden">
-          <StockTable 
-            ticker={ticker} 
-            timeframe={timeframe}
-            isSyncing={isSyncing}
-          />
+            <button
+              type="button"
+              onClick={() => onNavigate('ticker-analysis')}
+              className="group flex items-center gap-3.5 rounded-2xl border border-border bg-card p-[18px] text-left shadow-sm transition-colors hover:bg-muted/30"
+            >
+              <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-secondary text-primary">
+                <Activity className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold tracking-tight text-foreground sm:text-[14.5px]">On-Demand Pulse Check</div>
+                <div className="mt-0.5 text-xs leading-snug text-muted-foreground sm:text-[13px]">
+                  Pull up the detailed Momentum Pulse. Heck for one the 70+ ticker covered in the app.
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate('dashboard')}
+              className="group flex items-center gap-3.5 rounded-2xl border border-border bg-card p-[18px] text-left shadow-sm transition-colors hover:bg-muted/30"
+            >
+              <span className="flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                <LayoutGrid className="h-[18px] w-[18px]" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold tracking-tight text-foreground sm:text-[14.5px]">Dashboard</div>
+                <div className="mt-0.5 text-xs leading-snug text-muted-foreground sm:text-[13px]">
+                  Summary Performance / Trend across Market Segments and Sectors
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </button>
+          </div>
+
+          <div className="space-y-5 sm:space-y-6">{renderedGroups}</div>
         </div>
       </main>
+
+      <MwsHubCustomizeDialog
+        open={customizeOpen}
+        onOpenChange={handleCustomizeOpenChange}
+        prefs={prefs}
+        onChangePrefs={setPrefs}
+        onReset={resetPrefs}
+        curatedRows={CURATED_HUB_ROWS}
+      />
     </div>
   );
 }

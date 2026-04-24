@@ -16,6 +16,7 @@ import {
   type ApiKeyMetadata,
 } from '../../_actions/api-settings';
 import { useAdmin } from '../../_lib/admin-context';
+import { useLiveAdminRefresh } from '../../_lib/use-live-admin-refresh';
 
 const PROVIDER_OPTIONS = [
   { id: 'finnhub', label: 'Finnhub' },
@@ -25,6 +26,9 @@ const PROVIDER_OPTIONS = [
   { id: 'polygon', label: 'Polygon.io' },
   { id: 'yahoo', label: 'Yahoo Finance (free, no key needed)' },
 ] as const;
+
+const FIELD_STYLE =
+  'block w-full rounded-lg border border-input bg-input-background px-3 py-2 text-sm text-foreground shadow-sm outline-none ring-offset-background transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30 dark:scheme-dark';
 
 function fmtInt(n: number) {
   return n.toLocaleString('en-US');
@@ -53,8 +57,9 @@ export default function APISettings() {
   const [busy, setBusy] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const token = await getAccessToken();
@@ -72,13 +77,26 @@ export default function APISettings() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [getAccessToken]);
 
   useEffect(() => {
-    load();
+    void load({ silent: false });
   }, [load]);
+
+  useLiveAdminRefresh({
+    channelName: 'admin-api-settings-live',
+    getAccessToken,
+    refresh: () => void load({ silent: true }),
+    pollingMs: 30_000,
+    throttleMs: 3_000,
+    realtime: [
+      { schema: 'public', table: 'api_health_log' },
+      { schema: 'public', table: 'api_keys' },
+      { schema: 'public', table: 'admin_api_config' },
+    ],
+  });
 
   const keysByProvider = useMemo(() => {
     const map = new Map<string, ApiKeyMetadata>();
@@ -102,32 +120,32 @@ export default function APISettings() {
         value: status,
         sub: 'Current pipeline health',
         icon: CheckCircle2,
-        accent: statusGreen ? 'text-green-700' : m?.statusLabel === 'Degraded' ? 'text-amber-700' : 'text-slate-600',
-        iconWrap: statusGreen ? 'bg-green-700/10 text-green-700' : 'bg-slate-100 text-slate-600',
+        accent: statusGreen ? 'text-emerald-700 dark:text-emerald-400' : m?.statusLabel === 'Degraded' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground',
+        iconWrap: statusGreen ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground',
       },
       {
         label: 'Avg Response Time',
         value: avg,
         sub: 'Mean job duration (24h)',
         icon: Zap,
-        accent: 'text-amber-700',
-        iconWrap: 'bg-amber-500/10 text-amber-700',
+        accent: 'text-amber-700 dark:text-amber-400',
+        iconWrap: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
       },
       {
         label: 'Requests Today',
         value: activity,
         sub: 'Ticker rows touched (24h)',
         icon: Activity,
-        accent: 'text-violet-700',
-        iconWrap: 'bg-violet-500/10 text-violet-700',
+        accent: 'text-violet-700 dark:text-violet-400',
+        iconWrap: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
       },
       {
         label: 'Success Rate',
         value: rate,
         sub: 'OK runs / total runs (24h)',
         icon: CheckCircle2,
-        accent: 'text-green-700',
-        iconWrap: 'bg-green-700/10 text-green-700',
+        accent: 'text-emerald-700 dark:text-emerald-400',
+        iconWrap: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
       },
     ];
   }, [metrics]);
@@ -182,7 +200,7 @@ export default function APISettings() {
         setKeyDraft('');
       }
       setFlash(trimmed ? 'Settings and API key saved.' : 'Settings saved.');
-      await load();
+      await load({ silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
@@ -196,39 +214,39 @@ export default function APISettings() {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-6">
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-      {flash && <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{flash}</div>}
+      {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
+      {flash && <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-100">{flash}</div>}
 
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {kpiCards.map((s) => {
           const Icon = s.icon;
           return (
-            <div key={s.label} className="admin-card min-w-0 rounded-2xl p-6 shadow-sm">
+            <div key={s.label} className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-sm">
               <div className={`inline-flex rounded-lg p-2 ${s.iconWrap}`}>
                 <Icon size={20} strokeWidth={1.75} />
               </div>
               <p className={`mt-4 text-2xl font-bold tracking-tight ${s.accent}`}>{loading ? '—' : s.value}</p>
-              <p className="admin-text-main mt-1 text-sm font-semibold">{s.label}</p>
-              <p className="admin-text-muted text-xs">{s.sub}</p>
+              <p className="mt-1 text-sm font-semibold text-foreground">{s.label}</p>
+              <p className="text-xs text-muted-foreground">{s.sub}</p>
             </div>
           );
         })}
       </div>
 
       <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-2">
-        <section className="admin-card flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl shadow-sm">
-          <div className="admin-border border-b px-6 py-5">
-            <h3 className="admin-text-main text-lg font-semibold">Data Provider Configuration</h3>
-            <p className="admin-text-muted mt-1 text-sm">Configure your market data source</p>
+        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border bg-muted/40 px-6 py-5">
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">Data Provider Configuration</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Configure your market data source</p>
           </div>
-          <div className="flex flex-1 flex-col gap-4 p-6">
-            <label className="block">
-              <span className="admin-text-main text-sm font-semibold">Provider</span>
+          <div className="flex flex-1 flex-col gap-5 p-6">
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-foreground">Provider</span>
               <select
                 disabled={!config || busy}
                 value={config?.preferred_provider ?? 'finnhub'}
                 onChange={(e) => setCfg('preferred_provider', e.target.value)}
-                className="admin-border mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+                className={FIELD_STYLE}
               >
                 {PROVIDER_OPTIONS.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -236,11 +254,11 @@ export default function APISettings() {
                   </option>
                 ))}
               </select>
-              <span className="admin-text-muted mt-1 block text-xs">Select your market data provider</span>
+              <span className="block text-xs text-muted-foreground">Select your market data provider</span>
             </label>
 
-            <label className="block">
-              <span className="admin-text-main text-sm font-semibold">API Key</span>
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-foreground">API Key</span>
               <input
                 type="password"
                 disabled={busy}
@@ -249,18 +267,18 @@ export default function APISettings() {
                 onChange={(e) => setKeyDraft(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
-                className="admin-border mt-2 w-full rounded-lg border px-3 py-2 font-mono text-sm"
+                className={`${FIELD_STYLE} font-mono`}
               />
-              <span className="admin-text-muted mt-1 block text-xs">
+              <span className="block text-xs text-muted-foreground">
                 {existingKey
                   ? `Stored: ${existingKey.key_fingerprint} · Encrypted at rest`
                   : 'Your provider API key (stored securely). Never returned to the browser.'}
               </span>
             </label>
 
-            <label className="block">
-              <span className="admin-text-main text-sm font-semibold">Refresh Interval</span>
-              <div className="mt-2 flex items-center gap-2">
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-foreground">Refresh Interval</span>
+              <div className="flex items-center gap-2">
                 <input
                   type="number"
                   min={30}
@@ -268,19 +286,19 @@ export default function APISettings() {
                   disabled={!config || busy}
                   value={config?.refresh_interval_seconds ?? 900}
                   onChange={(e) => setCfg('refresh_interval_seconds', Number(e.target.value) || 900)}
-                  className="admin-border w-full max-w-[200px] rounded-lg border px-3 py-2 text-sm"
+                  className={`${FIELD_STYLE} max-w-[200px]`}
                 />
-                <span className="admin-text-muted text-sm">seconds</span>
+                <span className="text-sm text-muted-foreground">seconds</span>
               </div>
-              <span className="admin-text-muted mt-1 block text-xs">How often to fetch new market data (Edge schedule + this value for ops)</span>
+              <span className="block text-xs text-muted-foreground">How often to fetch new market data (Edge schedule + this value for ops)</span>
             </label>
 
-            <div className="mt-2 flex flex-wrap gap-3">
+            <div className="mt-1 flex flex-wrap gap-3 border-t border-border/70 pt-4">
               <button
                 type="button"
                 disabled={busy}
                 onClick={() => void onTestConnection()}
-                className="admin-border admin-text-muted inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium"
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
               >
                 <RefreshCw size={16} />
                 Test Connection
@@ -289,7 +307,7 @@ export default function APISettings() {
                 type="button"
                 disabled={busy || !config}
                 onClick={() => void onSaveSettings()}
-                className="admin-green-bg inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 <Save size={16} />
                 {busy ? 'Saving…' : 'Save Settings'}
@@ -298,10 +316,10 @@ export default function APISettings() {
           </div>
         </section>
 
-        <section className="admin-card flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl shadow-sm">
-          <div className="admin-border border-b px-6 py-5">
-            <h3 className="admin-text-main text-lg font-semibold">Advanced Settings</h3>
-            <p className="admin-text-muted mt-1 text-sm">Configure advanced data options</p>
+        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border bg-muted/40 px-6 py-5">
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">Advanced Settings</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Configure advanced data options</p>
           </div>
           <div className="flex flex-1 flex-col gap-4 p-6">
             {[
@@ -309,26 +327,26 @@ export default function APISettings() {
               ['cache_responses', 'Cache responses', 'Reuse recent provider payloads where safe', config?.cache_responses] as const,
               ['realtime_updates', 'Real-time updates', 'Stream-style updates (reserved for future use)', config?.realtime_updates] as const,
             ].map(([key, title, desc, val]) => (
-              <div key={key} className="admin-border-soft flex items-center justify-between gap-4 rounded-lg border px-4 py-4">
+              <div key={key} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-4">
                 <div className="min-w-0">
-                  <p className="admin-text-main text-sm font-semibold">{title}</p>
-                  <p className="admin-text-muted mt-1 text-xs">{desc}</p>
+                  <p className="text-sm font-semibold text-foreground">{title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
                 </div>
                 <button
                   type="button"
                   disabled={!config || busy}
                   onClick={() => setCfg(key as keyof AdminApiConfig, !val as never)}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${val ? 'bg-green-700' : 'bg-slate-200'}`}
+                  className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${val ? 'border-emerald-500/30 bg-emerald-500' : 'border-border bg-muted'}`}
                 >
                   <span
-                    className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${val ? 'left-7' : 'left-1'}`}
+                    className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${val ? 'left-6' : 'left-1'}`}
                   />
                 </button>
               </div>
             ))}
 
-            <label className="block pt-2">
-              <span className="admin-text-main text-sm font-semibold">Rate Limit (requests/minute)</span>
+            <label className="block space-y-2 pt-1">
+              <span className="text-sm font-semibold text-foreground">Rate Limit (requests/minute)</span>
               <input
                 type="number"
                 min={1}
@@ -336,57 +354,61 @@ export default function APISettings() {
                 disabled={!config || busy}
                 value={config?.rate_limit_rpm ?? 60}
                 onChange={(e) => setCfg('rate_limit_rpm', Number(e.target.value) || 60)}
-                className="admin-border mt-2 w-full max-w-xs rounded-lg border px-3 py-2 text-sm"
+                className={`${FIELD_STYLE} max-w-xs`}
               />
             </label>
           </div>
         </section>
       </div>
 
-      <section className="admin-card min-h-0 min-w-0 overflow-hidden rounded-2xl shadow-sm">
-        <div className="admin-border flex flex-wrap items-center justify-between gap-3 border-b px-6 py-5">
+      <section className="min-h-0 min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-5">
           <div>
-            <h3 className="admin-text-main text-lg font-semibold">Connection Status Log</h3>
-            <p className="admin-text-muted mt-1 text-sm">History of completed collection and import runs</p>
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">Connection Status Log</h3>
+            <p className="mt-1 text-sm text-muted-foreground">History of completed collection and import runs</p>
           </div>
-          <button type="button" onClick={() => void load()} className="admin-text-muted rounded-lg px-3 py-2 text-sm hover:bg-slate-50">
+          <button type="button" onClick={() => void load({ silent: true })} className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50">
             <RefreshCw size={14} className="inline mr-1" />
             Refresh
           </button>
         </div>
         <div className="min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[720px]">
-            <thead className="admin-navy text-left text-xs font-semibold uppercase tracking-wide text-white/90">
+          <table className="w-full min-w-[720px] border-separate border-spacing-0">
+            <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
               <tr>
-                <th className="px-6 py-3">Timestamp</th>
-                <th className="px-6 py-3">Provider</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Updated</th>
-                <th className="px-6 py-3">Failed</th>
-                <th className="px-6 py-3">Duration</th>
-                <th className="px-6 py-3">Detail</th>
+                <th className="border-b border-border bg-muted/50 px-6 py-3">Timestamp</th>
+                <th className="border-b border-border bg-muted/50 px-6 py-3">Provider</th>
+                <th className="border-b border-border bg-muted/50 px-6 py-3">Status</th>
+                <th className="border-b border-border bg-muted/50 px-6 py-3">Updated</th>
+                <th className="border-b border-border bg-muted/50 px-6 py-3">Failed</th>
+                <th className="border-b border-border bg-muted/50 px-6 py-3">Duration</th>
+                <th className="border-b border-border bg-muted/50 px-6 py-3">Detail</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
-                <tr><td className="px-6 py-8 text-sm admin-text-muted" colSpan={7}>Loading…</td></tr>
+                <tr><td className="border-b border-border px-6 py-8 text-sm text-muted-foreground" colSpan={7}>Loading…</td></tr>
               )}
               {!loading && health.filter((r) => !isProgressRow(r.error_message)).length === 0 && (
-                <tr><td className="px-6 py-8 text-sm admin-text-muted" colSpan={7}>No runs yet.</td></tr>
+                <tr><td className="border-b border-border px-6 py-8 text-sm text-muted-foreground" colSpan={7}>No runs yet.</td></tr>
               )}
               {health.filter((r) => !isProgressRow(r.error_message)).map((r) => (
-                <tr key={r.id} className="admin-border-soft border-t text-sm">
-                  <td className="admin-text-muted px-6 py-4">{formatDateTime(r.run_at)}</td>
-                  <td className="admin-text-main px-6 py-4 font-mono text-xs">{r.provider}</td>
+                <tr key={r.id} className="border-b border-border text-sm transition-colors hover:bg-muted/30">
+                  <td className="px-6 py-4 text-muted-foreground">{formatDateTime(r.run_at)}</td>
+                  <td className="px-6 py-4 font-mono text-xs text-foreground">{r.provider}</td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
-                      r.status === 'ok' ? 'admin-green bg-green-700/10' : r.status === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'
+                      r.status === 'ok'
+                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                        : r.status === 'partial'
+                          ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                          : 'bg-destructive/10 text-destructive'
                     }`}>{r.status}</span>
                   </td>
-                  <td className="admin-text-main px-6 py-4">{fmtInt(r.tickers_updated)}</td>
-                  <td className="admin-text-main px-6 py-4">{fmtInt(r.tickers_failed)}</td>
-                  <td className="admin-text-muted px-6 py-4">{r.duration_ms ? `${r.duration_ms} ms` : '—'}</td>
-                  <td className="admin-text-muted max-w-[280px] truncate px-6 py-4 text-xs" title={r.error_message ?? ''}>
+                  <td className="px-6 py-4 text-foreground">{fmtInt(r.tickers_updated)}</td>
+                  <td className="px-6 py-4 text-foreground">{fmtInt(r.tickers_failed)}</td>
+                  <td className="px-6 py-4 text-muted-foreground">{r.duration_ms ? `${r.duration_ms} ms` : '—'}</td>
+                  <td className="max-w-[280px] truncate px-6 py-4 text-xs text-muted-foreground" title={r.error_message ?? ''}>
                     {r.error_message ?? r.triggered_by ?? '—'}
                   </td>
                 </tr>

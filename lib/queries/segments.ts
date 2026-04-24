@@ -1,4 +1,5 @@
 import { supabase } from '../supabase-client';
+import { USER_TICKER_ACTIVE_OR, rowVisibleToEndUser } from './user-ticker-visibility';
 
 export interface MarketSegment {
   id: string;
@@ -83,6 +84,7 @@ export async function getAllMarketSegments(timeframe: 'D' | 'W' = 'D'): Promise<
   const { data, error } = await supabase
     .from('market_segments')
     .select('*')
+    .or(USER_TICKER_ACTIVE_OR)
     .order('ticker');
 
   if (error) {
@@ -105,6 +107,7 @@ export async function getMarketSegmentByTicker(ticker: string): Promise<MarketSe
     throw error;
   }
 
-  return data ?? null;
+  if (!rowVisibleToEndUser(data)) return null;
+  return data;
 }
 

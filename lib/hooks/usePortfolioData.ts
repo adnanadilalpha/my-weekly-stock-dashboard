@@ -22,6 +22,12 @@ export interface PerformanceRecapRow {
   column_16: string | null;
 }
 
+/** Normalize column_2 for matching (trim and accept "  Macro ETF" etc.) */
+function normalizeName(val: string | null): string {
+  if (val == null) return '';
+  return String(val).trim();
+}
+
 /** Portfolio names we show in UI (column_2 in performance_recap); trim for match */
 export const PORTFOLIO_NAMES = {
   DOW30: 'Dow Jones 30',
@@ -29,7 +35,15 @@ export const PORTFOLIO_NAMES = {
   NASDAQ100: 'Nasdaq 100',
   MACRO_ETF: 'Macro ETF',
   MACRO_2_3X: 'Macro 2-3xETF',
+  /** Aggregate row in `performance_recap` (column_2); case-insensitive match */
+  COMBINED_PERFORMANCE: 'COMBINED PERFORMANCE',
 } as const;
+
+/** Row is the recap aggregate (not a drill-down portfolio). */
+export function isCombinedPerformanceRecapName(column2: string | null | undefined): boolean {
+  const n = normalizeName(column2 ?? null);
+  return n.length > 0 && /^combined performance(\b|$)/i.test(n);
+}
 
 /** Group headers as in recap */
 export const GROUP_WEEKLY_MOMENTUM = 'WEEKLY MOMENTUM PICKS';
@@ -45,12 +59,6 @@ const RECAP_NAMES_SET: Set<string> = new Set([
   '  Macro ETF',      // sheet has leading spaces
   '  Macro 2-3xETF',
 ]);
-
-/** Normalize column_2 for matching (trim and accept "  Macro ETF" etc.) */
-function normalizeName(val: string | null): string {
-  if (val == null) return '';
-  return String(val).trim();
-}
 
 export function usePerformanceRecap() {
   const [rows, setRows] = useState<PerformanceRecapRow[]>([]);
@@ -85,8 +93,11 @@ export function usePerformanceRecap() {
     return (r.column_2 ?? r.column2 ?? null) as string | null;
   }
 
-  /** Only rows that are one of our five portfolios (by column_2, trimmed) */
-  const portfolioRows = rows.filter((r) => RECAP_NAMES_SET.has(normalizeName(getCol2(r))));
+  /** Portfolios + combined aggregate row (column_2). */
+  const portfolioRows = rows.filter((r) => {
+    const c2 = getCol2(r);
+    return isCombinedPerformanceRecapName(c2) || RECAP_NAMES_SET.has(normalizeName(c2));
+  });
 
   return { rows, portfolioRows, loading, error, refetch: fetchData };
 }
@@ -109,34 +120,31 @@ export function usePortfolioSheet(portfolioPage: string | null) {
 
   const tableName = portfolioPage ? PORTFOLIO_TABLE_MAP[portfolioPage] : null;
 
-  useEffect(() => {
+  const fetchSheet = useCallback(async () => {
     if (!tableName) {
       setRows([]);
       setLoading(false);
       setError(null);
       return;
     }
-    let cancelled = false;
     setLoading(true);
     setError(null);
-    supabase
+    const { data, error: e } = await supabase
       .from(tableName)
       .select('*')
-      .order('row_index', { ascending: true })
-      .then(({ data, error: e }) => {
-        if (cancelled) return;
-        if (e) {
-          setError(e instanceof Error ? e : new Error(String((e as { message?: string }).message ?? e)));
-          setRows([]);
-        } else {
-          setRows((data as PortfolioSheetRow[]) ?? []);
-        }
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .order('row_index', { ascending: true });
+    if (e) {
+      setError(e instanceof Error ? e : new Error(String((e as { message?: string }).message ?? e)));
+      setRows([]);
+    } else {
+      setRows((data as PortfolioSheetRow[]) ?? []);
+    }
+    setLoading(false);
   }, [tableName]);
 
-  return { rows, loading, error };
+  useEffect(() => {
+    void fetchSheet();
+  }, [fetchSheet]);
+
+  return { rows, loading, error, refetch: fetchSheet };
 }

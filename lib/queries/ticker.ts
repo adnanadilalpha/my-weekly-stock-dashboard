@@ -3,6 +3,7 @@ import { getSectorByTicker, Sector } from './sectors';
 import { getMegaCapByTicker, MegaCap } from './mega-caps';
 import { getOtherStockByTicker, OtherStock } from './other-stocks';
 import { supabase } from '../supabase-client';
+import { USER_TICKER_ACTIVE_OR } from './user-ticker-visibility';
 
 export type TickerData = MarketSegment | Sector | MegaCap | OtherStock;
 export type TickerType = 'segment' | 'sector' | 'mega_cap' | 'other_stock';
@@ -45,6 +46,7 @@ async function selectAllTickersFromTable(table: string): Promise<string[]> {
     const { data, error } = await supabase
       .from(table)
       .select('ticker')
+      .or(USER_TICKER_ACTIVE_OR)
       .range(from, from + POSTGREST_PAGE - 1);
 
     if (error) {

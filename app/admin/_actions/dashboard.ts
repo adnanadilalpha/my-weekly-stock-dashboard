@@ -25,11 +25,53 @@ export type DashboardStats = {
   addedThisWeek: number;
   runsLast24h: number;
   successLast24h: number;
+  /**
+   * Approximate “active” accounts from Supabase Auth `last_sign_in_at`
+   * (updates when users authenticate, not per-request).
+   */
+  activeSignIn15m: number;
+  activeSignIn24h: number;
+  totalAuthAccounts: number;
   /** Average of Returns % (column_9) across recap portfolio rows, for KPI. */
   recapAvgReturnDisplay: string;
   portfolioRecapWeekly: PortfolioRecapRowDisplay[];
   portfolioRecapEtf: PortfolioRecapRowDisplay[];
 };
+
+const AUTH_LIST_PAGE_SIZE = 1000;
+const AUTH_LIST_MAX_PAGES = 50;
+
+async function authSignInActivity(admin: ReturnType<typeof getAdminSupabase>): Promise<{
+  activeSignIn15m: number;
+  activeSignIn24h: number;
+  totalAuthAccounts: number;
+}> {
+  const now = Date.now();
+  const since15 = now - 15 * 60 * 1000;
+  const since24 = now - 24 * 60 * 60 * 1000;
+  let activeSignIn15m = 0;
+  let activeSignIn24h = 0;
+  let totalAuthAccounts = 0;
+  try {
+    for (let page = 1; page <= AUTH_LIST_MAX_PAGES; page += 1) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: AUTH_LIST_PAGE_SIZE });
+      if (error || !data?.users?.length) break;
+      for (const u of data.users) {
+        totalAuthAccounts += 1;
+        const raw = u.last_sign_in_at;
+        if (!raw) continue;
+        const t = new Date(raw).getTime();
+        if (Number.isNaN(t)) continue;
+        if (t >= since15) activeSignIn15m += 1;
+        if (t >= since24) activeSignIn24h += 1;
+      }
+      if (data.users.length < AUTH_LIST_PAGE_SIZE) break;
+    }
+  } catch {
+    return { activeSignIn15m: 0, activeSignIn24h: 0, totalAuthAccounts: 0 };
+  }
+  return { activeSignIn15m, activeSignIn24h, totalAuthAccounts };
+}
 
 // -----------------------------------------------------------------------------
 // Performance recap (aligned with `performance_recap` / portfolio dashboard)
@@ -195,16 +237,22 @@ function processPerformanceRecap(rawRows: Record<string, unknown>[]): {
 } {
   const getCol2 = (r: Record<string, unknown>) => normalizeCol2(String(getCol(r, 'column_2')));
 
-  const portfolioRows = rawRows.filter((r) => RECAP_NAMES_SET.has(getCol2(r)));
+  const portfolioRows = rawRows.filter((r) => {
+    const n = getCol2(r);
+    return /^combined performance(\b|$)/i.test(n) || RECAP_NAMES_SET.has(n);
+  });
 
   const withData = portfolioRows.filter((r) => recapRowHasData(r));
 
-  const weekly = withData
-    .filter((r) => WEEKLY_NAMES.has(getCol2(r)))
-    .map((r) => buildRecapDisplay(r));
+  const combinedRecap = withData.filter((r) => /^combined performance(\b|$)/i.test(getCol2(r)));
+  const weeklyOnly = withData.filter(
+    (r) => WEEKLY_NAMES.has(getCol2(r)) && !/^combined performance(\b|$)/i.test(getCol2(r)),
+  );
+  const weekly = [...combinedRecap, ...weeklyOnly].map((r) => buildRecapDisplay(r));
   const etf = withData.filter((r) => ETF_NAMES.has(getCol2(r))).map((r) => buildRecapDisplay(r));
 
-  const pts = withData
+  const kpiRecapRows = [...weeklyOnly, ...withData.filter((r) => ETF_NAMES.has(getCol2(r)))];
+  const pts = kpiRecapRows
     .map((r) => parseReturnsPctPoints(getCol(r, 'column_9')))
     .filter((v): v is number => v !== null);
   let recapAvgReturnDisplay = '—';
@@ -224,12 +272,13 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
     const sinceWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const [usersRes, newUsersRes, adminsRes, runs24hRes, recapRes] = await Promise.all([
+    const [usersRes, newUsersRes, adminsRes, runs24hRes, recapRes, authAct] = await Promise.all([
       admin.from('authorized_users').select('*', { count: 'planned', head: true }),
       admin.from('authorized_users').select('*', { count: 'planned', head: true }).gte('created_at', sinceWeek),
       admin.from('authorized_users').select('*', { count: 'planned', head: true }).eq('role', 'Admin'),
       admin.from('api_health_log').select('status').gte('run_at', since24h),
       admin.from('performance_recap').select('*').order('row_index', { ascending: true }),
+      authSignInActivity(admin),
     ]);
 
     if (usersRes.error) return err('Failed to load user count.', 'db_error');
@@ -246,6 +295,9 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
       addedThisWeek: newUsersRes.count ?? 0,
       runsLast24h: runs24h.length,
       successLast24h: runs24h.filter((r) => r.status === 'ok').length,
+      activeSignIn15m: authAct.activeSignIn15m,
+      activeSignIn24h: authAct.activeSignIn24h,
+      totalAuthAccounts: authAct.totalAuthAccounts,
       recapAvgReturnDisplay,
       portfolioRecapWeekly,
       portfolioRecapEtf,
