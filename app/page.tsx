@@ -11,9 +11,7 @@ import { PortfolioDashboardPage } from './components/portfolio-dashboard-page';
 import { PortfolioDetailPage } from './components/portfolio-detail-page';
 import type { PageView, AppMode, PortfolioPage } from './types';
 import { supabase } from '@/lib/supabase-client';
-import { getAppEnv } from '@/lib/supabase-env';
-
-const isDevBypassEnabled = getAppEnv() === 'dev';
+const isDevBypassEnabled = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === 'false';
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
