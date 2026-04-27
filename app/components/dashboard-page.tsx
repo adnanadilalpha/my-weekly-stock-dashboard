@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, AlertCircle, Search, ChevronRight, ChevronDown } from 'lucide-react';
 import { Button } from './ui/button';
 import { TickerIcon } from './ui/ticker-icon';
@@ -78,11 +78,17 @@ function formatPercentSigned(value: number | null, decimals = 1) {
 }
 
 /** Center-zero perf bar (design); maxAbs scales bar fill */
-function PerfBar({ value, maxAbs }: { value: number | null; maxAbs: number }) {
+function vsHighToneClasses(pct: number): { text: string; bar: string } {
+  if (pct >= -5) return { text: 'text-emerald-600', bar: 'bg-emerald-500' };
+  if (pct >= -10) return { text: 'text-amber-600', bar: 'bg-amber-500' };
+  return { text: 'text-red-600', bar: 'bg-red-500' };
+}
+
+function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; maxAbs: number; mode?: 'default' | 'vsHigh' }) {
   if (value == null) {
     return (
       <div className="flex min-w-[120px] items-center gap-2">
-        <span className="min-w-[52px] text-right font-mono text-xs text-muted-foreground">—</span>
+        <span className="min-w-[52px] text-left font-mono text-xs text-muted-foreground">—</span>
         <div className="relative h-1.5 flex-1 rounded-full bg-muted" />
       </div>
     );
@@ -91,10 +97,13 @@ function PerfBar({ value, maxAbs }: { value: number | null; maxAbs: number }) {
   const clamped = Math.max(-maxAbs, Math.min(maxAbs, pct));
   const widthPct = maxAbs > 0 ? (Math.abs(clamped) / maxAbs) * 50 : 0;
   const pos = clamped >= 0;
+  const tone = mode === 'vsHigh' ? vsHighToneClasses(pct) : null;
+  const valueClass = tone ? tone.text : (pos ? 'text-emerald-600' : 'text-red-600');
+  const barClass = tone ? tone.bar : (pos ? 'bg-emerald-500' : 'bg-red-500');
   return (
     <div className="flex min-w-[120px] max-w-full items-center gap-2">
       <span
-        className={`min-w-[52px] text-right font-mono text-xs font-medium tabular-nums ${pos ? 'text-emerald-600' : 'text-red-600'}`}
+        className={`min-w-[52px] text-left font-mono text-xs font-medium tabular-nums ${valueClass}`}
       >
         {formatPercentSigned(value, 1)}
       </span>
@@ -102,7 +111,7 @@ function PerfBar({ value, maxAbs }: { value: number | null; maxAbs: number }) {
         <span className="absolute left-1/2 top-0 z-[1] h-full w-px -translate-x-1/2 bg-border" aria-hidden />
         {clamped !== 0 && (
           <span
-            className={`absolute top-0 h-full rounded-full ${pos ? 'left-1/2 bg-emerald-500' : 'right-1/2 bg-red-500'}`}
+            className={`absolute top-0 h-full rounded-full ${pos ? 'left-1/2' : 'right-1/2'} ${barClass}`}
             style={{ width: `${widthPct}%` }}
           />
         )}
@@ -122,11 +131,11 @@ function ScoreBars({ score }: { score: number }) {
         {Array.from({ length: 5 }).map((_, i) => (
           <span
             key={i}
-            className={`h-3 w-1.5 rounded-sm ${i < filled ? 'bg-[var(--chart-3)]' : 'bg-muted'}`}
+            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? 'bg-amber-500' : 'bg-muted'}`}
           />
         ))}
       </div>
-      <span className="min-w-[2rem] font-mono text-xs tabular-nums text-muted-foreground">{s.toFixed(1)}</span>
+      <span className="min-w-[2rem] font-mono text-sm font-semibold tabular-nums text-foreground">{s.toFixed(1)}</span>
     </div>
   );
 }
@@ -161,8 +170,20 @@ function RatingChip({ rating }: { rating: string }) {
 
 function outlookDotClass(outlook: string): { dot: string; text: string } {
   const o = outlook.toLowerCase();
-  if (o.includes('stable') || o.includes('firm')) {
-    return { dot: 'bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.25)]', text: 'text-foreground' };
+  if (o.includes('stable')) {
+    return { dot: 'bg-green-600', text: 'text-foreground' };
+  }
+  if (o.includes('firm')) {
+    return { dot: 'bg-emerald-500', text: 'text-foreground' };
+  }
+  if (o.includes('cool')) {
+    return { dot: 'bg-orange-600', text: 'text-foreground' };
+  }
+  if (o.includes('soft')) {
+    return { dot: 'bg-amber-800', text: 'text-foreground' };
+  }
+  if (o.includes('warm')) {
+    return { dot: 'bg-cyan-700', text: 'text-foreground' };
   }
   if (o.includes('extend')) {
     return { dot: 'bg-amber-500', text: 'text-foreground' };
@@ -176,8 +197,8 @@ function outlookDotClass(outlook: string): { dot: string; text: string } {
 function OutlookCell({ outlook }: { outlook: string }) {
   const { dot, text } = outlookDotClass(outlook);
   return (
-    <div className={`flex items-center justify-center gap-2 text-xs ${text}`}>
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+    <div className={`flex items-center justify-start gap-2 text-xs ${text}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full  shadow-none outline-none ${dot}`} aria-hidden />
       <span className="max-w-[140px] truncate">{outlook}</span>
     </div>
   );
@@ -267,16 +288,17 @@ export function DashboardPage({
     const vsHigh = toNumeric(item['vs_1y_high'] ?? item.daily_vs_1y_high);
     const trendScore = isDaily ? toNumeric(item.daily_trend_score) : toNumeric(item.weekly_trend_score);
     const rating = isDaily ? item.daily_rating : item.weekly_rating;
-    const outlook = isDaily ? item.daily_outlook : item.weekly_outlook;
+    const resolvedScore = trendScore ?? 0;
+    const outlook = String(isDaily ? (item.daily_outlook ?? '') : (item.weekly_outlook ?? '')).trim() || 'Stable';
     return {
       segment: getSegmentName(item),
       ticker: String(item.ticker ?? ''),
       perf1M,
       perf3M,
       vsHigh,
-      trendScore: trendScore ?? 0,
+      trendScore: resolvedScore,
       rating: rating != null ? String(rating) : 'N/A',
-      outlook: outlook != null ? String(outlook) : 'N/A',
+      outlook,
     };
   };
 
@@ -390,8 +412,8 @@ export function DashboardPage({
                     <ChevronDown className="h-3 w-3 opacity-50" aria-hidden />
                   </span>
                 </th>
-                <th className="px-3 py-3 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Rating</th>
-                <th className="px-3 py-3 text-center text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Outlook</th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Rating</th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Outlook</th>
                 <th className="w-10 px-2 py-3" aria-hidden />
               </tr>
             </thead>
@@ -420,12 +442,12 @@ export function DashboardPage({
                     <PerfBar value={row.perf3M} maxAbs={30} />
                   </td>
                   <td className="px-3 py-3">
-                    <PerfBar value={row.vsHigh} maxAbs={40} />
+                    <PerfBar value={row.vsHigh} maxAbs={40} mode="vsHigh" />
                   </td>
                   <td className="px-3 py-3">
                     <ScoreBars score={row.trendScore} />
                   </td>
-                  <td className="px-3 py-3 text-center">
+                  <td className="px-3 py-3 text-left">
                     <RatingChip rating={row.rating} />
                   </td>
                   <td className="px-3 py-3">

@@ -106,6 +106,7 @@ export function usePerformanceRecap() {
 export type PortfolioSheetRow = Record<string, unknown> & { row_index: number };
 
 const PORTFOLIO_TABLE_MAP: Record<string, string> = {
+  'momentum-combined': 'momentum_picks_summary',
   dow30: 'dow30_picks',
   'large-caps': 'large_caps_picks',
   nasdaq100: 'nasdaq100_picks',

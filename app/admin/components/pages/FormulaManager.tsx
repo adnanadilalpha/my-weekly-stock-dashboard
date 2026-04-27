@@ -195,6 +195,8 @@ export default function FormulaManager() {
   const [ratingModalError, setRatingModalError] = useState<string | null>(null);
   const [ratingModalSaving, setRatingModalSaving] = useState(false);
   const [trendEditKey, setTrendEditKey] = useState<{ tier: FormulaRatingTier; outlook: FormulaTrendOutlook } | null>(null);
+  const [trendModalWeeklyTitle, setTrendModalWeeklyTitle] = useState('');
+  const [trendModalDailyTitle, setTrendModalDailyTitle] = useState('');
   const [trendModalWeekly, setTrendModalWeekly] = useState('');
   const [trendModalDaily, setTrendModalDaily] = useState('');
   const [trendModalError, setTrendModalError] = useState<string | null>(null);
@@ -360,6 +362,8 @@ export default function FormulaManager() {
     const weekly = trendTemplates.find((r) => r.tier === tier && r.outlook === outlook && r.timeframe === 'Weekly');
     const daily = trendTemplates.find((r) => r.tier === tier && r.outlook === outlook && r.timeframe === 'Daily');
     setTrendEditKey({ tier, outlook });
+    setTrendModalWeeklyTitle(weekly?.title ?? '');
+    setTrendModalDailyTitle(daily?.title ?? '');
     setTrendModalWeekly(weekly?.description ?? '');
     setTrendModalDaily(daily?.description ?? '');
     setTrendModalError(null);
@@ -367,12 +371,18 @@ export default function FormulaManager() {
 
   const closeTrendEditModal = () => {
     setTrendEditKey(null);
+    setTrendModalWeeklyTitle('');
+    setTrendModalDailyTitle('');
     setTrendModalError(null);
     setTrendModalSaving(false);
   };
 
   const saveTrendEditModal = async () => {
     if (!trendEditKey) return;
+    if (!trendModalWeeklyTitle.trim() || !trendModalDailyTitle.trim()) {
+      setTrendModalError('Weekly and daily titles are required.');
+      return;
+    }
     if (!trendModalWeekly.trim() || !trendModalDaily.trim()) {
       setTrendModalError('Weekly and daily descriptions are required.');
       return;
@@ -381,7 +391,14 @@ export default function FormulaManager() {
     try {
       const token = await getAccessToken();
       const res = await upsertFormulaTrendTemplatesAction(token, {
-        rows: [{ tier: trendEditKey.tier, outlook: trendEditKey.outlook, weekly: trendModalWeekly, daily: trendModalDaily }],
+        rows: [{
+          tier: trendEditKey.tier,
+          outlook: trendEditKey.outlook,
+          weekly_title: trendModalWeeklyTitle,
+          daily_title: trendModalDailyTitle,
+          weekly: trendModalWeekly,
+          daily: trendModalDaily,
+        }],
       });
       if (!res.ok) {
         setTrendModalError(res.error);
@@ -714,7 +731,7 @@ export default function FormulaManager() {
                   </div>
                   <div className="min-w-0 overflow-x-auto">
                     <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Trend Description Templates (Weekly + Daily)
+                      Trend Title + Description Templates (Weekly + Daily)
                     </p>
                     <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
                       <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
@@ -741,9 +758,11 @@ export default function FormulaManager() {
                                 <td className="px-4 py-4 text-foreground">{ratingLabel}</td>
                                 <td className="px-4 py-4 text-foreground">{row.outlook}</td>
                                 <td className="max-w-md px-4 py-4 text-muted-foreground">
+                                  <p className="font-medium text-foreground">{row.title || '—'}</p>
                                   <p className="line-clamp-2" title={row.description}>{row.description || '—'}</p>
                                 </td>
                                 <td className="max-w-md px-4 py-4 text-muted-foreground">
+                                  <p className="font-medium text-foreground">{dailyRow?.title ?? '—'}</p>
                                   <p className="line-clamp-2" title={dailyRow?.description ?? ''}>{dailyRow?.description ?? '—'}</p>
                                 </td>
                                 <td className="px-4 py-4 text-right">
@@ -1145,6 +1164,32 @@ export default function FormulaManager() {
                   {trendModalError}
                 </div>
               )}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label htmlFor="trend-modal-weekly-title" className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Weekly Title
+                  </label>
+                  <input
+                    id="trend-modal-weekly-title"
+                    value={trendModalWeeklyTitle}
+                    onChange={(e) => setTrendModalWeeklyTitle(e.target.value)}
+                    maxLength={120}
+                    className={`${FIELD_STYLE} w-full max-w-none`}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="trend-modal-daily-title" className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Daily Title
+                  </label>
+                  <input
+                    id="trend-modal-daily-title"
+                    value={trendModalDailyTitle}
+                    onChange={(e) => setTrendModalDailyTitle(e.target.value)}
+                    maxLength={120}
+                    className={`${FIELD_STYLE} w-full max-w-none`}
+                  />
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label htmlFor="trend-modal-weekly" className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Weekly Description

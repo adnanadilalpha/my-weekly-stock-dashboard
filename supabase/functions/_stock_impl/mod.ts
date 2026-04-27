@@ -1530,8 +1530,18 @@ function buildUpdatePatch(
   const dailySlope21   = slopeStateFromPct(dailySlope21Pct, TREND_SIGNAL_THRESHOLDS.daily.slopeLong);
   const weeklySlope9   = slopeStateFromPct(weeklySlope9Pct, TREND_SIGNAL_THRESHOLDS.weekly.slopeShort);
   const weeklySlope30  = slopeStateFromPct(weeklySlope30Pct, TREND_SIGNAL_THRESHOLDS.weekly.slopeLong);
-  const dailyOutlook   = trendOutlook(dailyScore,  params);
-  const weeklyOutlook  = trendOutlook(weeklyScore, params);
+  const dailyRatingLabel = ratingLabel(dailyScore, params, ratingLabels);
+  const weeklyRatingLabel = ratingLabel(weeklyScore, params, ratingLabels);
+  const dailyOutlook   = trendOutlook(dailyScore, {
+    priceVsShortEma: dailyPriceVsShort,
+    priceVsLongEma: dailyPriceVsLong,
+    emaCross: dailyEmaCross,
+  });
+  const weeklyOutlook  = trendOutlook(weeklyScore, {
+    priceVsShortEma: weeklyPriceVsShort,
+    priceVsLongEma: weeklyPriceVsLong,
+    emaCross: weeklyEmaCross,
+  });
   const dailyMonth     = rollingHighLow(daily,  21);
   const weeklyQuarter  = rollingHighLow(weekly, 13);
 
@@ -1594,7 +1604,7 @@ function buildUpdatePatch(
   patch.daily_month_high     = dailyMonth.high;
   patch.daily_month_low      = dailyMonth.low;
   patch.daily_trend_score       = Number(dailyScore.toFixed(2));
-  patch.daily_rating            = ratingLabel(dailyScore, params, ratingLabels);
+  patch.daily_rating            = dailyRatingLabel;
   patch.daily_outlook           = dailyOutlook;
   patch.daily_rating_stars      = starRating(dailyScore);
   patch.daily_trend_description = trendDescription(
@@ -1621,7 +1631,7 @@ function buildUpdatePatch(
   patch.weekly_month_high     = weeklyQuarter.high;
   patch.weekly_month_low      = weeklyQuarter.low;
   patch.weekly_trend_score       = Number(weeklyScore.toFixed(2));
-  patch.weekly_rating            = ratingLabel(weeklyScore, params, ratingLabels);
+  patch.weekly_rating            = weeklyRatingLabel;
   patch.weekly_outlook           = weeklyOutlook;
   patch.weekly_rating_stars      = starRating(weeklyScore);
   patch.weekly_trend_description = trendDescription(
@@ -1712,10 +1722,10 @@ function emaCross(shortEma: number | null, longEma: number | null): number | nul
   return pctReturn(shortEma, longEma);
 }
 
-function emaSlopePct(values: number[], period: number): number | null {
-  if (!Array.isArray(values) || values.length < period + 1) return null;
+function emaSlopePct(values: number[], period: number, lookback = 5): number | null {
+  if (!Array.isArray(values) || values.length < period + lookback) return null;
   const now = ema(values, period);
-  const prev = ema(values.slice(0, values.length - 1), period);
+  const prev = ema(values.slice(0, values.length - lookback), period);
   if (now === null || prev === null || prev === 0) return null;
   return now / prev - 1;
 }
@@ -1742,10 +1752,38 @@ function emaSlope(
   return 'Flat';
 }
 
-function trendOutlook(score: number, p: FormulaParams): 'Extended' | 'Stable' | 'Weak' {
-  if (score >= p.extended_threshold) return 'Extended';
-  if (score >= p.score_weak)         return 'Stable';
-  return 'Weak';
+function trendOutlook(
+  score: number,
+  inputs: {
+    priceVsShortEma: number | null;
+    priceVsLongEma: number | null;
+    emaCross: number | null;
+  },
+): 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming' {
+  const pvs = inputs.priceVsShortEma;
+  const pvl = inputs.priceVsLongEma;
+  const cross = inputs.emaCross;
+  // Client formula sheet (27.04.2026):
+  // Uptrend bands (>2.7): IF(pvs > 5%, Extended, IF(pvl < 0, Reversing, IF(pvs < 0, Cooling, Stable)))
+  if (score > 2.7) {
+    if (pvs !== null && pvs > 0.05) return 'Extended';
+    if (pvl !== null && pvl < 0) return 'Reversing';
+    if (pvs !== null && pvs < 0) return 'Cooling';
+    return 'Stable';
+  }
+
+  // Sideways band (>1.6 and <=2.7): IF(cross <= -1.5%, Softening, IF(cross >= 1.5%, Firming, Stable))
+  if (score > 1.6) {
+    if (cross !== null && cross <= -0.015) return 'Softening';
+    if (cross !== null && cross >= 0.015) return 'Firming';
+    return 'Stable';
+  }
+
+  // Downtrend bands (<=1.6): IF(pvs < -5%, Extended, IF(pvl > 0, Reversing, IF(pvs > 0, Warming, Stable)))
+  if (pvs !== null && pvs < -0.05) return 'Extended';
+  if (pvl !== null && pvl > 0) return 'Reversing';
+  if (pvs !== null && pvs > 0) return 'Warming';
+  return 'Stable';
 }
 
 function rollingHighLow(
@@ -1767,7 +1805,7 @@ function starRating(score: number): string {
 
 function trendDescription(
   score: number,
-  outlook: 'Extended' | 'Stable' | 'Weak',
+  outlook: 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming',
   rating: string,
   timeframe: 'Daily' | 'Weekly',
   templates: TrendTemplateMap
@@ -1779,10 +1817,10 @@ function trendDescription(
     if (templated && templated.trim()) return templated.trim();
   }
   const o = outlook.toLowerCase();
-  if (score >= 4.2) return `Momentum is strongly bullish with aligned signals. Outlook is ${o}.`;
-  if (score >= 3.0) return `Trend is constructive and above key moving averages. Outlook is ${o}.`;
-  if (score >= 1.8) return `Trend is mixed with balanced bullish and bearish inputs. Outlook is ${o}.`;
-  return `Trend is weak with downside pressure across key signals. Outlook is ${o}.`;
+  if (score >= 4.2) return `Momentum is strongly bullish with aligned signals. Signal is ${o}.`;
+  if (score >= 3.0) return `Trend is constructive and above key moving averages. Signal is ${o}.`;
+  if (score >= 1.8) return `Trend is mixed with balanced bullish and bearish inputs. Signal is ${o}.`;
+  return `Trend is weak with downside pressure across key signals. Signal is ${o}.`;
 }
 
 function signalIcon(v: number | null): string {
@@ -1850,16 +1888,10 @@ function ratingTierFromText(rating: string): 'strong_bull' | 'bull' | 'neutral' 
 }
 
 function trendTemplateOutlookKey(
-  rating: string,
-  outlook: 'Extended' | 'Stable' | 'Weak'
+  _rating: string,
+  outlook: 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming'
 ): 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming' | null {
-  if (outlook === 'Extended') return 'Extended';
-  if (outlook === 'Stable') return 'Stable';
-  const tier = ratingTierFromText(rating);
-  if (!tier) return null;
-  if (tier === 'neutral') return 'Softening';
-  if (tier === 'bear' || tier === 'strong_bear') return 'Reversing';
-  return 'Cooling';
+  return outlook;
 }
 
 // -----------------------------------------------------------------------------
@@ -2049,8 +2081,14 @@ function closesToRows(
   const stepCalendarDays = interval === 'weekly' ? 7 : 1;
 
   // Start from anchor and walk backward, collecting one date per bar.
+  // For weekly bars we normalize to the ISO week start (Monday) so each week
+  // has one stable key and repeated intraday runs upsert the same row.
   const dates: string[] = [];
   let cursor = new Date(anchorDate);
+  if (interval === 'weekly') {
+    const day = cursor.getUTCDay() || 7; // Mon=1..Sun=7
+    cursor.setUTCDate(cursor.getUTCDate() - (day - 1)); // move to Monday
+  }
   const slice = closes.slice(-maxRows);
 
   for (let i = 0; i < slice.length; i++) {

@@ -33,6 +33,19 @@ interface PriceChartProps {
 }
 
 type LineSeriesApi = ISeriesApi<'Line'>;
+type ChartTime = string | { year: number; month: number; day: number } | number;
+
+function parseChartDate(time: ChartTime): Date | null {
+  if (typeof time === 'number') return new Date(time * 1000);
+  if (typeof time === 'string') {
+    const d = new Date(`${time}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (time && typeof time === 'object' && 'year' in time && 'month' in time && 'day' in time) {
+    return new Date(Date.UTC(time.year, time.month - 1, time.day));
+  }
+  return null;
+}
 
 function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,9 +86,25 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
         borderColor:     'rgba(148,163,184,0.15)',
         timeVisible:     true,
         secondsVisible:  false,
+        tickMarkFormatter: (time: ChartTime) => {
+          const d = parseChartDate(time);
+          if (!d) return '';
+          return interval === 'weekly'
+            ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        },
       },
-      handleScroll: { mouseWheel: false, pressedMouseMove: true },
-      handleScale:  { mouseWheel: false, pinch: false },
+      handleScroll: {
+        mouseWheel: false,
+        pressedMouseMove: false,
+        horzTouchDrag: false,
+        vertTouchDrag: false,
+      },
+      handleScale:  {
+        axisPressedMouseMove: false,
+        mouseWheel: false,
+        pinch: false,
+      },
     });
 
     const priceSeries = chart.addSeries(LineSeries, {
@@ -122,7 +151,7 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
       chartRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [height]);
+  }, [height, interval]);
 
   // Update data when bars change.
   useEffect(() => {

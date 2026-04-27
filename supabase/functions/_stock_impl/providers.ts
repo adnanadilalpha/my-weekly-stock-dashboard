@@ -12,9 +12,8 @@ export type ProviderHistory = {
   /** Daily close prices, chronological (oldest → newest). */
   dailyCloses: number[];
   /**
-   * Weekly close prices: every 5th trading day sampled from the end so the
-   * most-recent weekly point is always the latest available close.
-   * Chronological order, oldest → newest.
+   * Weekly close prices: last available close per calendar week (ISO week),
+   * chronological (oldest → newest).
    */
   weeklyCloses: number[];
   /** 52-week high across the most-recent 252 trading days (or full range). */
@@ -136,7 +135,17 @@ export class FinnhubProvider implements MarketDataProvider {
     }
     const j = (await r.json()) as { s?: string; c?: number[]; v?: number[]; t?: number[] };
     const rawCandles = Array.isArray(j.c) ? j.c.length : 0;
-    const daily = Array.isArray(j.c) ? j.c.filter((x) => Number.isFinite(x) && x > 0) : [];
+    const daily: number[] = [];
+    const dailyDates: string[] = [];
+    if (Array.isArray(j.c)) {
+      for (let i = 0; i < j.c.length; i++) {
+        const close = Number(j.c[i]);
+        const ts = Array.isArray(j.t) ? Number(j.t[i]) : NaN;
+        if (!Number.isFinite(close) || close <= 0 || !Number.isFinite(ts) || ts <= 0) continue;
+        daily.push(close);
+        dailyDates.push(new Date(ts * 1000).toISOString().slice(0, 10));
+      }
+    }
     const vols = Array.isArray(j.v) ? j.v : [];
     const latestVolume = vols.length > 0 && Number.isFinite(vols[vols.length - 1]) && vols[vols.length - 1] > 0
       ? Math.round(vols[vols.length - 1])
@@ -162,7 +171,7 @@ export class FinnhubProvider implements MarketDataProvider {
       console.warn('[finnhub:history] TOO_FEW_CANDLES', { ticker, validCandles: daily.length, minimum: 10 });
       return null;
     }
-    return buildHistory(ticker, daily, latestVolume);
+    return buildHistory(ticker, daily, latestVolume, dailyDates);
   }
 
   async listSymbols(limit = 50_000): Promise<ProviderSymbol[]> {
@@ -299,10 +308,12 @@ export class TwelveDataProvider implements MarketDataProvider {
     }
 
     const rawRows = Array.isArray(j.values) ? j.values.length : 0;
-    const daily = (j.values ?? [])
-      .map((v) => Number(v.close))
-      .filter((n) => Number.isFinite(n) && n > 0)
+    const parsed = (j.values ?? [])
+      .map((v) => ({ close: Number(v.close), date: String(v.datetime ?? '').slice(0, 10) }))
+      .filter((row) => Number.isFinite(row.close) && row.close > 0 && /^\d{4}-\d{2}-\d{2}$/.test(row.date))
       .reverse(); // newest-first → chronological
+    const daily = parsed.map((row) => row.close);
+    const dailyDates = parsed.map((row) => row.date);
 
     console.info('[twelve_data:history] RAW', {
       ticker,
@@ -319,7 +330,7 @@ export class TwelveDataProvider implements MarketDataProvider {
       console.warn('[twelve_data:history] TOO_FEW_CANDLES', { ticker, validCandles: daily.length, minimum: 10 });
       return null;
     }
-    return buildHistory(ticker, daily, null); // TwelveData time_series doesn't include volume
+    return buildHistory(ticker, daily, null, dailyDates); // TwelveData time_series doesn't include volume
   }
 
   async getProfile(_ticker: string): Promise<ProviderProfile | null> {
@@ -368,18 +379,52 @@ export class TwelveDataProvider implements MarketDataProvider {
  * available close, so indicators computed on the current (incomplete) week are
  * based on the most recent price rather than a 5-day-old one.
  */
-function buildHistory(ticker: string, daily: number[], volume: number | null = null): ProviderHistory {
+function buildHistory(
+  ticker: string,
+  daily: number[],
+  volume: number | null = null,
+  dailyDates: string[] = [],
+): ProviderHistory {
   const weekly: number[] = [];
-  // Walk backward in 5-day steps; push the selected price; then reverse.
-  for (let i = daily.length - 1; i >= 0; i -= 5) {
-    weekly.push(daily[i]);
+  if (dailyDates.length === daily.length) {
+    let currentWeekKey: string | null = null;
+    for (let i = 0; i < daily.length; i++) {
+      const weekKey = isoWeekKeyFromDateString(dailyDates[i]);
+      if (!weekKey) continue;
+      if (weekKey !== currentWeekKey) {
+        weekly.push(daily[i]);
+        currentWeekKey = weekKey;
+      } else {
+        // Same week: keep replacing so this lands on the week's last trading close.
+        weekly[weekly.length - 1] = daily[i];
+      }
+    }
   }
-  weekly.reverse(); // restore chronological order
+  if (weekly.length === 0) {
+    // Fallback for providers that don't give reliable dates.
+    for (let i = daily.length - 1; i >= 0; i -= 5) {
+      weekly.push(daily[i]);
+    }
+    weekly.reverse(); // restore chronological order
+  }
 
   // 52-week high from the most-recent 252 trading sessions.
   const lookback = Math.min(252, daily.length);
   const high52w = lookback > 0 ? Math.max(...daily.slice(-lookback)) : 0;
   return { ticker, dailyCloses: daily, weeklyCloses: weekly, high52w, volume };
+}
+
+function isoWeekKeyFromDateString(dateStr: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  // ISO week date algorithm.
+  const day = d.getUTCDay() || 7; // 1..7 (Mon..Sun)
+  d.setUTCDate(d.getUTCDate() + 4 - day); // nearest Thursday defines ISO year
+  const isoYear = d.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+  const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${isoYear}-W${String(week).padStart(2, '0')}`;
 }
 
 // -----------------------------------------------------------------------------
@@ -415,16 +460,21 @@ export class FmpProvider implements MarketDataProvider {
     }
     if (r.status === 429) { console.warn('[fmp:history] RATE_LIMITED', { ticker }); return null; }
     if (!r.ok) { console.warn('[fmp:history] HTTP_ERROR', { ticker, status: r.status }); return null; }
-    const j = (await r.json()) as { historical?: Array<{ close?: number; volume?: number }> };
+    const j = (await r.json()) as { historical?: Array<{ close?: number; volume?: number; date?: string }> };
     const raw = j.historical ?? [];
     // FMP returns newest-first — reverse for chronological order
-    const daily = raw.map((d) => Number(d.close)).filter((n) => Number.isFinite(n) && n > 0).reverse();
+    const parsed = raw
+      .map((d) => ({ close: Number(d.close), date: String(d.date ?? '').slice(0, 10) }))
+      .filter((row) => Number.isFinite(row.close) && row.close > 0 && /^\d{4}-\d{2}-\d{2}$/.test(row.date))
+      .reverse();
+    const daily = parsed.map((row) => row.close);
+    const dailyDates = parsed.map((row) => row.date);
     const vols = raw.map((d) => Number(d.volume)).reverse();
     const latestVolume = vols.length > 0 && Number.isFinite(vols[vols.length - 1]) && vols[vols.length - 1] > 0
       ? Math.round(vols[vols.length - 1]) : null;
     console.info('[fmp:history] RAW', { ticker, rawRows: raw.length, validCandles: daily.length, latestVolume });
     if (daily.length < 10) { console.warn('[fmp:history] TOO_FEW_CANDLES', { ticker, validCandles: daily.length }); return null; }
-    return buildHistory(ticker, daily, latestVolume);
+    return buildHistory(ticker, daily, latestVolume, dailyDates);
   }
 
   async listSymbols(): Promise<ProviderSymbol[]> { return []; }
@@ -537,16 +587,32 @@ export class YahooFinanceProvider implements MarketDataProvider {
       console.warn('[yahoo:history] HTTP_ERROR', { ticker, yahooSymbol: sym, status: r.status });
       return null;
     }
-    const j = (await r.json()) as { chart?: { result?: Array<{ indicators?: { quote?: Array<{ close?: (number | null)[]; volume?: (number | null)[] }> } }> } };
+    const j = (await r.json()) as {
+      chart?: {
+        result?: Array<{
+          timestamp?: number[];
+          indicators?: { quote?: Array<{ close?: (number | null)[]; volume?: (number | null)[] }> };
+        }>;
+      };
+    };
     const quoteData = j.chart?.result?.[0]?.indicators?.quote?.[0];
+    const timestamps = j.chart?.result?.[0]?.timestamp ?? [];
     const closes = quoteData?.close ?? [];
     const vols = quoteData?.volume ?? [];
-    const daily = closes.filter((n): n is number => n !== null && Number.isFinite(n) && n > 0);
+    const daily: number[] = [];
+    const dailyDates: string[] = [];
+    for (let i = 0; i < closes.length; i++) {
+      const close = closes[i];
+      const ts = Number(timestamps[i]);
+      if (close === null || !Number.isFinite(close) || close <= 0 || !Number.isFinite(ts) || ts <= 0) continue;
+      daily.push(close);
+      dailyDates.push(new Date(ts * 1000).toISOString().slice(0, 10));
+    }
     const latestVolume = vols.length > 0 && vols[vols.length - 1] != null && Number.isFinite(vols[vols.length - 1]!) && vols[vols.length - 1]! > 0
       ? Math.round(vols[vols.length - 1]!) : null;
     console.info('[yahoo:history] RAW', { ticker, rawRows: closes.length, validCandles: daily.length, latestVolume });
     if (daily.length < 10) { console.warn('[yahoo:history] TOO_FEW_CANDLES', { ticker, validCandles: daily.length }); return null; }
-    return buildHistory(ticker, daily, latestVolume);
+    return buildHistory(ticker, daily, latestVolume, dailyDates);
   }
 
   async listSymbols(): Promise<ProviderSymbol[]> { return []; }
@@ -587,13 +653,15 @@ export class AlphaVantageProvider implements MarketDataProvider {
     const j = (await r.json()) as { 'Time Series (Daily)'?: Record<string, Record<string, string>>; Note?: string; Information?: string };
     if (j.Note || j.Information) { console.warn('[alpha_vantage:history] RATE_LIMITED', { ticker }); return null; }
     const ts = j['Time Series (Daily)'] ?? {};
-    const daily = Object.entries(ts)
+    const parsed = Object.entries(ts)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, v]) => Number(v['4. close']))
-      .filter((n) => Number.isFinite(n) && n > 0);
+      .map(([date, v]) => ({ close: Number(v['4. close']), date }))
+      .filter((row) => Number.isFinite(row.close) && row.close > 0 && /^\d{4}-\d{2}-\d{2}$/.test(row.date));
+    const daily = parsed.map((row) => row.close);
+    const dailyDates = parsed.map((row) => row.date);
     console.info('[alpha_vantage:history] RAW', { ticker, validCandles: daily.length });
     if (daily.length < 10) { console.warn('[alpha_vantage:history] TOO_FEW_CANDLES', { ticker, validCandles: daily.length }); return null; }
-    return buildHistory(ticker, daily, null);
+    return buildHistory(ticker, daily, null, dailyDates);
   }
 
   async listSymbols(): Promise<ProviderSymbol[]> { return []; }
@@ -636,15 +704,19 @@ export class PolygonProvider implements MarketDataProvider {
     }
     if (r.status === 429) { console.warn('[polygon:history] RATE_LIMITED', { ticker }); return null; }
     if (!r.ok) { console.warn('[polygon:history] HTTP_ERROR', { ticker, status: r.status }); return null; }
-    const j = (await r.json()) as { results?: Array<{ c?: number; v?: number }> };
+    const j = (await r.json()) as { results?: Array<{ c?: number; v?: number; t?: number }> };
     const raw = j.results ?? [];
-    const daily = raw.map((d) => Number(d.c)).filter((n) => Number.isFinite(n) && n > 0);
+    const parsed = raw
+      .map((d) => ({ close: Number(d.c), ts: Number(d.t) }))
+      .filter((row) => Number.isFinite(row.close) && row.close > 0 && Number.isFinite(row.ts) && row.ts > 0);
+    const daily = parsed.map((row) => row.close);
+    const dailyDates = parsed.map((row) => new Date(row.ts).toISOString().slice(0, 10));
     const vols = raw.map((d) => Number(d.v));
     const latestVolume = vols.length > 0 && Number.isFinite(vols[vols.length - 1]) && vols[vols.length - 1] > 0
       ? Math.round(vols[vols.length - 1]) : null;
     console.info('[polygon:history] RAW', { ticker, rawRows: raw.length, validCandles: daily.length, latestVolume });
     if (daily.length < 10) { console.warn('[polygon:history] TOO_FEW_CANDLES', { ticker, validCandles: daily.length }); return null; }
-    return buildHistory(ticker, daily, latestVolume);
+    return buildHistory(ticker, daily, latestVolume, dailyDates);
   }
 
   async listSymbols(): Promise<ProviderSymbol[]> { return []; }

@@ -230,30 +230,6 @@ function formatM1Chip(m1: number | null): string {
   return `${sign}${rounded}%`;
 }
 
-function dotTone(i: number): 'emerald' | 'amber' | 'rose' {
-  const m = i % 3;
-  if (m === 0) return 'emerald';
-  if (m === 1) return 'amber';
-  return 'rose';
-}
-
-function scoreToDotTone(score: number | null, fallbackIndex: number): 'emerald' | 'amber' | 'rose' {
-  if (score == null || Number.isNaN(score)) return dotTone(fallbackIndex);
-  if (score >= 3) return 'emerald';
-  if (score >= 2) return 'amber';
-  return 'rose';
-}
-
-function Dot({ tone }: { tone: 'emerald' | 'amber' | 'rose' }) {
-  const cls =
-    tone === 'emerald'
-      ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(34,197,94,0.2)]'
-      : tone === 'amber'
-        ? 'bg-amber-500'
-        : 'bg-red-500';
-  return <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${cls}`} aria-hidden />;
-}
-
 export function IndexPage({
   userEmail,
   onSignOut,
@@ -363,23 +339,23 @@ export function IndexPage({
 
   const TickerPill = ({
     label,
-    index,
     tickerOverride,
   }: {
     label: string;
-    index: number;
     tickerOverride?: string;
   }) => {
     const ticker = (tickerOverride ?? TICKER_MAP[label] ?? label).toUpperCase();
     const m = metricsMap.get(ticker);
-    const tone = scoreToDotTone(m?.score ?? null, index);
     const m1 = m?.m1 ?? null;
+    const m1Pct = m1 == null || Number.isNaN(m1) ? null : (Math.abs(m1) <= 1 ? m1 * 100 : m1);
     const chip =
-      m1 == null || Number.isNaN(m1)
+      m1Pct == null
         ? 'bg-muted/80 text-muted-foreground'
-        : m1 >= 0
+        : m1Pct > 1
           ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
-          : 'bg-rose-500/15 text-rose-800 dark:text-rose-300';
+          : m1Pct < -1
+            ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300'
+            : 'bg-amber-500/15 text-amber-800 dark:text-amber-300';
     return (
       <button
         type="button"
@@ -390,11 +366,11 @@ export function IndexPage({
           <span className="flex h-[26px] w-[26px] shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
             <TickerIcon ticker={ticker} size={26} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
           </span>
-          <Dot tone={tone} />
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground sm:text-[13px]">{label}</span>
           <span
             className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums ${chip}`}
-            title="1M %"
+            title="1-month return"
+            aria-label={`1-month return ${formatM1Chip(m1)}`}
           >
             {formatM1Chip(m1)}
           </span>
@@ -446,8 +422,8 @@ export function IndexPage({
             iconWrapClass="bg-violet-100 dark:bg-violet-950/40"
           >
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
-              {prefs.personalTickers.map((t, i) => (
-                <TickerPill key={t.ticker} label={t.name || t.ticker} index={i} tickerOverride={t.ticker} />
+              {prefs.personalTickers.map((t) => (
+                <TickerPill key={t.ticker} label={t.name || t.ticker} tickerOverride={t.ticker} />
               ))}
             </div>
           </GroupCard>
@@ -462,8 +438,8 @@ export function IndexPage({
             iconWrapClass="bg-secondary"
           >
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
-              {SEGMENTS.map((segment, i) => (
-                <TickerPill key={segment} label={segment} index={i} />
+              {SEGMENTS.map((segment) => (
+                <TickerPill key={segment} label={segment} />
               ))}
             </div>
           </GroupCard>
@@ -478,8 +454,8 @@ export function IndexPage({
             iconWrapClass="bg-emerald-100 dark:bg-emerald-950/40"
           >
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
-              {SECTORS.map((sector, i) => (
-                <TickerPill key={sector} label={sector} index={i} />
+              {SECTORS.map((sector) => (
+                <TickerPill key={sector} label={sector} />
               ))}
             </div>
           </GroupCard>
@@ -494,8 +470,8 @@ export function IndexPage({
             iconWrapClass="bg-amber-100 dark:bg-amber-950/40"
           >
             <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2 px-5 py-4">
-              {largePreview.map((stock, i) => (
-                <TickerPill key={stock} label={stock} index={i} />
+              {largePreview.map((stock) => (
+                <TickerPill key={stock} label={stock} />
               ))}
             </div>
             {!showAllLargeCaps && LARGE_CAPS.length > 12 && (
@@ -571,6 +547,9 @@ export function IndexPage({
               </h1>
               <p className="mt-1.5 text-xs text-muted-foreground sm:text-sm">
                 Market Analysis Dashboard · updated {updatedLine}
+              </p>
+              <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
+                Ticker chip % shows 1-month return.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -695,7 +674,7 @@ export function IndexPage({
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold tracking-tight text-foreground sm:text-[14.5px]">On-Demand Pulse Check</div>
                 <div className="mt-0.5 text-xs leading-snug text-muted-foreground sm:text-[13px]">
-                  Pull up the detailed Momentum Pulse. Heck for one the 70+ ticker covered in the app.
+                  Pull up the detailed Momentum Pulse. Heck for one the 1000+ ticker covered in the app.
                 </div>
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />

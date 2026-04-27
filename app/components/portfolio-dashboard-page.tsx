@@ -14,6 +14,7 @@ import {
 import type { AppMode, PortfolioPage } from '../types';
 
 const NAME_TO_PAGE: Record<string, PortfolioPage> = {
+  [PORTFOLIO_NAMES.COMBINED_PERFORMANCE]: 'momentum-combined',
   [PORTFOLIO_NAMES.DOW30]: 'dow30',
   [PORTFOLIO_NAMES.LARGE_CAPS]: 'large-caps',
   [PORTFOLIO_NAMES.NASDAQ100]: 'nasdaq100',
@@ -165,12 +166,15 @@ export function PortfolioDashboardPage({
   };
   const avgReturnPct = getAverage(kpiRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_9'))));
   const avgCagr = getAverage(kpiRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_14'))));
-  const avgHitRate = getAverage(kpiRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_10'))));
+  const combinedMomentumHitRate = combinedRows.length
+    ? toPercent(getCol(combinedRows[0] as unknown as Record<string, unknown>, 'column_10'))
+    : null;
+  const avgHitRate = combinedMomentumHitRate;
   const accessibleCount = kpiRows.filter((r) => NAME_TO_PAGE[getCol2(r)]).length;
 
   const momentumRowsOrdered = useMemo(
-    () => [...combinedRows, ...weeklyRows],
-    [combinedRows, weeklyRows],
+    () => [...combinedRows],
+    [combinedRows],
   );
 
   const filteredMomentum = useMemo(
@@ -512,7 +516,7 @@ export function PortfolioDashboardPage({
                 <div className="mt-1 text-[1.375rem] font-semibold leading-none tracking-tight text-foreground sm:text-2xl md:text-[1.75rem] lg:text-[30px]">
                   {avgHitRate != null ? `${avgHitRate.toFixed(1)}%` : '—'}
                 </div>
-                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Winning trades</p>
+                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Consolidated weekly momentum picks</p>
               </div>
             </div>
             <div className="box-border flex min-h-[112px] min-w-0 flex-[1_1_12rem] flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-sm sm:min-h-[124px] sm:flex-[1_1_calc(50%-0.4375rem)] sm:p-5 lg:flex-[1_1_0]">

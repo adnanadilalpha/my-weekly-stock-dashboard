@@ -56,6 +56,7 @@ export type FormulaTrendTemplateRow = {
   tier: FormulaRatingTier;
   outlook: FormulaTrendOutlook;
   timeframe: FormulaTrendTimeframe;
+  title: string;
   description: string;
   updated_at: string;
   updated_by: string | null;
@@ -109,46 +110,41 @@ const DEFAULT_PERFORMANCE_COPY: FormulaPerformanceLabelRow[] = [
   },
 ];
 
-const DEFAULT_TREND_TEMPLATES: FormulaTrendTemplateRow[] = [
-  { tier: 'strong_bull', outlook: 'Extended', timeframe: 'Weekly', description: 'Momentum is undoubtedly aligned to the upside, with price well above both EMAs. The trend is powerful but stretched, showing signs of short-term overextension. A brief pause or pullback would be typical before trend continuation.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bull', outlook: 'Extended', timeframe: 'Daily', description: 'Momentum is undoubtedly aligned to the upside, with price well above both EMAs. The trend is powerful but stretched, showing signs of short-term overextension. A brief pause or pullback would be typical before trend continuation.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bull', outlook: 'Stable', timeframe: 'Weekly', description: 'Momentum signals are fully aligned to the upside, with price trading above both EMAs. Price action is healthy, confirming trend strength with limited signs of exhaustion. Continuation is the base case as long as price holds above the 9-week EMA, which serves as the short-term anchor.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bull', outlook: 'Stable', timeframe: 'Daily', description: 'Momentum signals are fully aligned to the upside, with price trading above both EMAs. Price action is healthy, confirming trend strength with limited signs of exhaustion. Continuation is the base case as long as price holds above the 9-day EMA, which serves as the short-term anchor.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bull', outlook: 'Cooling', timeframe: 'Weekly', description: 'The broader trend remains bullish, with price still above the medium-term EMAs. Momentum has cooled as price slipped below the 9-week EMA. A test of the 30-week EMA could be in play and will be a key level for bulls to defend to maintain trend structure.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bull', outlook: 'Cooling', timeframe: 'Daily', description: 'The broader trend remains bullish, with price still above the medium-term EMAs. Momentum has cooled as price slipped below or close to the 9-day EMA. A test of the 21-day EMA could be in play and will be a key level for bulls to defend to maintain trend structure.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bull', outlook: 'Reversing', timeframe: 'Weekly', description: 'The broader uptrend has weakened materially, with price breaking below the 30-week EMA. Momentum is shifting to the downside, and buyers are losing control. A confirmed reversal would occur if the 9-week EMA crosses below the 30-week EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bull', outlook: 'Reversing', timeframe: 'Daily', description: 'The broader uptrend has weakened materially, with price breaking below the 21-day EMA. Momentum is shifting to the downside, and buyers are losing control. A confirmed reversal would occur if the 9-day EMA crosses below the 21-day EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Extended', timeframe: 'Weekly', description: 'Momentum is firmly positive, with price well above both EMAs. The trend has run hot in recently, showing signs of short-term overextension. A period of consolidation or sideways movement would be healthy to let averages catch up and sustain the uptrend.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Extended', timeframe: 'Daily', description: 'Momentum is firmly positive, with price well above both EMAs. The trend has run hot in recently, showing signs of short-term overextension. A period of consolidation or sideways movement would be healthy to let averages catch up and sustain the uptrend.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Stable', timeframe: 'Weekly', description: 'The uptrend is intact, with price holding above key EMAs. Momentum is steady, showing balanced strength without signs of excess. As long as price stays above the 9-week EMA, the trend should continue gradually higher.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Stable', timeframe: 'Daily', description: 'The uptrend is intact, with price holding above key EMAs. Momentum is steady, showing balanced strength without signs of excess. As long as price stays above the 9-day EMA, the trend should continue gradually higher.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Cooling', timeframe: 'Weekly', description: 'The uptrend remains mostly positive, but momentum has slowed down recently. Price has slipped below the 9-week EMA and needs to reclaim it to avoid deeper consolidation. Failure to do so would likely trigger a test of the 30-week EMA, a key trend line for bulls to defend.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Cooling', timeframe: 'Daily', description: 'The uptrend remains mostly positive, but momentum has slowed down recently. Price has slipped below the 9-day EMA and needs to reclaim it to avoid deeper consolidation. Failure to do so would likely trigger a test of the 21-day EMA, a key trend line for bulls to defend.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Reversing', timeframe: 'Weekly', description: 'The broader uptrend has weakened materially, with price breaking below the 30-week EMA. Momentum is shifting to the downside, and buyers are losing control. A confirmed reversal would occur if the 9-week EMA crosses below the 30-week EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bull', outlook: 'Reversing', timeframe: 'Daily', description: 'The broader uptrend has weakened materially, with price breaking below the 21-day EMA. Momentum is shifting to the downside, and buyers are losing control. A confirmed reversal would occur if the 9-day EMA crosses below the 21-day EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'neutral', outlook: 'Firming', timeframe: 'Weekly', description: 'The broader trend is mixed but momentum is slighlty tilting to the upside. Price is holding above the 30-week EMA, suggesting buyers are in modest control. A sustained move above recent highs could confirm a new upward phase.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'neutral', outlook: 'Firming', timeframe: 'Daily', description: 'The broader trend is mixed, but momentum is slighlty tilting to the upside. Price is holding above the 21-day EMA, suggesting buyers are in modest control. A sustained move above recent highs could confirm a new upward phase.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'neutral', outlook: 'Stable', timeframe: 'Weekly', description: 'Momentum signals are mixed, with price action lacking clear direction. A decisive and sustain move above or below the 30-week EMA would be a first indication on how this get resolved. Patience is important here to avoid being trapped in a fake move.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'neutral', outlook: 'Stable', timeframe: 'Daily', description: 'Momentum signals are mixed, with price action lacking clear direction. A decisive and sustain move above or below the 21-day EMA would be a first indication on how this get resolved. Patience is important here to avoid being trapped in a fake move.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'neutral', outlook: 'Softening', timeframe: 'Weekly', description: 'Momentum is mixed, but signals are somewhat weakening. Price has slipped below the 30-week EMA, giving a slight downside bias. Further weakness below recent lows would confirm the downtrend direction.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'neutral', outlook: 'Softening', timeframe: 'Daily', description: 'Momentum is mixed, but signals are somewhat weakening. Price has slipped below the 21-day EMA, giving a slight downside bias. Further weakness below recent lows would confirm the downtrend direction.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Extended', timeframe: 'Weekly', description: 'Momentum is bearish, though price has fallen too far, too fast. Conditions are stretched, increasing the odds of a short-term bounce or consolidation. Any recovery should be viewed as temporary unless price reclaims both EMAs.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Extended', timeframe: 'Daily', description: 'Momentum is bearish, though price has fallen too far, too fast. Conditions are stretched, increasing the odds of a short-term bounce or consolidation. Any recovery should be viewed as temporary unless price reclaims both EMAs.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Stable', timeframe: 'Weekly', description: 'The trend is bearish, with price below both EMAs. Momentum is steady on the downside, showing balanced weakness. Continuation lower remains likely unless price reclaims the 9-week EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Stable', timeframe: 'Daily', description: 'The trend is bearish, with price below both EMAs. Momentum is steady on the downside, showing balanced weakness. Continuation lower remains likely unless price reclaims the 9-day EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Warming', timeframe: 'Weekly', description: 'The broader downtrend remains, but momentum is improving modestly. Price is testing or slightly above the 9-week EMA. Holding above that level could open the door for a run towards the 30-week EMA, usually the real test for bulls.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Warming', timeframe: 'Daily', description: 'The broader downtrend remains, but momentum is improving modestly. Price is testing or slightly above the 9-day EMA. Holding above that level could open the door for a run towards the 21-day EMA, usually the real test for bulls.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Reversing', timeframe: 'Weekly', description: 'The downtrend is losing steam, with price reclaiming the 30-week EMA. Momentum is attempting to turn positive, hinting at an early trend shift. A confirmed reversal would occur if the 9-week EMA crosses back above the 21-week EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'bear', outlook: 'Reversing', timeframe: 'Daily', description: 'The downtrend is losing steam, with price reclaiming the 21-day EMA. Momentum is attempting to turn positive, hinting at an early trend shift. A confirmed reversal would occur if the 9-day EMA crosses back above the 21-day EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Extended', timeframe: 'Weekly', description: 'Momentum is largely negative, but the move has become stretched. Price is trading well below both EMAs, suggesting downside exhaustion may be near. A short-term rebound or consolidation would be typical before a potential other leg down.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Extended', timeframe: 'Daily', description: 'Momentum is largely negative, but the move has become stretched. Price is trading well below both EMAs, suggesting downside exhaustion may be near. A short-term rebound or consolidation would be typical before a potential other leg down.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Stable', timeframe: 'Weekly', description: 'Momentum signals are aligned to the downside, with price trading well below both EMAs. The trend is stable, showing no signs of exhaustion yet. Continuation lower is likely as long as price stays below the 9-week EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Stable', timeframe: 'Daily', description: 'Momentum signals are aligned to the downside, with price trading well below both EMAs. The trend is stable, showing no signs of exhaustion yet. Continuation lower is likely as long as price stays below the 9-day EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Warming', timeframe: 'Weekly', description: 'The dominant downtrend is intact, but momentum is improving. Price has reclaimed the 9-week EMA, and a sustained recovery above that level could trigger a broader rebound phase.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Warming', timeframe: 'Daily', description: 'The dominant downtrend is intact, but momentum is improving. Price has reclaimed the 9-day EMA, and a sustained recovery above that level could trigger a broader rebound phase.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Reversing', timeframe: 'Weekly', description: 'The downtrend is losing steam, with price reclaiming the 30-week EMA. Momentum is attempting to turn positive, hinting at an early trend shift. A confirmed reversal would occur if the 9-week EMA crosses back above the 21-week EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
-  { tier: 'strong_bear', outlook: 'Reversing', timeframe: 'Daily', description: 'The downtrend is losing steam, with price reclaiming the 21-day EMA. Momentum is attempting to turn positive, hinting at an early trend shift. A confirmed reversal would occur if the 9-day EMA crosses back above the 21-day EMA.', updated_at: new Date(0).toISOString(), updated_by: null },
+const DEFAULT_TREND_TEMPLATE_MATRIX: {
+  tier: FormulaRatingTier;
+  outlook: FormulaTrendOutlook;
+  title: string;
+  description: string;
+}[] = [
+  { tier: 'strong_bull', outlook: 'Extended', title: 'Strong Uptrend', description: 'Momentum is undoubtedly aligned to the upside, with price well above both EMAs. The trend is powerful but stretched, showing signs of short-term overextension. A brief pause or pullback would be typical before trend continuation.' },
+  { tier: 'strong_bull', outlook: 'Stable', title: 'Strong Uptrend', description: 'Momentum signals are fully aligned to the upside, with price trading above both EMAs. Price action is healthy, confirming trend strength with limited signs of exhaustion. Continuation is the base case as long as price holds above the 9-day EMA, which serves as the short-term anchor.' },
+  { tier: 'strong_bull', outlook: 'Cooling', title: 'Strong Uptrend', description: 'The broader trend remains bullish, with price still above the medium-term EMAs. Momentum has cooled as price slipped below or close to the 9-day EMA. A test of the 21-day EMA could be in play and will be a key level for bulls to defend to maintain trend structure.' },
+  { tier: 'strong_bull', outlook: 'Reversing', title: 'Strong Uptrend', description: 'The broader uptrend has weakened materially, with price breaking below the 21-day EMA. Momentum is shifting to the downside, and buyers are losing control. A confirmed reversal would occur if the 9-day EMA crosses below the 21-day EMA.' },
+  { tier: 'bull', outlook: 'Extended', title: 'Uptrend', description: 'Momentum is firmly positive, with price well above both EMAs. The trend has run hot in recently, showing signs of short-term overextension. A period of consolidation or sideways movement would be healthy to let averages catch up and sustain the uptrend.' },
+  { tier: 'bull', outlook: 'Stable', title: 'Uptrend', description: 'The uptrend is intact, with price holding above key EMAs. Momentum is steady, showing balanced strength without signs of excess. As long as price stays above the 9-day EMA, the trend should continue gradually higher.' },
+  { tier: 'bull', outlook: 'Cooling', title: 'Uptrend', description: 'The uptrend remains mostly positive, but momentum has slowed down recently. Price has slipped below the 9-day EMA and needs to reclaim it to avoid deeper consolidation. Failure to do so would likely trigger a test of the 21-day EMA, a key trend line for bulls to defend.' },
+  { tier: 'bull', outlook: 'Reversing', title: 'Uptrend', description: 'The broader uptrend has weakened materially, with price breaking below the 21-day EMA. Momentum is shifting to the downside, and buyers are losing control. A confirmed reversal would occur if the 9-day EMA crosses below the 21-day EMA.' },
+  { tier: 'neutral', outlook: 'Firming', title: 'Sideways', description: 'The broader trend is mixed, but momentum is slighlty tilting to the upside. Price is holding above the 21-day EMA, suggesting buyers are in modest control. A sustained move above recent highs could confirm a new upward phase.' },
+  { tier: 'neutral', outlook: 'Stable', title: 'Sideways', description: 'Momentum signals are mixed, with price action lacking clear direction. A decisive and sustain move above or below the 21-day EMA would be a first indication on how this get resolved. Patience is important here to avoid being trapped in a fake move.' },
+  { tier: 'neutral', outlook: 'Softening', title: 'Sideways', description: 'Momentum is mixed, but signals are somewhat weakening. Price has slipped below the 21-day EMA, giving a slight downside bias. Further weakness below recent lows would confirm the downtrend direction.' },
+  { tier: 'bear', outlook: 'Extended', title: 'Downtrend', description: 'Momentum is bearish, though price has fallen too far, too fast. Conditions are stretched, increasing the odds of a short-term bounce or consolidation. Any recovery should be viewed as temporary unless price reclaims both EMAs.' },
+  { tier: 'bear', outlook: 'Stable', title: 'Downtrend', description: 'The trend is bearish, with price below both EMAs. Momentum is steady on the downside, showing balanced weakness. Continuation lower remains likely unless price reclaims the 9-day EMA.' },
+  { tier: 'bear', outlook: 'Warming', title: 'Downtrend', description: 'The broader downtrend remains, but momentum is improving modestly. Price is testing or slightly above the 9-day EMA. Holding above that level could open the door for a run towards the 21-day EMA, usually the real test for bulls.' },
+  { tier: 'bear', outlook: 'Reversing', title: 'Downtrend', description: 'The downtrend is losing steam, with price reclaiming the 21-day EMA. Momentum is attempting to turn positive, hinting at an early trend shift. A confirmed reversal would occur if the 9-day EMA crosses back above the 21-day EMA.' },
+  { tier: 'strong_bear', outlook: 'Extended', title: 'Strong Downtrend', description: 'Momentum is largely negative, but the move has become stretched. Price is trading well below both EMAs, suggesting downside exhaustion may be near. A short-term rebound or consolidation would be typical before a potential other leg down.' },
+  { tier: 'strong_bear', outlook: 'Stable', title: 'Strong Downtrend', description: 'Momentum signals arealigned to the downside, with price trading well below both EMAs. The trend is stable, showing no signs of exhaustion yet. Continuation lower is likely as long as price stays below the 9-day EMA.' },
+  { tier: 'strong_bear', outlook: 'Warming', title: 'Strong Downtrend', description: 'The dominant downtrend is intact, but momentum is improving. Price has reclaimed the 9-day EMA, and a sustained recovery above that level could trigger a broader rebound phase.' },
+  { tier: 'strong_bear', outlook: 'Reversing', title: 'Strong Downtrend', description: 'The downtrend is losing steam, with price reclaiming the 21-day EMA. Momentum is attempting to turn positive, hinting at an early trend shift. A confirmed reversal would occur if the 9-day EMA crosses back above the 21-day EMA.' },
 ];
+
+const DEFAULT_TREND_TEMPLATES: FormulaTrendTemplateRow[] = DEFAULT_TREND_TEMPLATE_MATRIX.flatMap((row) =>
+  (['Weekly', 'Daily'] as const).map((timeframe) => ({
+    ...row,
+    timeframe,
+    updated_at: new Date(0).toISOString(),
+    updated_by: null,
+  }))
+);
 
 const DEFAULT_PERFORMANCE_TEMPLATES: FormulaPerformanceTemplateRow[] = PERFORMANCE_STRENGTHS.flatMap((strength) =>
   PERFORMANCE_DISTANCES.flatMap((distance_to_highs) =>
@@ -425,12 +421,33 @@ export async function listFormulaTrendTemplatesAction(
 ): Promise<ActionResult<FormulaTrendTemplateRow[]>> {
   return withAdmin(accessToken, async () => {
     const admin = getAdminSupabase();
-    const { data, error } = await admin
+    let { data, error } = await admin
       .from('formula_trend_templates')
-      .select('tier,outlook,timeframe,description,updated_at,updated_by')
+      .select('tier,outlook,timeframe,title,description,updated_at,updated_by')
       .order('tier', { ascending: true })
       .order('outlook', { ascending: true })
       .order('timeframe', { ascending: true });
+    if (error) {
+      const msg = (error.message ?? '').toLowerCase();
+      if (msg.includes('title') && msg.includes('column')) {
+        const legacy = await admin
+          .from('formula_trend_templates')
+          .select('tier,outlook,timeframe,description,updated_at,updated_by')
+          .order('tier', { ascending: true })
+          .order('outlook', { ascending: true })
+          .order('timeframe', { ascending: true });
+        if (!legacy.error) {
+          const titleByKey = new Map(
+            DEFAULT_TREND_TEMPLATES.map((r) => [`${r.tier}|${r.outlook}|${r.timeframe}`, r.title])
+          );
+          data = (legacy.data ?? []).map((r) => ({
+            ...r,
+            title: titleByKey.get(`${r.tier}|${r.outlook}|${r.timeframe}`) ?? String(r.tier),
+          }));
+          error = null;
+        }
+      }
+    }
     if (error) {
       const msg = (error.message ?? '').toLowerCase();
       if (msg.includes('relation') || msg.includes('does not exist') || msg.includes('schema cache')) {
@@ -438,7 +455,16 @@ export async function listFormulaTrendTemplatesAction(
       }
       return err('Failed to load trend templates.', 'db_error');
     }
-    const rows = (data ?? []) as FormulaTrendTemplateRow[];
+    const titleByKey = new Map(
+      DEFAULT_TREND_TEMPLATES.map((r) => [`${r.tier}|${r.outlook}|${r.timeframe}`, r.title])
+    );
+    const rows = ((data ?? []) as FormulaTrendTemplateRow[]).map((row) => ({
+      ...row,
+      title:
+        typeof row.title === 'string' && row.title.trim()
+          ? row.title.trim()
+          : titleByKey.get(`${row.tier}|${row.outlook}|${row.timeframe}`) ?? String(row.tier),
+    }));
     if (rows.length === 0) return ok(DEFAULT_TREND_TEMPLATES);
     return ok(rows);
   });
@@ -446,7 +472,7 @@ export async function listFormulaTrendTemplatesAction(
 
 export async function upsertFormulaTrendTemplatesAction(
   accessToken: string,
-  input: { rows: { tier: FormulaRatingTier; outlook: FormulaTrendOutlook; weekly: string; daily: string }[] }
+  input: { rows: { tier: FormulaRatingTier; outlook: FormulaTrendOutlook; weekly_title: string; daily_title: string; weekly: string; daily: string }[] }
 ): Promise<ActionResult<{ saved: number }>> {
   return withAdmin(accessToken, async (ctx) => {
     if (!Array.isArray(input?.rows) || input.rows.length === 0) return err('No rows provided.', 'validation');
@@ -454,14 +480,18 @@ export async function upsertFormulaTrendTemplatesAction(
     const now = new Date().toISOString();
     let saved = 0;
     for (const raw of input.rows) {
+      const weeklyTitle = typeof raw.weekly_title === 'string' ? raw.weekly_title.trim() : '';
+      const dailyTitle = typeof raw.daily_title === 'string' ? raw.daily_title.trim() : '';
       const weekly = typeof raw.weekly === 'string' ? raw.weekly.trim() : '';
       const daily = typeof raw.daily === 'string' ? raw.daily.trim() : '';
+      if (!weeklyTitle || !dailyTitle) return err('Weekly and daily titles are required.', 'validation');
       if (!weekly || !daily) return err('Weekly and daily descriptions are required.', 'validation');
-      for (const [timeframe, description] of [['Weekly', weekly], ['Daily', daily]] as const) {
+      if (weeklyTitle.length > 120 || dailyTitle.length > 120) return err('Trend template title is too long.', 'validation');
+      for (const [timeframe, title, description] of [['Weekly', weeklyTitle, weekly], ['Daily', dailyTitle, daily]] as const) {
         const { error } = await admin
           .from('formula_trend_templates')
           .upsert(
-            { tier: raw.tier, outlook: raw.outlook, timeframe, description, updated_at: now, updated_by: ctx.email },
+            { tier: raw.tier, outlook: raw.outlook, timeframe, title, description, updated_at: now, updated_by: ctx.email },
             { onConflict: 'tier,outlook,timeframe' }
           );
         if (error) return err('Failed to save trend templates.', 'db_error');

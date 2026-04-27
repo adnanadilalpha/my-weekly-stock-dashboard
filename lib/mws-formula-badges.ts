@@ -105,14 +105,14 @@ export function trendTemplateOutlookKeyFromTier(
   return 'Cooling';
 }
 
-/** Pill label aligned with Formula Manager outlook column ("Outlook Cooling", …). */
+/** Pill label shown to users (e.g. "Cooling", "Extended"). */
 export function formatFormulaTrendOutlookLabel(key: TrendTemplateOutlookKey | 'Weak'): string {
-  return `Outlook ${key}`;
+  return key;
 }
 
 /** Neutral shell for outlook text; tier is shown only via `trendOutlookDotClass`. */
 export const TREND_OUTLOOK_PILL_CLASS =
-  'inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground dark:bg-muted/40';
+  'inline-flex items-center gap-1.5 text-xs font-medium text-foreground';
 
 function norm(s: string): string {
   return s.trim().toLowerCase();
@@ -207,20 +207,20 @@ export function outlookPillVisualFromLabel(outlook: string): TrendOutlookPillVis
 /** Filled dot — encodes Formula Manager outlook tier (matrix keys + legacy Weak). */
 export function trendOutlookDotClass(outlook: string): string {
   const v = outlookPillVisualFromLabel(outlook);
-  const base = 'inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-background/80';
+  const base = 'inline-block h-2 w-2 shrink-0 rounded-full border-0 ring-0 shadow-none outline-none';
   switch (v) {
     case 'Extended':
       return `${base} bg-amber-500 dark:bg-amber-400`;
     case 'Cooling':
-      return `${base} bg-orange-500 dark:bg-orange-400`;
+      return `${base} bg-orange-600 dark:bg-orange-300`;
     case 'Stable':
-      return `${base} bg-slate-500 dark:bg-slate-400`;
+      return `${base} bg-green-600 dark:bg-green-300`;
     case 'Firming':
       return `${base} bg-emerald-600 dark:bg-emerald-500`;
     case 'Softening':
-      return `${base} bg-amber-700 dark:bg-amber-600`;
+      return `${base} bg-amber-800 dark:bg-amber-300`;
     case 'Warming':
-      return `${base} bg-sky-500 dark:bg-sky-400`;
+      return `${base} bg-cyan-700 dark:bg-cyan-300`;
     case 'Reversing':
     case 'Weak':
       return `${base} bg-rose-500 dark:bg-rose-400`;
@@ -231,5 +231,5 @@ export function trendOutlookDotClass(outlook: string): string {
 
 export function trendOutlookAriaLabel(outlook: string, score: number, t: TrendThresholdInfo): string {
   const o = outlook.trim() || 'unknown';
-  return `Trend outlook ${o}. Trend score ${score.toFixed(2)} out of 5. Base ladder: weak below ${t.score_weak}; stable from ${t.score_weak} to below ${t.extended_threshold}; extended at or above ${t.extended_threshold}. Weak base maps to Cooling, Softening, or Reversing by rating tier per Formula Manager trend templates.`;
+  return `Trend signal ${o}. Trend score ${score.toFixed(2)} out of 5. Base ladder: weak below ${t.score_weak}; stable from ${t.score_weak} to below ${t.extended_threshold}; extended at or above ${t.extended_threshold}. Weak base maps to Cooling, Softening, or Reversing by rating tier per Formula Manager trend templates.`;
 }

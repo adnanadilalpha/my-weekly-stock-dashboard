@@ -128,7 +128,7 @@ async function findAuthUserIdByEmail(admin: AdminClient, email: string): Promise
 }
 
 type InsertInviteResult =
-  | { ok: true; row: AdminUserRow; inviteWarning?: string }
+  | { ok: true; row: AdminUserRow }
   | { ok: false; code: 'duplicate' | 'db_error'; message?: string };
 
 async function insertAuthorizedUserAndInvite(
@@ -145,16 +145,6 @@ async function insertAuthorizedUserAndInvite(
   if (error) {
     if (error.code === '23505') return { ok: false, code: 'duplicate' };
     return { ok: false, code: 'db_error', message: error.message };
-  }
-
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? '';
-  const redirectTo = siteUrl ? `${siteUrl.replace(/\/$/, '')}/admin` : undefined;
-  const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo,
-    data: { role },
-  });
-  if (inviteError && !/already.*registered|already.*exists/i.test(inviteError.message)) {
-    return { ok: true, row: data as AdminUserRow, inviteWarning: inviteError.message };
   }
 
   return { ok: true, row: data as AdminUserRow };
@@ -175,9 +165,6 @@ export async function createUserAction(
     if (!result.ok) {
       if (result.code === 'duplicate') return err('A user with that email already exists.', 'duplicate');
       return err('Failed to create user.', 'db_error');
-    }
-    if (result.inviteWarning) {
-      return err(`User added but invite email failed: ${result.inviteWarning}`, 'invite_failed');
     }
     return ok(result.row);
   });
@@ -268,16 +255,7 @@ export async function bulkCreateUsersAction(
         }
         continue;
       }
-      if (outcome.inviteWarning) {
-        results.push({
-          email,
-          role,
-          status: 'created_invite_failed',
-          message: outcome.inviteWarning,
-        });
-      } else {
-        results.push({ email, role, status: 'created' });
-      }
+      results.push({ email, role, status: 'created' });
     }
 
     const summary = {

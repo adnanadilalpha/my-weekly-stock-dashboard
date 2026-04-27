@@ -8,21 +8,19 @@ import { TickerIcon } from './ui/ticker-icon';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { useTickerData } from '../../lib/hooks/useTickerData';
-import { getTickerData } from '../../lib/queries/ticker';
+import { getAllTickers, getTickerData, tickerMatchesSearchQuery } from '../../lib/queries/ticker';
 import { fetchPriceHistory, type PriceBar } from '../../lib/queries/price-history';
 import { fetchHubTickerMetricsMap, type HubTickerMetric } from '../../lib/queries/hub-ticker-metrics';
 import {
-  formatFormulaTrendOutlookLabel,
-  outlookTierFromTrendScore,
   ratingBadgeClassName,
   ratingBadgeInlineStyle,
   ratingTierFromTrendScore,
   trendOutlookAriaLabel,
   trendOutlookDotClass,
-  trendTemplateOutlookKeyFromTier,
   TREND_OUTLOOK_PILL_CLASS,
 } from '@/lib/mws-formula-badges';
 import {
+  fetchFormulaTrendTemplates,
   fetchFormulaNumericSettings,
   fetchFormulaRatingLabels,
   mergeFormulaDefaults,
@@ -42,6 +40,8 @@ interface TickerAnalysisPageProps {
   onGoToPortfolio: () => void;
   onGoToMWS: () => void;
 }
+
+type WeeklyRange = '3M' | '6M' | '1Y' | 'ALL';
 
 const MARKET_SEGMENTS = ['SPY', 'QQQ', 'IWM', 'TLT', 'UUP', 'GLD', 'SLV', 'IBIT', 'ETHA', 'USO'];
 const SECTORS = ['XLK', 'XLC', 'SMH', 'XLY', 'XLF', 'XLI', 'XLE', 'XLB', 'XLRE', 'XLU', 'XLV', 'XLP'];
@@ -112,6 +112,20 @@ function toNum(value: unknown): number | null {
   return null;
 }
 
+function normalizeTemplateOutlookKey(value: unknown): 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming' | null {
+  const s = String(value ?? '').trim();
+  if (
+    s === 'Extended' ||
+    s === 'Stable' ||
+    s === 'Cooling' ||
+    s === 'Reversing' ||
+    s === 'Firming' ||
+    s === 'Softening' ||
+    s === 'Warming'
+  ) return s;
+  return null;
+}
+
 function getComparisonInfo(text: string | null | undefined): { cls: string; short: string } {
   if (!text || text === 'N/A') return { cls: 'text-muted-foreground', short: text ?? 'N/A' };
   if (/leading/i.test(text)) return { cls: 'text-emerald-600 dark:text-emerald-400', short: text };
@@ -120,17 +134,30 @@ function getComparisonInfo(text: string | null | undefined): { cls: string; shor
   return { cls: 'text-muted-foreground', short: text };
 }
 
-function StarRating({ score }: { score: number }) {
+function vsHighClass(pct: number | null): string {
+  if (pct == null) return 'text-muted-foreground';
+  if (pct >= -5 && pct <= 0) return 'text-emerald-600 dark:text-emerald-400';
+  if (pct >= -10 && pct < -5) return 'text-orange-600 dark:text-orange-400';
+  if (pct < -10) return 'text-rose-600 dark:text-rose-400';
+  return 'text-muted-foreground';
+}
+
+function ScoreBars({ score }: { score: number }) {
+  const s = Math.max(0, Math.min(5, score));
+  const full = Math.floor(s);
+  const partial = s - full >= 0.5 ? 1 : 0;
+  const filled = Math.min(5, full + partial);
   return (
     <div className="flex items-center gap-2">
       <div className="flex gap-0.5">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <svg key={i} className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" viewBox="0 0 24 24" fill={i < Math.round(score) ? 'oklch(0.78 0.14 85)' : 'none'} stroke={i < Math.round(score) ? 'oklch(0.78 0.14 85)' : 'oklch(0.7 0.008 265)'} strokeWidth="1.8">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-          </svg>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <span
+            key={i}
+            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? 'bg-amber-500' : 'bg-muted'}`}
+          />
         ))}
       </div>
-      <span className="font-mono text-sm font-semibold tracking-tight text-foreground sm:text-base md:text-[18px]">| {score.toFixed(1)}</span>
+      <span className="min-w-[2rem] font-mono text-sm font-semibold tabular-nums text-foreground">{s.toFixed(1)}</span>
     </div>
   );
 }
@@ -141,6 +168,7 @@ export function TickerAnalysisPage({
 }: TickerAnalysisPageProps) {
   const [ticker, setTicker] = useState(initialTicker);
   const [chartTf, setChartTf] = useState<'W' | 'D'>('W');
+  const [weeklyRange, setWeeklyRange] = useState<WeeklyRange>('3M');
   const { data: supabaseData, type, loading, error, refetch } = useTickerData(ticker);
 
   const [firstBenchmarkData, setFirstBenchmarkData] = useState<Record<string, unknown> | null>(null);
@@ -152,10 +180,12 @@ export function TickerAnalysisPage({
   const [priceHistory, setPriceHistory] = useState<PriceBar[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
   const [metricsMap, setMetricsMap] = useState<Map<string, HubTickerMetric>>(new Map());
+  const [dbTickers, setDbTickers] = useState<string[]>([]);
   const [searchQ, setSearchQ] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const [ratingLabelRows, setRatingLabelRows] = useState<{ tier: string; label: string; description?: string; color_hex?: string | null }[]>([]);
+  const [trendTemplateRows, setTrendTemplateRows] = useState<{ tier: string; outlook: string; timeframe: 'Weekly' | 'Daily'; description: string }[]>([]);
   const [formulaNums, setFormulaNums] = useState(() => mergeFormulaDefaults({}));
 
   useEffect(() => {
@@ -165,8 +195,17 @@ export function TickerAnalysisPage({
         fetchFormulaRatingLabels(),
         fetchFormulaNumericSettings(),
       ]);
+      const templates = await fetchFormulaTrendTemplates();
       if (cancelled) return;
       setRatingLabelRows(labels);
+      setTrendTemplateRows(
+        templates.map((row) => ({
+          tier: row.tier,
+          outlook: row.outlook,
+          timeframe: row.timeframe,
+          description: row.description,
+        }))
+      );
       setFormulaNums(mergeFormulaDefaults(partial));
     })();
     return () => {
@@ -183,25 +222,64 @@ export function TickerAnalysisPage({
     return () => { ok = false; };
   }, []);
 
+  // Pull full tracked ticker universe (segments + sectors + mega caps + other_stocks).
+  useEffect(() => {
+    let ok = true;
+    getAllTickers()
+      .then((list) => { if (ok) setDbTickers(list); })
+      .catch(() => {});
+    return () => { ok = false; };
+  }, []);
+
   // Derive sorted search items from metrics map (fallback to static lists if empty).
   const allSearchItems = useMemo((): HubTickerMetric[] => {
-    if (metricsMap.size > 0) {
-      return Array.from(metricsMap.values()).sort((a, b) => a.ticker.localeCompare(b.ticker));
+    const merged = new Map<string, HubTickerMetric>();
+
+    // Always include the full supported ticker universe in search.
+    for (const t of [...MARKET_SEGMENTS, ...SECTORS, ...LARGE_CAPS]) {
+      const key = t.toUpperCase();
+      merged.set(key, {
+        ticker: key,
+        name: TICKER_NAMES[key] ?? key,
+        m1: null,
+        score: null,
+      });
     }
-    return [...MARKET_SEGMENTS, ...SECTORS, ...LARGE_CAPS].sort().map((t) => ({
-      ticker: t,
-      name: TICKER_NAMES[t] ?? t,
-      m1: null,
-      score: null,
-    }));
-  }, [metricsMap]);
+
+    // Include tracked tickers from Supabase (same source used by MWS main page search).
+    for (const t of dbTickers) {
+      const key = String(t).trim().toUpperCase();
+      if (!key) continue;
+      const base = merged.get(key);
+      merged.set(key, {
+        ticker: key,
+        name: base?.name || TICKER_NAMES[key] || key,
+        m1: base?.m1 ?? null,
+        score: base?.score ?? null,
+      });
+    }
+
+    // Overlay live metrics where available.
+    for (const item of metricsMap.values()) {
+      const key = item.ticker.toUpperCase();
+      const base = merged.get(key);
+      merged.set(key, {
+        ticker: key,
+        name: item.name || base?.name || TICKER_NAMES[key] || key,
+        m1: item.m1 ?? base?.m1 ?? null,
+        score: item.score ?? base?.score ?? null,
+      });
+    }
+
+    return Array.from(merged.values()).sort((a, b) => a.ticker.localeCompare(b.ticker));
+  }, [dbTickers, metricsMap]);
 
   const searchHits = useMemo(() => {
     const q = searchQ.trim().toLowerCase();
     const limit = 80;
     if (!q) return allSearchItems.slice(0, limit);
     return allSearchItems
-      .filter((x) => x.ticker.toLowerCase().includes(q) || x.name.toLowerCase().includes(q))
+      .filter((x) => tickerMatchesSearchQuery(x.ticker, q) || tickerMatchesSearchQuery(x.name, q))
       .slice(0, limit);
   }, [allSearchItems, searchQ]);
 
@@ -217,11 +295,17 @@ export function TickerAnalysisPage({
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const loadPriceHistory = useCallback(async (t: string, tf: 'D' | 'W') => {
+  const loadPriceHistory = useCallback(async (t: string, tf: 'D' | 'W', wRange: WeeklyRange) => {
     setChartLoading(true);
     try {
       const interval = tf === 'W' ? 'weekly' : 'daily';
-      const limit = tf === 'W' ? 78 : 252;
+      const weeklyLimitByRange: Record<WeeklyRange, number> = {
+        '3M': 13,
+        '6M': 26,
+        '1Y': 52,
+        ALL: 78,
+      };
+      const limit = tf === 'W' ? weeklyLimitByRange[wRange] : 252;
       const bars = await fetchPriceHistory(t, interval, limit);
       setPriceHistory(bars);
     } catch {
@@ -232,8 +316,8 @@ export function TickerAnalysisPage({
   }, []);
 
   useEffect(() => {
-    void loadPriceHistory(ticker, chartTf);
-  }, [ticker, chartTf, loadPriceHistory]);
+    void loadPriceHistory(ticker, chartTf, weeklyRange);
+  }, [ticker, chartTf, weeklyRange, loadPriceHistory]);
 
   const fetchBenchmarkData = async () => {
     if (!supabaseData) return;
@@ -274,7 +358,7 @@ export function TickerAnalysisPage({
   const handleRefresh = async () => {
     await refetch();
     await fetchBenchmarkData();
-    await loadPriceHistory(ticker, chartTf);
+    await loadPriceHistory(ticker, chartTf, weeklyRange);
   };
 
   // ─── Data transform ────────────────────────────────────────────────────────
@@ -297,20 +381,15 @@ export function TickerAnalysisPage({
     const vsSpyComparison = String(supabaseData.daily_vs_spy_comparison ?? 'N/A');
     const vsBenchmarkComparison = String((type === 'mega_cap' ? sd.daily_vs_sector_comparison : sd.daily_vs_benchmark_comparison) ?? 'N/A');
 
-    const outlookThresholds = {
-      extended_threshold: formulaNums.extended_threshold,
-      score_weak: formulaNums.score_weak,
-    };
-
     const makeTrend = (daily: boolean) => {
       const p = daily ? 'daily_' : 'weekly_';
       const p2 = daily ? 'daily_' : 'weekly_';
       const score = toNum(daily ? supabaseData.daily_trend_score : supabaseData.weekly_trend_score) ?? 0;
-      const ratingTier = ratingTierFromTrendScore(score, formulaNums);
-      const baseOutlook = outlookTierFromTrendScore(score, outlookThresholds);
-      const templateOutlookKey = trendTemplateOutlookKeyFromTier(ratingTier, baseOutlook);
-      const outlook = formatFormulaTrendOutlookLabel(templateOutlookKey);
+      const outlookRaw = String(daily ? (supabaseData.daily_outlook ?? '') : (supabaseData.weekly_outlook ?? '')).trim();
+      const templateOutlookKey = normalizeTemplateOutlookKey(outlookRaw);
+      const outlook = outlookRaw || 'Stable';
       return {
+        templateOutlookKey,
         score,
         rating: String(daily ? supabaseData.daily_rating : supabaseData.weekly_rating) || 'N/A',
         outlook,
@@ -354,7 +433,7 @@ export function TickerAnalysisPage({
       weekly: makeTrend(false),
       daily: makeTrend(true),
     };
-  }, [supabaseData, ticker, type, firstBenchmarkData, firstBenchmarkTicker, firstBenchmarkName, sectorBenchmarkData, benchmarkTicker, benchmarkName, formulaNums]);
+  }, [supabaseData, ticker, type, firstBenchmarkData, firstBenchmarkTicker, firstBenchmarkName, sectorBenchmarkData, benchmarkTicker, benchmarkName]);
 
   const ratingLabelByTier = useMemo(() => {
     const map = new Map<string, string>();
@@ -381,19 +460,29 @@ export function TickerAnalysisPage({
     return map;
   }, [ratingLabelRows]);
 
+  const trendTemplateDescriptionMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of trendTemplateRows) {
+      map.set(`${row.tier}|${row.outlook}|${row.timeframe}`, row.description);
+    }
+    return map;
+  }, [trendTemplateRows]);
+
   const activeRatingTier = useMemo(
     () => ratingTierFromScore(chartTf === 'W' ? data?.weekly?.score : data?.daily?.score),
     [chartTf, data?.daily?.score, data?.weekly?.score, ratingTierFromScore]
   );
   const activeRatingLabel = useMemo(() => ratingLabelFromTier(activeRatingTier), [activeRatingTier, ratingLabelFromTier]);
-  const activeTrendFallbackDescription = chartTf === 'W' ? data?.weekly?.description : data?.daily?.description;
-  const activeRatingDescription = useMemo(
-    () =>
-      activeRatingTier
-        ? ratingDescriptionByTier.get(activeRatingTier) ?? (activeTrendFallbackDescription ?? '')
-        : (activeTrendFallbackDescription ?? ''),
-    [activeRatingTier, ratingDescriptionByTier, activeTrendFallbackDescription]
-  );
+  const activeTrendDescription = useMemo(() => {
+    const active = chartTf === 'W' ? data?.weekly : data?.daily;
+    if (!active || !activeRatingTier || !active.templateOutlookKey) return active?.description ?? '';
+    const timeframe = chartTf === 'W' ? 'Weekly' : 'Daily';
+    return (
+      trendTemplateDescriptionMap.get(`${activeRatingTier}|${active.templateOutlookKey}|${timeframe}`) ??
+      active.description ??
+      ''
+    );
+  }, [activeRatingTier, chartTf, data?.daily, data?.weekly, trendTemplateDescriptionMap]);
 
   const performanceSummaryText = data?.perfSummary ?? 'N/A';
   const performanceDescriptionText = data?.perfDescription ?? '';
@@ -688,7 +777,7 @@ export function TickerAnalysisPage({
                           </td>
                           <PerfCell value={data.perf1M} />
                           <PerfCell value={data.perf3M} />
-                          <td className="border-b border-border px-3 py-2.5 font-mono text-xs text-muted-foreground sm:px-4 sm:py-[11px] sm:text-[13px]">
+                          <td className={`border-b border-border px-3 py-2.5 font-mono text-xs sm:px-4 sm:py-[11px] sm:text-[13px] ${vsHighClass(vsHighPct)}`}>
                             {vsHighPct != null ? `1Y High: ${vsHighPct > 0 ? '+' : ''}${vsHighPct.toFixed(1)}%` : 'N/A'}
                           </td>
                         </tr>
@@ -739,6 +828,26 @@ export function TickerAnalysisPage({
                 <SectionHead>
                   <SectionTitle>{isWeekly ? 'Weekly' : 'Daily'} Chart Trend</SectionTitle>
                   <div className="flex items-center gap-3">
+                    {/* Weekly range */}
+                    {isWeekly && (
+                      <div className="inline-flex gap-0.5 rounded-[10px] border border-border bg-muted/50 p-[3px]">
+                        {(['3M', '6M', '1Y', 'ALL'] as const).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            aria-pressed={weeklyRange === r}
+                            onClick={() => setWeeklyRange(r)}
+                            className={`rounded-[7px] px-2 py-1 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-[12px] ${
+                              weeklyRange === r
+                                ? 'bg-card text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {/* Legend */}
                     <div className="hidden items-center gap-4 text-[12px] text-muted-foreground sm:flex">
                       <span className="flex items-center gap-1.5">
@@ -777,7 +886,7 @@ export function TickerAnalysisPage({
                 <div className="p-4 sm:p-[22px]">
                   {/* Stars + Rating */}
                   <div className="mb-4 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-                    <StarRating score={activeTrend.score} />
+                    <ScoreBars score={activeTrend.score} />
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground sm:text-[13px]">
                       <span
                         className={`rounded-md px-2 py-0.5 text-xs font-semibold ${ratingBadgeClassName(activeRatingLabel, ratingLabelRows)}`}
@@ -788,23 +897,20 @@ export function TickerAnalysisPage({
                       <span className="text-muted-foreground/80" aria-hidden>
                         |
                       </span>
-                      <span className="inline-flex items-center gap-1.5 text-foreground">
-                        <span className="text-muted-foreground">Outlook</span>
-                        <span
-                          className={TREND_OUTLOOK_PILL_CLASS}
-                          title={trendOutlookAriaLabel(activeTrend.outlook, activeTrend.score, trendThresholds)}
-                        >
-                          <span className={trendOutlookDotClass(activeTrend.outlook)} aria-hidden />
-                          {activeTrend.outlook}
-                        </span>
+                      <span
+                        className={TREND_OUTLOOK_PILL_CLASS}
+                        title={trendOutlookAriaLabel(activeTrend.outlook, activeTrend.score, trendThresholds)}
+                      >
+                        <span className={trendOutlookDotClass(activeTrend.outlook)} aria-hidden />
+                        {activeTrend.outlook}
                       </span>
                     </span>
                   </div>
 
                   {/* Description */}
-                  {activeRatingDescription && (
-                    <div className="mb-4 rounded-[10px] bg-muted/50 px-3 py-3 text-xs leading-relaxed text-muted-foreground sm:px-4 sm:py-3.5 sm:text-[13px]">
-                      {activeRatingDescription}
+                  {activeTrendDescription && (
+                    <div className="mb-4 rounded-[10px] bg-muted/50 py-3 text-left text-xs leading-relaxed text-muted-foreground sm:py-3.5 sm:text-[13px]">
+                      {activeTrendDescription}
                     </div>
                   )}
 

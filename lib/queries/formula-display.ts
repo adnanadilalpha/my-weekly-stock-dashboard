@@ -13,6 +13,14 @@ export type FormulaPerformanceLabelRow = {
   description: string;
 };
 
+export type FormulaTrendTemplateRow = {
+  tier: 'strong_bull' | 'bull' | 'neutral' | 'bear' | 'strong_bear';
+  outlook: 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming';
+  timeframe: 'Weekly' | 'Daily';
+  title?: string;
+  description: string;
+};
+
 const NUMERIC_KEYS = [
   'extended_threshold',
   'score_weak',
@@ -61,6 +69,24 @@ export async function fetchFormulaPerformanceLabels(): Promise<FormulaPerformanc
       .order('strength');
     if (error || !data?.length) return [];
     return data as FormulaPerformanceLabelRow[];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchFormulaTrendTemplates(): Promise<FormulaTrendTemplateRow[]> {
+  try {
+    const withTitle = await supabase
+      .from('formula_trend_templates')
+      .select('tier,outlook,timeframe,title,description');
+    if (!withTitle.error && withTitle.data?.length) return withTitle.data as FormulaTrendTemplateRow[];
+
+    // Backward compatibility before title column exists.
+    const legacy = await supabase
+      .from('formula_trend_templates')
+      .select('tier,outlook,timeframe,description');
+    if (legacy.error || !legacy.data?.length) return [];
+    return (legacy.data as Omit<FormulaTrendTemplateRow, 'title'>[]).map((r) => ({ ...r, title: undefined }));
   } catch {
     return [];
   }

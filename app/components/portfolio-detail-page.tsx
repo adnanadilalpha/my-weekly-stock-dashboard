@@ -11,6 +11,7 @@ const PORTFOLIO_DETAIL_CONFIG: Record<
   Exclude<PortfolioPage, 'dashboard'>,
   { title: string; tableKey: string }
 > = {
+  'momentum-combined': { title: 'Momentum Picks: Combined Summary', tableKey: 'momentum-combined' },
   dow30: { title: 'Momentum Picks: DOW 30', tableKey: 'dow30' },
   'large-caps': { title: 'Momentum Picks: LARGE CAPS', tableKey: 'large-caps' },
   nasdaq100: { title: 'Momentum Picks: NASDAQ 100', tableKey: 'nasdaq100' },
@@ -307,6 +308,26 @@ function isStrategyReturnPctColumn(header: string): boolean {
   return h.includes('strategy return') && h.includes('%');
 }
 
+function isMomentumWeeklyAverageColumn(header: string): boolean {
+  const h = header.toLowerCase();
+  return h.includes('weekly avg 5d') || h.includes('weekly avg stop-loss');
+}
+
+function isMomentumPickReturnColumn(header: string): boolean {
+  const h = header.toLowerCase().trim();
+  return h === 'retunr 5-d' || h === 'return stop/loss';
+}
+
+function isMomentumCumulativePercentColumn(header: string): boolean {
+  const h = header.toLowerCase().trim();
+  return h === 'cumulative 5d' || h === 'cumulative stop-loss';
+}
+
+function normalizeNegativeZeroText(text: string): string {
+  // Avoid visual "-0" artifacts from tiny negative values after rounding.
+  return text.replace(/^-0(\.0+)?(%?)$/, '0$2');
+}
+
 function formatCell(
   header: string,
   val: unknown,
@@ -318,7 +339,13 @@ function formatCell(
   const h = header.toLowerCase();
   const isStockReturnWithStopLoss =
     h.includes('stock return') && (h.includes('stop loss') || h.includes('stop-loss'));
+  const isMomentumWeeklyAvg = isMomentumWeeklyAverageColumn(header);
+  const isMomentumPickReturn = isMomentumPickReturnColumn(header);
+  const isMomentumCumulativePct = isMomentumCumulativePercentColumn(header);
   const isPercent =
+    isMomentumWeeklyAvg ||
+    isMomentumPickReturn ||
+    isMomentumCumulativePct ||
     isStockReturnWithStopLoss ||
     (h.includes('return') && (h.includes('%') || h.includes('percent')));
   const isCurrency =
@@ -361,17 +388,24 @@ function formatCell(
       if (isStockReturnWithStopLoss && Math.abs(n) <= 1 && n !== 0) {
         pct = n * 100;
       }
-      const text = pct.toFixed(1) + '%';
+      const text = isMomentumCumulativePct ? Math.round(pct) + '%' : pct.toFixed(1) + '%';
       const isMacro = portfolioPage === 'macro-etf' || portfolioPage === 'macro-3x';
+      const isMomentumCombined = portfolioPage === 'momentum-combined';
       const hasColor =
         portfolioPage === 'dow30'
           ? isDow30ColoredColumn(header) && h.includes('%')
           : isMacro
             ? (isStrategyReturnPctColumn(header) || h.includes('returns %') || h.includes('net avg return') || (h.includes('return') && h.includes('%') && !h.includes('stock return')))
+            : isMomentumCombined
+              ? isMomentumWeeklyAvg
             : isStrategyReturnPctColumn(header);
+      const normalizedText = normalizeNegativeZeroText(text);
+      const momentumNonNegativeGreen = isMomentumCombined && isMomentumWeeklyAvg;
+      const isPositiveTone = momentumNonNegativeGreen ? pct >= 0 : pct > 0;
+      const isNegativeTone = pct < 0;
       return hasColor
-        ? { text, isPositive: pct > 0, isNegative: pct < 0 }
-        : { text };
+        ? { text: normalizedText, isPositive: isPositiveTone, isNegative: isNegativeTone }
+        : { text: normalizedText };
     }
     const isPfAllocation = h.includes('allocation') || h.includes('pf allocation');
     if (isPfAllocation && n >= 0 && n <= 1) {
@@ -387,7 +421,7 @@ function formatCell(
       return hasColor ? { text, isPositive: n > 0, isNegative: n < 0 } : { text };
     }
     if (isAlgoScore) return { text: Math.round(n).toString(), isAlgoScore: true };
-    return { text: n.toLocaleString(undefined, { maximumFractionDigits: 2 }) };
+    return { text: normalizeNegativeZeroText(n.toLocaleString(undefined, { maximumFractionDigits: 2 })) };
   }
 
   const str = strVal;
@@ -401,7 +435,7 @@ function formatCell(
     const n = Number(numStr);
     if (!Number.isNaN(n)) {
       const pct = Math.abs(n) >= 1 && str.includes('%') ? n : n * 100;
-      const text = pct.toFixed(1) + '%';
+      const text = normalizeNegativeZeroText(pct.toFixed(1) + '%');
       return { text };
     }
   }
@@ -463,7 +497,28 @@ export interface PortfolioDetailPageProps {
   onBack: () => void;
 }
 
-const MAX_COLS = 31;
+const MAX_COLS = 37;
+const MOMENTUM_COMBINED_HEADERS_IN_ORDER = [
+  'Year',
+  'Week',
+  'Week Start',
+  'Pick',
+  'Direction',
+  'Retunr 5-d',
+  'Return Stop/Loss',
+  'Pick',
+  'Direction',
+  'Retunr 5-d',
+  'Return Stop/Loss',
+  'Pick',
+  'Direction',
+  'Retunr 5-d',
+  'Return Stop/Loss',
+  'Weekly Avg 5d',
+  'Cumulative 5d',
+  'Weekly Avg Stop-Loss',
+  'Cumulative Stop-Loss',
+];
 
 export function PortfolioDetailPage({
   portfolioPage,
@@ -474,6 +529,7 @@ export function PortfolioDetailPage({
   onSignOut,
   onBack,
 }: PortfolioDetailPageProps) {
+  const isMomentumCombinedPage = portfolioPage === 'momentum-combined';
   const config = PORTFOLIO_DETAIL_CONFIG[portfolioPage];
   const { rows, loading, error, refetch } = usePortfolioSheet(config.tableKey);
 
@@ -486,6 +542,8 @@ export function PortfolioDetailPage({
 
   const summaryRows = rows.filter((r) => (r.row_index as number) >= 1 && (r.row_index as number) < TABLE_HEADER_START_ROW);
   const headerRow = rows.find((r) => r.row_index === TABLE_HEADER_START_ROW);
+  const combinedGroupHeaderRow = rows.find((r) => r.row_index === 5) as Record<string, unknown> | undefined;
+  const combinedColumnHeaderRow = rows.find((r) => r.row_index === 6) as Record<string, unknown> | undefined;
   const dataRowsRaw = rows.filter((r) => (r.row_index as number) > TABLE_HEADER_START_ROW);
 
   // Only columns whose header (row 6) is a real label (text), not a number – sheet has no columns after Algo Score
@@ -509,6 +567,51 @@ export function PortfolioDetailPage({
       return v != null && String(v).trim() !== '';
     });
   });
+
+  const momentumCombinedCols = useMemo(() => {
+    if (!isMomentumCombinedPage || !combinedColumnHeaderRow) return [];
+    const headerPairs = colKeys.map((key) => ({
+      key,
+      label: String(getVal(combinedColumnHeaderRow, key) ?? '').trim(),
+      groupLabel: String(getVal(combinedGroupHeaderRow ?? {}, key) ?? '').trim(),
+    }));
+    const selected: Array<{ key: string; label: string; groupLabel: string }> = [];
+    let startIdx = 0;
+    MOMENTUM_COMBINED_HEADERS_IN_ORDER.forEach((wanted) => {
+      for (let i = startIdx; i < headerPairs.length; i++) {
+        if (headerPairs[i].label === wanted) {
+          selected.push(headerPairs[i]);
+          startIdx = i + 1;
+          break;
+        }
+      }
+    });
+    return selected;
+  }, [isMomentumCombinedPage, combinedColumnHeaderRow, combinedGroupHeaderRow, colKeys]);
+
+  const momentumCombinedGroupSegments = useMemo(() => {
+    if (momentumCombinedCols.length === 0) return [];
+    const segments: Array<{ label: string; span: number }> = [];
+    momentumCombinedCols.forEach((col) => {
+      const label = col.groupLabel;
+      const last = segments[segments.length - 1];
+      if (last && last.label === label) last.span += 1;
+      else segments.push({ label, span: 1 });
+    });
+    return segments;
+  }, [momentumCombinedCols]);
+
+  const momentumCombinedDataRows = useMemo(() => {
+    if (!isMomentumCombinedPage) return [];
+    return rows.filter((r) => {
+      if ((r.row_index as number) <= 6) return false;
+      return momentumCombinedCols.some((col) => {
+        const v = getVal(r as Record<string, unknown>, col.key);
+        return v != null && String(v).trim() !== '';
+      });
+    });
+  }, [isMomentumCombinedPage, rows, momentumCombinedCols]);
+
 
   const summaryRowsFiltered = summaryRows.filter((row) => {
     const r = row as Record<string, unknown>;
@@ -580,26 +683,6 @@ export function PortfolioDetailPage({
     return `Weekly log${startPart ? ` · tracked since ${startPart}` : ''} · ${macroDetailRows.length} positions`;
   }, [summaryModel, summaryValueRow, macroDetailRows.length]);
 
-  const logWinLosers = (() => {
-    const coloredReturnCol = headerCols.find(({ label }) => {
-      const lower = label.toLowerCase();
-      return portfolioPage === 'dow30'
-        ? isDow30ColoredColumn(label) && lower.includes('%')
-        : isStrategyReturnPctColumn(label);
-    });
-    if (!coloredReturnCol) return { wins: 0, losses: 0 };
-    let wins = 0;
-    let losses = 0;
-    for (const row of macroDetailRows) {
-      const returnVal = getVal(row as Record<string, unknown>, coloredReturnCol.key);
-      const returnNum = Number(returnVal);
-      if (Number.isNaN(returnNum)) continue;
-      if (returnNum > 0) wins += 1;
-      else if (returnNum < 0) losses += 1;
-    }
-    return { wins, losses };
-  })();
-
   const statKeysSorted = useMemo(() => {
     if (!summaryModel) return [];
     return sortStatKeysForDesign(statKeys, summaryModel);
@@ -628,9 +711,10 @@ export function PortfolioDetailPage({
       return;
     }
     const { scrollLeft, scrollWidth, clientWidth } = el;
+    const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
     setPickLogScrollEdges({
-      canLeft: scrollLeft > 2,
-      canRight: scrollLeft + clientWidth < scrollWidth - 2,
+      canLeft: scrollLeft > 1,
+      canRight: scrollLeft < maxScrollLeft - 1,
     });
   }, []);
 
@@ -657,13 +741,17 @@ export function PortfolioDetailPage({
     const el = pickLogScrollRef.current;
     if (!el) return;
     el.scrollBy({ left: pickLogScrollStep(), behavior: 'smooth' });
-  }, [pickLogScrollStep]);
+    requestAnimationFrame(() => syncPickLogScrollability());
+    setTimeout(syncPickLogScrollability, 220);
+  }, [pickLogScrollStep, syncPickLogScrollability]);
 
   const scrollPickLogLeft = useCallback(() => {
     const el = pickLogScrollRef.current;
     if (!el) return;
     el.scrollBy({ left: -pickLogScrollStep(), behavior: 'smooth' });
-  }, [pickLogScrollStep]);
+    requestAnimationFrame(() => syncPickLogScrollability());
+    setTimeout(syncPickLogScrollability, 220);
+  }, [pickLogScrollStep, syncPickLogScrollability]);
 
   return (
     <div className="min-h-screen w-full min-w-0 bg-muted/25">
@@ -806,7 +894,132 @@ export function PortfolioDetailPage({
             )}
 
             {/* Weekly pick log + table */}
-            {headerCols.length > 0 && (
+            {isMomentumCombinedPage && momentumCombinedCols.length > 0 && (
+              <div className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm sm:rounded-2xl">
+                <div className="border-b border-border bg-amber-50/70 px-3 py-2 text-[11px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200 sm:px-4 sm:text-xs">
+                  Note: Large Cap picks start in 2025 and Nasdaq picks start in 2026.
+                </div>
+                <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 rounded-t-xl border-b border-border bg-muted/40 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3 sm:rounded-t-2xl">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-2.5">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                      <Radar className="h-[13px] w-[13px]" />
+                    </span>
+                    <span className="text-[11px] font-semibold uppercase leading-tight tracking-[0.08em] text-muted-foreground">
+                      Weekly pick log
+                    </span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {momentumCombinedDataRows.length}
+                    </span>
+                  </div>
+                  <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-border/70 pl-2 sm:ml-2 sm:pl-3">
+                    <button
+                      type="button"
+                      aria-label="Scroll table to the left"
+                      disabled={!pickLogScrollEdges.canLeft}
+                      onClick={scrollPickLogLeft}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+                    >
+                      <ChevronLeft className="h-4 w-4" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Scroll table to the right"
+                      disabled={!pickLogScrollEdges.canRight}
+                      onClick={scrollPickLogRight}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-sm transition hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+                    >
+                      <ChevronRight className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
+                </div>
+                <div
+                  ref={pickLogScrollRef}
+                  className="min-h-0 w-full max-w-full min-w-0 max-h-[min(70vh,640px)] flex-1 overflow-x-auto overflow-y-auto overscroll-x-contain rounded-b-xl bg-card [-webkit-overflow-scrolling:touch] sm:max-h-[min(75vh,720px)] sm:rounded-b-2xl"
+                >
+                  <table className="w-full min-w-[max(100%,max-content)] border-separate border-spacing-0 text-left text-[11px] leading-snug text-foreground antialiased sm:text-[12px]">
+                    <thead>
+                      <tr>
+                        {momentumCombinedGroupSegments.map((seg, idx) => (
+                          <th
+                            key={`g-${idx}`}
+                            colSpan={seg.span}
+                            className="sticky top-0 z-20 whitespace-nowrap border-b border-border bg-blue-900 px-2.5 py-1.5 text-center text-[10px] font-semibold uppercase leading-tight tracking-[0.05em] text-blue-50 shadow-sm sm:px-3 sm:text-[10.5px]"
+                          >
+                            <div className="flex items-center justify-center whitespace-nowrap">
+                              {seg.label || '\u00a0'}
+                            </div>
+                          </th>
+                        ))}
+                      </tr>
+                      <tr>
+                        {momentumCombinedCols.map(({ key, label }) => (
+                          <th
+                            key={key}
+                            className="sticky top-[30px] z-20 whitespace-nowrap border-b border-border bg-card px-2.5 py-2.5 text-left text-[10px] font-semibold uppercase leading-tight tracking-[0.05em] text-muted-foreground shadow-sm sm:px-3 sm:py-3 sm:text-[10.5px]"
+                          >
+                            {label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {momentumCombinedDataRows.map((row, idx) => (
+                        <tr
+                          key={row.row_index ?? idx}
+                          className="transition-colors hover:bg-muted/40 [&>td]:border-b [&>td]:border-border [&:last-child>td]:border-b-0"
+                        >
+                          {momentumCombinedCols.map(({ key, label }) => {
+                            const val = getVal(row as Record<string, unknown>, key);
+                            const { text, isPositive, isNegative, isBold, isAlgoScore } = formatCell(
+                              label,
+                              val,
+                              portfolioPage,
+                            );
+                            const labLower = label.toLowerCase();
+                            const isTickerCol = labLower.includes('pick') || labLower.includes('ticker');
+                            const usePill =
+                              (isPositive || isNegative) &&
+                              !isTickerCol &&
+                              !isAlgoScore &&
+                              (labLower.includes('return') ||
+                                labLower.includes('%') ||
+                                labLower.includes('p&l') ||
+                                isMomentumWeeklyAverageColumn(label));
+                            return (
+                              <td
+                                key={key}
+                                className={`whitespace-nowrap bg-card px-2.5 py-2 align-middle font-sans text-[11px] sm:px-3 sm:py-2.5 sm:text-[12px] ${
+                                  isBold && !isTickerCol ? 'font-semibold' : ''
+                                } ${!isTickerCol && !isAlgoScore && !usePill ? 'font-mono text-[11px] tabular-nums text-foreground sm:text-[11.5px] md:text-[12px]' : ''}`}
+                              >
+                                {isTickerCol && text !== '—' ? (
+                                  <span className="font-sans text-[11px] font-semibold tracking-tight text-foreground sm:text-[12px]">
+                                    {text}
+                                  </span>
+                                ) : usePill ? (
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums leading-tight sm:text-[11.5px] ${
+                                      isPositive
+                                        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+                                        : 'bg-rose-500/15 text-rose-700 dark:text-rose-400'
+                                    }`}
+                                  >
+                                    {text}
+                                  </span>
+                                ) : (
+                                  <span className="tabular-nums">{text}</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {!isMomentumCombinedPage && headerCols.length > 0 && (
               <div className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm sm:rounded-2xl">
                 <div className="flex w-full min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 rounded-t-xl border-b border-border bg-muted/40 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3 sm:rounded-t-2xl">
                   <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-2.5">
@@ -821,16 +1034,6 @@ export function PortfolioDetailPage({
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] leading-tight text-muted-foreground sm:gap-2.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                        {logWinLosers.wins} winners
-                      </span>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-rose-500" />
-                        {logWinLosers.losses} losers
-                      </span>
-                    </div>
                     <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-border/70 pl-2 sm:ml-2 sm:pl-3">
                       <button
                         type="button"
@@ -904,7 +1107,8 @@ export function PortfolioDetailPage({
                                   !isAlgoScore &&
                                   (labLower.includes('return') ||
                                     labLower.includes('%') ||
-                                    labLower.includes('p&l'));
+                                    labLower.includes('p&l') ||
+                                    isMomentumWeeklyAverageColumn(label));
                                 const cellPad =
                                   isAlgoScore && rowIsPositive
                                     ? 'bg-emerald-500/8'
