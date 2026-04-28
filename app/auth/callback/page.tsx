@@ -2,7 +2,20 @@
 
 import { useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import type { EmailOtpType } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase-client';
+
+const SUPPORTED_EMAIL_OTP_TYPES: EmailOtpType[] = [
+  'signup',
+  'invite',
+  'recovery',
+  'email_change',
+  'email',
+];
+
+function isSupportedEmailOtpType(value: string): value is EmailOtpType {
+  return SUPPORTED_EMAIL_OTP_TYPES.includes(value as EmailOtpType);
+}
 
 function AuthCallbackContent() {
   const router = useRouter();
@@ -39,6 +52,31 @@ function AuthCallbackContent() {
             router.push('/');
             return;
           }
+        }
+
+        // Check for token_hash flow (magic link / email OTP verification)
+        const tokenHash = searchParams.get('token_hash');
+        const otpTypeParam = searchParams.get('type');
+        const normalizedOtpType = otpTypeParam === 'magiclink' ? 'email' : otpTypeParam;
+        const otpType: EmailOtpType =
+          normalizedOtpType && isSupportedEmailOtpType(normalizedOtpType)
+            ? normalizedOtpType
+            : 'email';
+
+        if (tokenHash) {
+          const { error: verifyError } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: otpType,
+          });
+
+          if (verifyError) {
+            console.error('Error verifying magic link:', verifyError);
+            router.push('/?error=auth_failed');
+            return;
+          }
+
+          router.push('/');
+          return;
         }
 
         // Check hash fragment (implicit flow)

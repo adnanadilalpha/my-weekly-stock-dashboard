@@ -1,4 +1,5 @@
 import { supabase } from '../supabase-client';
+import { USER_TICKER_ACTIVE_OR, rowVisibleToEndUser } from './user-ticker-visibility';
 
 export interface Sector {
   id: string;
@@ -85,6 +86,7 @@ export async function getAllSectors(timeframe: 'D' | 'W' = 'D'): Promise<Sector[
   const { data, error } = await supabase
     .from('sectors')
     .select('*')
+    .or(USER_TICKER_ACTIVE_OR)
     .order('ticker');
 
   if (error) {
@@ -107,6 +109,7 @@ export async function getSectorByTicker(ticker: string): Promise<Sector | null> 
     throw error;
   }
 
-  return data ?? null;
+  if (!rowVisibleToEndUser(data)) return null;
+  return data;
 }
 

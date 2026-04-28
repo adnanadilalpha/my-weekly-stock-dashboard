@@ -26,7 +26,7 @@ export function useTickerData(ticker: string): TickerDataResult {
     try {
       setLoading(true);
       setError(null);
-      
+
       const result = await getTickerData(ticker);
       setData(result.data);
       setType(result.type);

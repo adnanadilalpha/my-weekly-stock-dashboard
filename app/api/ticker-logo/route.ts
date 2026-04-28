@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const logoCache = new Map<string, { logoUrl: string | null; expiresAt: number }>();
-const LOGO_DEBUG = true;
 
 interface TradingViewSearchResult {
   symbol?: string;
@@ -13,7 +12,7 @@ interface TradingViewSearchResult {
 }
 
 function normalizeSymbol(raw: string): string {
-  return raw.replace('$', '').trim().toUpperCase();
+  return raw.replace(/\$/g, '').trim().toUpperCase();
 }
 
 function pickBestMatch(results: TradingViewSearchResult[], symbol: string): TradingViewSearchResult | null {
@@ -47,22 +46,19 @@ export async function GET(request: NextRequest) {
   const now = Date.now();
   const cached = logoCache.get(symbol);
   if (cached && cached.expiresAt > now) {
-    if (LOGO_DEBUG) {
-      console.log(`[ticker-logo] ${symbol}: cache hit -> ${cached.logoUrl ?? 'null'}`);
-    }
     return NextResponse.json(
       { logoUrl: cached.logoUrl },
       {
         headers: {
           'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
         },
-      }
+      },
     );
   }
 
   try {
     const url = `https://symbol-search.tradingview.com/symbol_search/?text=${encodeURIComponent(
-      symbol
+      symbol,
     )}&hl=1&lang=en&type=&domain=production`;
 
     const response = await fetch(url, {
@@ -74,9 +70,6 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      if (LOGO_DEBUG) {
-        console.log(`[ticker-logo] ${symbol}: TradingView request failed (${response.status})`);
-      }
       logoCache.set(symbol, { logoUrl: null, expiresAt: now + CACHE_TTL_MS });
       return NextResponse.json(
         { logoUrl: null },
@@ -84,7 +77,7 @@ export async function GET(request: NextRequest) {
           headers: {
             'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
           },
-        }
+        },
       );
     }
 
@@ -92,11 +85,6 @@ export async function GET(request: NextRequest) {
     const match = pickBestMatch(results, symbol);
     const logoid = match?.logo?.logoid ?? match?.logoid ?? null;
     const logoUrl = logoid ? `https://s3-symbol-logo.tradingview.com/${logoid}.svg` : null;
-    if (LOGO_DEBUG) {
-      console.log(
-        `[ticker-logo] ${symbol}: TradingView match -> symbol=${match?.symbol ?? 'n/a'} type=${match?.type ?? 'n/a'} logoid=${logoid ?? 'null'}`
-      );
-    }
 
     logoCache.set(symbol, { logoUrl, expiresAt: now + CACHE_TTL_MS });
     return NextResponse.json(
@@ -105,12 +93,9 @@ export async function GET(request: NextRequest) {
         headers: {
           'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800',
         },
-      }
+      },
     );
   } catch {
-    if (LOGO_DEBUG) {
-      console.log(`[ticker-logo] ${symbol}: TradingView lookup exception`);
-    }
     logoCache.set(symbol, { logoUrl: null, expiresAt: now + CACHE_TTL_MS });
     return NextResponse.json(
       { logoUrl: null },
@@ -118,7 +103,7 @@ export async function GET(request: NextRequest) {
         headers: {
           'Cache-Control': 'public, max-age=3600, stale-while-revalidate=86400',
         },
-      }
+      },
     );
   }
 }

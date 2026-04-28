@@ -25,57 +25,45 @@ export function AppHeader({
   backLabel = 'Back',
 }: AppHeaderProps) {
   return (
-    <header className="bg-white border-b border-neutral-200 shadow-sm sticky top-0 z-10">
-      <div className="px-4 sm:px-6 py-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 w-full sm:w-auto">
-            {onBack && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onBack}
-                className="flex-shrink-0"
-              >
-                <span className="sr-only">{backLabel}</span>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </Button>
-            )}
-            <nav className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1">
-              <button
-                type="button"
-                onClick={onGoToPortfolio}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  currentAppMode === 'portfolio'
-                    ? 'bg-white text-neutral-900 shadow-sm'
-                    : 'text-neutral-600 hover:text-neutral-900'
-                }`}
-              >
-                <PieChart className="w-4 h-4 flex-shrink-0" />
-                <span className="hidden sm:inline">Portfolio</span>
-              </button>
-              <button
-                type="button"
-                onClick={onGoToMWS}
-                className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  currentAppMode === 'mws'
-                    ? 'bg-white text-neutral-900 shadow-sm'
-                    : 'text-neutral-600 hover:text-neutral-900'
-                }`}
-              >
-                <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
-                <span className="hidden sm:inline">MWS Dashboard</span>
-              </button>
-            </nav>
-          </div>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 w-full sm:w-auto">
-            <div className="text-left sm:text-right">
-              <p className="text-xs text-neutral-500">Signed in as</p>
-              <p className="text-xs sm:text-sm text-neutral-900 break-all sm:break-normal">{userEmail}</p>
+    <header className="sticky top-0 z-20 border-b border-border/70 bg-background/90 backdrop-blur">
+      <div className="w-full px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-4 sm:gap-6">
+          {/* Left: nav pills */}
+          <nav className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 p-1">
+            <button
+              type="button"
+              onClick={onGoToPortfolio}
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                currentAppMode === 'portfolio'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <PieChart className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden sm:inline">Portfolio</span>
+            </button>
+            <button
+              type="button"
+              onClick={onGoToMWS}
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                currentAppMode === 'mws'
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <LayoutDashboard className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden sm:inline">MWS Dashboard</span>
+            </button>
+          </nav>
+
+          {/* Right: email + sign out (pushed to far right) */}
+          <div className="ml-auto flex items-center gap-3 sm:gap-5">
+            <div className="hidden text-right sm:block">
+              <p className="text-xs text-muted-foreground">Signed in as</p>
+              <p className="max-w-[240px] truncate text-xs font-medium text-foreground">{userEmail}</p>
             </div>
-            <Button onClick={onSignOut} variant="outline" size="sm" className="w-full sm:w-auto">
-              <LogOut className="w-4 h-4 mr-2" />
+            <Button onClick={onSignOut} variant="outline" size="sm" className="h-9 rounded-lg">
+              <LogOut className="mr-1.5 h-4 w-4" />
               Sign Out
             </Button>
           </div>

@@ -1,0 +1,75 @@
+.admin-shell {
+  font-family: Inter, sans-serif;
+}
+
+.admin-navy {
+  background-color: #0d1b2e;
+}
+
+.admin-surface {
+  background-color: #ffffff;
+}
+
+.admin-page-bg {
+  background-color: #f9fafb;
+}
+
+.admin-border {
+  border-color: #e5e7eb;
+}
+
+.admin-border-soft {
+  border-color: #f3f4f6;
+}
+
+.admin-text-main {
+  color: #111827;
+}
+
+.admin-text-muted {
+  color: #6b7280;
+}
+
+.admin-green {
+  color: #15803d;
+}
+
+.admin-green-bg {
+  background-color: #15803d;
+}
+
+.admin-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.admin-input {
+  border: 1px solid #e5e7eb;
+  background-color: #ffffff;
+  color: #111827;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.admin-input::placeholder {
+  color: #9ca3af;
+}
+
+.admin-input:hover:not(:disabled) {
+  border-color: #d1d5db;
+}
+
+.admin-input:focus {
+  border-color: #15803d;
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15);
+}
+
+.admin-input:disabled {
+  background-color: #f9fafb;
+  color: #6b7280;
+  cursor: not-allowed;
+}

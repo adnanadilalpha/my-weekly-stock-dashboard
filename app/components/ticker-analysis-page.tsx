@@ -1,17 +1,35 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { RefreshCw, Star, AlertCircle } from 'lucide-react';
-import { Button } from './ui/button';
-import { Card, CardContent } from './ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Badge } from './ui/badge';
-import { TickerIcon } from './ui/ticker-icon';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
+import { RefreshCw, AlertCircle, ArrowLeft, Search } from 'lucide-react';
 import { AppHeader } from './app-header';
+import { TickerIcon } from './ui/ticker-icon';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { useTickerData } from '../../lib/hooks/useTickerData';
-import { getTickerData } from '../../lib/queries/ticker';
+import { getAllTickers, getTickerData, tickerMatchesSearchQuery } from '../../lib/queries/ticker';
+import { fetchPriceHistory, type PriceBar } from '../../lib/queries/price-history';
+import { fetchHubTickerMetricsMap, type HubTickerMetric } from '../../lib/queries/hub-ticker-metrics';
+import {
+  ratingBadgeClassName,
+  ratingBadgeInlineStyle,
+  ratingTierFromTrendScore,
+  trendOutlookAriaLabel,
+  trendOutlookDotClass,
+  TREND_OUTLOOK_PILL_CLASS,
+} from '@/lib/mws-formula-badges';
+import {
+  fetchFormulaTrendTemplates,
+  fetchFormulaNumericSettings,
+  fetchFormulaRatingLabels,
+  mergeFormulaDefaults,
+} from '@/lib/queries/formula-display';
+
+const PriceChart = dynamic(() => import('./price-chart').then((m) => ({ default: m.PriceChart })), {
+  ssr: false,
+  loading: () => <div className="h-[220px] w-full animate-pulse rounded-xl bg-muted/50" />,
+});
 
 interface TickerAnalysisPageProps {
   userEmail: string;
@@ -23,413 +41,458 @@ interface TickerAnalysisPageProps {
   onGoToMWS: () => void;
 }
 
-// All available tickers organized by category
+type WeeklyRange = '3M' | '6M' | '1Y' | 'ALL';
+
 const MARKET_SEGMENTS = ['SPY', 'QQQ', 'IWM', 'TLT', 'UUP', 'GLD', 'SLV', 'IBIT', 'ETHA', 'USO'];
 const SECTORS = ['XLK', 'XLC', 'SMH', 'XLY', 'XLF', 'XLI', 'XLE', 'XLB', 'XLRE', 'XLU', 'XLV', 'XLP'];
 const LARGE_CAPS = ['NVDA', 'MSFT', 'AAPL', 'GOOG', 'AMZN', 'META', 'TSLA', 'JPM', 'WMT', 'LLY', 'AVGO', 'CSCO', 'MCD', 'V', 'WFC', 'C', 'ORCL', 'MS', 'APP', 'MA', 'KO', 'ISRG', 'XOM', 'GS', 'LIN', 'JNJ', 'CAT', 'INTC', 'PLTR', 'IBM', 'DIS', 'NFLX', 'MRK', 'QCOM', 'BAC', 'AXP', 'PEP', 'COST', 'LRCX', 'BX', 'MU', 'CRM', 'AMGN', 'HD', 'RTX', 'SCHW', 'GE', 'TMO', 'INTU', 'AMD', 'AMAT', 'GEV', 'PG', 'ABT', 'UBER', 'CVX', 'TMUS', 'BA', 'UNH', 'SHOP'];
 
-// Mapping of ticker symbols to full company/fund names
 const TICKER_NAMES: Record<string, string> = {
-  // Market Segments
-  'SPY': 'SPDR S&P 500 ETF Trust',
-  'QQQ': 'Invesco QQQ Trust',
-  'IWM': 'iShares Russell 2000 ETF',
-  'TLT': 'iShares 20+ Year Treasury Bond ETF',
-  'UUP': 'Invesco DB US Dollar Index Bullish Fund',
-  'GLD': 'SPDR Gold Shares',
-  'SLV': 'iShares Silver Trust',
-  'IBIT': 'iShares Bitcoin Trust',
-  'ETHA': 'iShares Ethereum Trust',
-  'USO': 'United States Oil Fund',
-  // Sectors
-  'XLK': 'Technology Select Sector SPDR Fund',
-  'XLC': 'Communication Services Select Sector SPDR Fund',
-  'SMH': 'VanEck Semiconductor ETF',
-  'XLY': 'Consumer Discretionary Select Sector SPDR Fund',
-  'XLF': 'Financial Select Sector SPDR Fund',
-  'XLI': 'Industrial Select Sector SPDR Fund',
-  'XLE': 'Energy Select Sector SPDR Fund',
-  'XLB': 'Materials Select Sector SPDR Fund',
-  'XLRE': 'Real Estate Select Sector SPDR Fund',
-  'XLU': 'Utilities Select Sector SPDR Fund',
-  'XLV': 'Health Care Select Sector SPDR Fund',
-  'XLP': 'Consumer Staples Select Sector SPDR Fund',
-  // Large Caps
-  'NVDA': 'NVIDIA Corporation',
-  'MSFT': 'Microsoft Corporation',
-  'AAPL': 'Apple Inc.',
-  'GOOG': 'Alphabet Inc.',
-  'AMZN': 'Amazon.com Inc.',
-  'META': 'Meta Platforms Inc.',
-  'TSLA': 'Tesla Inc.',
-  'JPM': 'JPMorgan Chase & Co.',
-  'WMT': 'Walmart Inc.',
-  'LLY': 'Eli Lilly and Company',
-  'AVGO': 'Broadcom Inc.',
-  'CSCO': 'Cisco Systems Inc.',
-  'MCD': 'McDonald\'s Corporation',
-  'V': 'Visa Inc.',
-  'WFC': 'Wells Fargo & Company',
-  'C': 'Citigroup Inc.',
-  'ORCL': 'Oracle Corporation',
-  'MS': 'Morgan Stanley',
-  'APP': 'Applovin Corporation',
-  'MA': 'Mastercard Incorporated',
-  'KO': 'The Coca-Cola Company',
-  'ISRG': 'Intuitive Surgical Inc.',
-  'XOM': 'Exxon Mobil Corporation',
-  'GS': 'The Goldman Sachs Group Inc.',
-  'LIN': 'Linde plc',
-  'JNJ': 'Johnson & Johnson',
-  'CAT': 'Caterpillar Inc.',
-  'INTC': 'Intel Corporation',
-  'PLTR': 'Palantir Technologies Inc.',
-  'IBM': 'International Business Machines Corporation',
-  'DIS': 'The Walt Disney Company',
-  'NFLX': 'Netflix Inc.',
-  'MRK': 'Merck & Co. Inc.',
-  'QCOM': 'Qualcomm Incorporated',
-  'BAC': 'Bank of America Corp.',
-  'AXP': 'American Express Company',
-  'PEP': 'PepsiCo Inc.',
-  'COST': 'Costco Wholesale Corporation',
-  'LRCX': 'Lam Research Corporation',
-  'BX': 'Blackstone Inc.',
-  'MU': 'Micron Technology Inc.',
-  'CRM': 'Salesforce Inc.',
-  'AMGN': 'Amgen Inc.',
-  'HD': 'The Home Depot Inc.',
-  'RTX': 'RTX Corporation',
-  'SCHW': 'The Charles Schwab Corporation',
-  'GE': 'GE Aerospace',
-  'TMO': 'Thermo Fisher Scientific Inc.',
-  'INTU': 'Intuit Inc.',
-  'AMD': 'Advanced Micro Devices Inc.',
-  'AMAT': 'Applied Materials Inc.',
-  'GEV': 'GE Vernova',
-  'PG': 'The Procter & Gamble Company',
-  'ABT': 'Abbott Laboratories',
-  'UBER': 'Uber Technologies Inc.',
-  'CVX': 'Chevron Corporation',
-  'TMUS': 'T-Mobile US Inc.',
-  'BA': 'The Boeing Company',
-  'UNH': 'UnitedHealth Group Incorporated',
-  'SHOP': 'Shopify Inc.',
+  'SPY': 'S&P 500', 'QQQ': 'Invesco QQQ Trust', 'IWM': 'iShares Russell 2000 ETF',
+  'TLT': 'iShares 20+ Year Treasury Bond ETF', 'UUP': 'Invesco DB US Dollar Index Bullish Fund',
+  'GLD': 'SPDR Gold Shares', 'SLV': 'iShares Silver Trust', 'IBIT': 'iShares Bitcoin Trust',
+  'ETHA': 'iShares Ethereum Trust', 'USO': 'United States Oil Fund',
+  'XLK': 'Technology Select Sector SPDR Fund', 'XLC': 'Communication Services Select Sector SPDR Fund',
+  'SMH': 'VanEck Semiconductor ETF', 'XLY': 'Consumer Discretionary Select Sector SPDR Fund',
+  'XLF': 'Financial Select Sector SPDR Fund', 'XLI': 'Industrial Select Sector SPDR Fund',
+  'XLE': 'Energy Select Sector SPDR Fund', 'XLB': 'Materials Select Sector SPDR Fund',
+  'XLRE': 'Real Estate Select Sector SPDR Fund', 'XLU': 'Utilities Select Sector SPDR Fund',
+  'XLV': 'Health Care Select Sector SPDR Fund', 'XLP': 'Consumer Staples Select Sector SPDR Fund',
+  'NVDA': 'NVIDIA Corporation', 'MSFT': 'Microsoft Corporation', 'AAPL': 'Apple Inc.',
+  'GOOG': 'Alphabet Inc.', 'AMZN': 'Amazon.com Inc.', 'META': 'Meta Platforms Inc.',
+  'TSLA': 'Tesla Inc.', 'JPM': 'JPMorgan Chase & Co.', 'WMT': 'Walmart Inc.',
+  'LLY': 'Eli Lilly and Company', 'AVGO': 'Broadcom Inc.', 'CSCO': 'Cisco Systems Inc.',
+  'MCD': "McDonald's Corporation", 'V': 'Visa Inc.', 'WFC': 'Wells Fargo & Company',
+  'C': 'Citigroup Inc.', 'ORCL': 'Oracle Corporation', 'MS': 'Morgan Stanley',
+  'APP': 'Applovin Corporation', 'MA': 'Mastercard Incorporated', 'KO': 'The Coca-Cola Company',
+  'ISRG': 'Intuitive Surgical Inc.', 'XOM': 'Exxon Mobil Corporation',
+  'GS': 'The Goldman Sachs Group Inc.', 'LIN': 'Linde plc', 'JNJ': 'Johnson & Johnson',
+  'CAT': 'Caterpillar Inc.', 'INTC': 'Intel Corporation', 'PLTR': 'Palantir Technologies Inc.',
+  'IBM': 'International Business Machines Corporation', 'DIS': 'The Walt Disney Company',
+  'NFLX': 'Netflix Inc.', 'MRK': 'Merck & Co. Inc.', 'QCOM': 'Qualcomm Incorporated',
+  'BAC': 'Bank of America Corp.', 'AXP': 'American Express Company', 'PEP': 'PepsiCo Inc.',
+  'COST': 'Costco Wholesale Corporation', 'LRCX': 'Lam Research Corporation',
+  'BX': 'Blackstone Inc.', 'MU': 'Micron Technology Inc.', 'CRM': 'Salesforce Inc.',
+  'AMGN': 'Amgen Inc.', 'HD': 'The Home Depot Inc.', 'RTX': 'RTX Corporation',
+  'SCHW': 'The Charles Schwab Corporation', 'GE': 'GE Aerospace',
+  'TMO': 'Thermo Fisher Scientific Inc.', 'INTU': 'Intuit Inc.',
+  'AMD': 'Advanced Micro Devices Inc.', 'AMAT': 'Applied Materials Inc.',
+  'GEV': 'GE Vernova', 'PG': 'The Procter & Gamble Company', 'ABT': 'Abbott Laboratories',
+  'UBER': 'Uber Technologies Inc.', 'CVX': 'Chevron Corporation', 'TMUS': 'T-Mobile US Inc.',
+  'BA': 'The Boeing Company', 'UNH': 'UnitedHealth Group Incorporated', 'SHOP': 'Shopify Inc.',
 };
 
-// Helper function to extract benchmark ticker from comparison text
-// Examples: "$QQQ: In line" → "QQQ", "$SPY Energy Sector: In line" → "SPY Energy Sector"
-function extractBenchmarkTicker(comparisonText: string | null | undefined): string | null {
-  if (!comparisonText) return null;
-  
-  // Match pattern like "$QQQ: In line" or "$SPY Energy Sector: In line"
-  const match = comparisonText.match(/^\$?([^:]+):/);
-  if (match && match[1]) {
-    return match[1].trim();
+// ─── Misc helpers ───────────────────────────────────────────────────────────
+function extractBenchmarkTicker(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const m = text.match(/^\$?([^:]+):/);
+  return m?.[1]?.trim() ?? null;
+}
+
+function getBenchmarkName(data: Record<string, unknown> | null, tp: string | null): string {
+  if (!data) return 'N/A';
+  if (tp === 'segment') return String(data.name ?? 'N/A');
+  if (tp === 'sector') return String(data.sector_name ?? 'N/A');
+  return String((data.company_name ?? data.name) ?? 'N/A');
+}
+
+function formatPct(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return 'N/A';
+  const pct = Math.abs(value) <= 1 ? value * 100 : value;
+  const r = Number(pct.toFixed(1));
+  return `${r > 0 ? '+' : ''}${r}%`;
+}
+
+function toNum(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const n = Number(value.trim());
+    return Number.isFinite(n) ? n : null;
   }
   return null;
 }
 
-// Helper function to get benchmark name from ticker data (for display)
-function getBenchmarkNameFromData(data: any, type: string | null): string {
-  if (!data) return 'N/A';
-  
-  if (type === 'segment') {
-    return data.name || 'N/A';
-  } else if (type === 'sector') {
-    return data.sector_name || 'N/A';
-  } else if (type === 'mega_cap' || type === 'other_stock') {
-    return data.company_name || 'N/A';
-  }
-  
-  return 'N/A';
+function normalizeTemplateOutlookKey(value: unknown): 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming' | null {
+  const s = String(value ?? '').trim();
+  if (
+    s === 'Extended' ||
+    s === 'Stable' ||
+    s === 'Cooling' ||
+    s === 'Reversing' ||
+    s === 'Firming' ||
+    s === 'Softening' ||
+    s === 'Warming'
+  ) return s;
+  return null;
 }
 
+function getComparisonInfo(text: string | null | undefined): { cls: string; short: string } {
+  if (!text || text === 'N/A') return { cls: 'text-muted-foreground', short: text ?? 'N/A' };
+  if (/in line/i.test(text)) return { cls: 'text-muted-foreground', short: text };
+  return { cls: 'text-foreground', short: text };
+}
 
-export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTicker, currentAppMode, onGoToPortfolio, onGoToMWS }: TickerAnalysisPageProps) {
+function vsHighClass(): string {
+  return 'text-muted-foreground';
+}
+
+function ScoreBars({ score, rating, ratingRows }: { score: number; rating: string; ratingRows: { tier: string; label: string; color_hex?: string | null }[] }) {
+  const s = Math.max(0, Math.min(5, score));
+  const full = Math.floor(s);
+  const partial = s - full >= 0.5 ? 1 : 0;
+  const filled = Math.min(5, full + partial);
+  const tone = ratingBadgeInlineStyle(rating, ratingRows)?.backgroundColor ?? '#f59e0b';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex gap-0.5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <span
+            key={i}
+            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? '' : 'bg-muted'}`}
+            style={{ backgroundColor: i < filled ? tone : undefined }}
+          />
+        ))}
+      </div>
+      <span className="min-w-[2rem] font-mono text-sm font-semibold tabular-nums text-foreground">{s.toFixed(1)}</span>
+    </div>
+  );
+}
+
+// ─── Main component ─────────────────────────────────────────────────────────
+export function TickerAnalysisPage({
+  userEmail, onSignOut, onNavigate, initialTicker, currentAppMode, onGoToPortfolio, onGoToMWS,
+}: TickerAnalysisPageProps) {
   const [ticker, setTicker] = useState(initialTicker);
-  const [trendTimeframe, setTrendTimeframe] = useState<'D' | 'W'>('W');
-
-  // Fetch data from Supabase
+  const [chartTf, setChartTf] = useState<'W' | 'D'>('W');
+  const [weeklyRange, setWeeklyRange] = useState<WeeklyRange>('1Y');
   const { data: supabaseData, type, loading, error, refetch } = useTickerData(ticker);
 
-  // Fetch benchmark data (First benchmark from daily_vs_spy_comparison and second benchmark)
-  const [firstBenchmarkData, setFirstBenchmarkData] = useState<any>(null);
+  const [firstBenchmarkData, setFirstBenchmarkData] = useState<Record<string, unknown> | null>(null);
   const [firstBenchmarkTicker, setFirstBenchmarkTicker] = useState<string | null>(null);
-  const [firstBenchmarkName, setFirstBenchmarkName] = useState<string>('N/A');
-  const [sectorBenchmarkData, setSectorBenchmarkData] = useState<any>(null);
+  const [firstBenchmarkName, setFirstBenchmarkName] = useState('N/A');
+  const [sectorBenchmarkData, setSectorBenchmarkData] = useState<Record<string, unknown> | null>(null);
   const [benchmarkTicker, setBenchmarkTicker] = useState<string | null>(null);
-  const [benchmarkName, setBenchmarkName] = useState<string>('N/A');
-  const [benchmarksLoading, setBenchmarksLoading] = useState(false);
+  const [benchmarkName, setBenchmarkName] = useState('N/A');
+  const [priceHistory, setPriceHistory] = useState<PriceBar[]>([]);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [metricsMap, setMetricsMap] = useState<Map<string, HubTickerMetric>>(new Map());
+  const [dbTickers, setDbTickers] = useState<string[]>([]);
+  const [searchQ, setSearchQ] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const [ratingLabelRows, setRatingLabelRows] = useState<{ tier: string; label: string; description?: string; color_hex?: string | null }[]>([]);
+  const [trendTemplateRows, setTrendTemplateRows] = useState<{ tier: string; outlook: string; timeframe: 'Weekly' | 'Daily'; description: string }[]>([]);
+  const [formulaNums, setFormulaNums] = useState(() => mergeFormulaDefaults({}));
 
-  // All available tickers for the dropdown
-  const allTickers = [...MARKET_SEGMENTS, ...SECTORS, ...LARGE_CAPS].sort();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [labels, partial] = await Promise.all([
+        fetchFormulaRatingLabels(),
+        fetchFormulaNumericSettings(),
+      ]);
+      const templates = await fetchFormulaTrendTemplates();
+      if (cancelled) return;
+      setRatingLabelRows(labels);
+      setTrendTemplateRows(
+        templates.map((row) => ({
+          tier: row.tier,
+          outlook: row.outlook,
+          timeframe: row.timeframe,
+          description: row.description,
+        }))
+      );
+      setFormulaNums(mergeFormulaDefaults(partial));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load all ticker metrics (names + 1m%) for the search dropdown.
+  useEffect(() => {
+    let ok = true;
+    fetchHubTickerMetricsMap()
+      .then((m) => { if (ok) setMetricsMap(m); })
+      .catch(() => {});
+    return () => { ok = false; };
+  }, []);
+
+  // Pull full tracked ticker universe (segments + sectors + mega caps + other_stocks).
+  useEffect(() => {
+    let ok = true;
+    getAllTickers()
+      .then((list) => { if (ok) setDbTickers(list); })
+      .catch(() => {});
+    return () => { ok = false; };
+  }, []);
+
+  // Derive sorted search items from metrics map (fallback to static lists if empty).
+  const allSearchItems = useMemo((): HubTickerMetric[] => {
+    const merged = new Map<string, HubTickerMetric>();
+
+    // Always include the full supported ticker universe in search.
+    for (const t of [...MARKET_SEGMENTS, ...SECTORS, ...LARGE_CAPS]) {
+      const key = t.toUpperCase();
+      merged.set(key, {
+        ticker: key,
+        name: TICKER_NAMES[key] ?? key,
+        m1: null,
+        score: null,
+      });
+    }
+
+    // Include tracked tickers from Supabase (same source used by MWS main page search).
+    for (const t of dbTickers) {
+      const key = String(t).trim().toUpperCase();
+      if (!key) continue;
+      const base = merged.get(key);
+      merged.set(key, {
+        ticker: key,
+        name: base?.name || TICKER_NAMES[key] || key,
+        m1: base?.m1 ?? null,
+        score: base?.score ?? null,
+      });
+    }
+
+    // Overlay live metrics where available.
+    for (const item of metricsMap.values()) {
+      const key = item.ticker.toUpperCase();
+      const base = merged.get(key);
+      merged.set(key, {
+        ticker: key,
+        name: item.name || base?.name || TICKER_NAMES[key] || key,
+        m1: item.m1 ?? base?.m1 ?? null,
+        score: item.score ?? base?.score ?? null,
+      });
+    }
+
+    return Array.from(merged.values()).sort((a, b) => a.ticker.localeCompare(b.ticker));
+  }, [dbTickers, metricsMap]);
+
+  const searchHits = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    const limit = 80;
+    if (!q) return allSearchItems.slice(0, limit);
+    return allSearchItems
+      .filter((x) => tickerMatchesSearchQuery(x.ticker, q) || tickerMatchesSearchQuery(x.name, q))
+      .slice(0, limit);
+  }, [allSearchItems, searchQ]);
+
+  // Close dropdown on outside click.
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+        setSearchQ('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const loadPriceHistory = useCallback(async (t: string, tf: 'D' | 'W', wRange: WeeklyRange) => {
+    setChartLoading(true);
+    try {
+      const interval = tf === 'W' ? 'weekly' : 'daily';
+      const weeklyLimitByRange: Record<WeeklyRange, number> = {
+        '3M': 13,
+        '6M': 26,
+        '1Y': 52,
+        ALL: 78,
+      };
+      const limit = tf === 'W' ? weeklyLimitByRange[wRange] : 252;
+      const bars = await fetchPriceHistory(t, interval, limit);
+      setPriceHistory(bars);
+    } catch {
+      setPriceHistory([]);
+    } finally {
+      setChartLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPriceHistory(ticker, chartTf, weeklyRange);
+  }, [ticker, chartTf, weeklyRange, loadPriceHistory]);
+
+  const fetchBenchmarkData = async () => {
+    if (!supabaseData) return;
+    const sd = supabaseData as unknown as Record<string, unknown>;
+
+    const firstText = sd.daily_vs_spy_comparison as string | undefined;
+    const firstRaw = extractBenchmarkTicker(firstText);
+    setFirstBenchmarkTicker(firstRaw);
+    if (firstRaw) {
+      const actual = firstRaw.match(/^([A-Z]{2,5})\s/)?.[1] ?? firstRaw;
+      const res = await getTickerData(actual);
+      setFirstBenchmarkData(res.data as unknown as Record<string, unknown> | null);
+      setFirstBenchmarkName(getBenchmarkName(res.data as unknown as Record<string, unknown> | null, res.type));
+    } else {
+      setFirstBenchmarkData(null);
+      setFirstBenchmarkName('N/A');
+    }
+
+    const secondText = (type === 'mega_cap' ? sd.daily_vs_sector_comparison : sd.daily_vs_benchmark_comparison) as string | undefined;
+    const secondRaw = extractBenchmarkTicker(secondText);
+    setBenchmarkTicker(secondRaw);
+    if (secondRaw) {
+      const actual = secondRaw.match(/^([A-Z]{2,5})\s/)?.[1] ?? secondRaw;
+      const res = await getTickerData(actual);
+      setSectorBenchmarkData(res.data as unknown as Record<string, unknown> | null);
+      setBenchmarkName(getBenchmarkName(res.data as unknown as Record<string, unknown> | null, res.type));
+    } else {
+      setSectorBenchmarkData(null);
+      setBenchmarkName('N/A');
+    }
+  };
+
+  useEffect(() => {
+    if (supabaseData) void fetchBenchmarkData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticker, supabaseData]);
 
   const handleRefresh = async () => {
     await refetch();
     await fetchBenchmarkData();
+    await loadPriceHistory(ticker, chartTf, weeklyRange);
   };
 
-  // Fetch benchmark data based on comparison text from Supabase
-  const fetchBenchmarkData = async () => {
-    if (!supabaseData) return;
-    
-    setBenchmarksLoading(true);
-    try {
-      // Extract first benchmark ticker from daily_vs_spy_comparison (row 12)
-      const vsSpyComparison = (supabaseData as any).daily_vs_spy_comparison;
-      const firstExtractedTicker = extractBenchmarkTicker(vsSpyComparison);
-      setFirstBenchmarkTicker(firstExtractedTicker);
-      
-      // Fetch first benchmark data
-      if (firstExtractedTicker) {
-        // Handle cases like "SPY Energy Sector" - try to extract just the ticker part
-        const tickerMatch = firstExtractedTicker.match(/^([A-Z]{2,5})\s/);
-        const actualFirstTicker = tickerMatch ? tickerMatch[1] : firstExtractedTicker;
-        
-        const firstResult = await getTickerData(actualFirstTicker);
-        if (firstResult.data) {
-          setFirstBenchmarkData(firstResult.data);
-          const firstName = getBenchmarkNameFromData(firstResult.data, firstResult.type);
-          setFirstBenchmarkName(firstName);
-        } else {
-          setFirstBenchmarkData(null);
-          setFirstBenchmarkName(firstExtractedTicker);
-        }
-      } else {
-        setFirstBenchmarkData(null);
-        setFirstBenchmarkName('N/A');
-      }
-      
-      // Extract second benchmark ticker from comparison text (row 13)
-      const vsBenchmarkComparison = type === 'mega_cap' 
-        ? (supabaseData as any).daily_vs_sector_comparison 
-        : (supabaseData as any).daily_vs_benchmark_comparison;
-      
-      const extractedTicker = extractBenchmarkTicker(vsBenchmarkComparison);
-      setBenchmarkTicker(extractedTicker);
-      
-      // Fetch second benchmark if found
-      if (extractedTicker) {
-        // Handle cases like "SPY Energy Sector" - try to extract just the ticker part
-        const tickerMatch = extractedTicker.match(/^([A-Z]{2,5})\s/);
-        const actualTicker = tickerMatch ? tickerMatch[1] : extractedTicker;
-        
-        const sectorResult = await getTickerData(actualTicker);
-        if (sectorResult.data) {
-          setSectorBenchmarkData(sectorResult.data);
-          // Get benchmark name for display from fetched data
-          const name = getBenchmarkNameFromData(sectorResult.data, sectorResult.type);
-          setBenchmarkName(name);
-        } else {
-          setSectorBenchmarkData(null);
-          // If ticker not found, use the full extracted text (e.g., "SPY Energy Sector")
-          setBenchmarkName(extractedTicker);
-        }
-      } else {
-        setSectorBenchmarkData(null);
-        setBenchmarkName('N/A');
-      }
-    } catch (err) {
-      console.error('Error fetching benchmark data:', err);
-    } finally {
-      setBenchmarksLoading(false);
-    }
-  };
-
-  // Fetch benchmark data when ticker or supabaseData changes
-  useEffect(() => {
-    if (supabaseData) {
-      fetchBenchmarkData();
-    }
-  }, [ticker, supabaseData]);
-
-  // Helper function to transform trend data
-  const transformTrendData = (isDaily: boolean) => {
-    if (!supabaseData) return null;
-
-    const trendScore = isDaily ? supabaseData.daily_trend_score : supabaseData.weekly_trend_score;
-    const trendRating = isDaily ? supabaseData.daily_rating : supabaseData.weekly_rating;
-    const trendOutlook = isDaily ? supabaseData.daily_outlook : supabaseData.weekly_outlook;
-    const trendDescription = isDaily ? supabaseData.daily_trend_description : supabaseData.weekly_trend_description;
-
-    // Trend signals
-    const priceVs9Ema = isDaily ? supabaseData.daily_price_vs_9ema : supabaseData.weekly_price_vs_9ema;
-    const priceVs21Ema = isDaily ? supabaseData.daily_price_vs_21ema : (supabaseData as any).weekly_price_vs_30ema;
-    const ema9Vs21Ema = isDaily ? supabaseData.daily_ema9_vs_21ema : (supabaseData as any).weekly_ema9_vs_30ema;
-    const slope9Ema = isDaily ? supabaseData.daily_slope_9ema : supabaseData.weekly_slope_9ema;
-    const slope21Ema = isDaily ? supabaseData.daily_slope_21ema : (supabaseData as any).weekly_slope_30ema;
-    
-    // Trend signal icons (from column D in sheets) - stored as strings (emojis like ❌, ✅, ⚪️)
-    const priceVs9EmaIcon = isDaily ? supabaseData.daily_price_vs_9ema_icon : supabaseData.weekly_price_vs_9ema_icon;
-    const priceVs21EmaIcon = isDaily ? supabaseData.daily_price_vs_21ema_icon : supabaseData.weekly_price_vs_30ema_icon;
-    const ema9Vs21EmaIcon = isDaily ? supabaseData.daily_ema9_vs_21ema_icon : supabaseData.weekly_ema9_vs_30ema_icon;
-    const slope9EmaIcon = isDaily ? supabaseData.daily_slope_9ema_icon : supabaseData.weekly_slope_9ema_icon;
-    const slope21EmaIcon = isDaily ? supabaseData.daily_slope_21ema_icon : supabaseData.weekly_slope_30ema_icon;
-
-    // Key levels
-    const currentPrice = isDaily ? supabaseData.daily_current_price : supabaseData.weekly_current_price;
-    const ema9 = isDaily ? supabaseData.daily_ema_9 : supabaseData.weekly_ema_9;
-    const ema21 = isDaily ? supabaseData.daily_ema_21 : (supabaseData as any).weekly_ema_30;
-    const monthHigh = isDaily ? supabaseData.daily_month_high : supabaseData.weekly_month_high;
-    const monthLow = isDaily ? supabaseData.daily_month_low : supabaseData.weekly_month_low;
-
-    return {
-      rating: trendScore ?? 0,
-      direction: trendRating || 'N/A',
-      outlook: trendOutlook || 'N/A',
-      description: trendDescription || 'N/A',
-      signals: [
-        { label: isDaily ? 'Price vs 9-day EMA' : 'Price vs 9-week EMA', value: priceVs9Ema ?? 0, isNegative: (priceVs9Ema ?? 0) < 0, icon: priceVs9EmaIcon || null },
-        { label: isDaily ? 'Price vs 21-day EMA' : 'Price vs 30-week EMA', value: priceVs21Ema ?? 0, isNegative: (priceVs21Ema ?? 0) < 0, icon: priceVs21EmaIcon || null },
-        { label: isDaily ? '9-day EMA vs. 21-day EMA' : '9-week EMA vs. 30-week EMA', value: ema9Vs21Ema ?? 0, isNegative: (ema9Vs21Ema ?? 0) < 0, icon: ema9Vs21EmaIcon || null },
-        { label: isDaily ? 'Slope 9-day EMA' : 'Slope 9-week EMA', value: slope9Ema || 'N/A', isNegative: slope9Ema === 'Falling', icon: slope9EmaIcon || null },
-        { label: isDaily ? 'Slope 21-day EMA' : 'Slope 30-week EMA', value: slope21Ema || 'N/A', isNegative: slope21Ema === 'Falling', icon: slope21EmaIcon || null },
-      ],
-      keyLevels: [
-        { label: 'Current Price', value: currentPrice?.toFixed(2) || 'N/A' },
-        { label: isDaily ? '9-day EMA' : '9-week EMA', value: ema9?.toFixed(2) || 'N/A' },
-        { label: isDaily ? '21-day EMA' : '30-week EMA', value: ema21?.toFixed(2) || 'N/A' },
-        { label: isDaily ? '1-month High' : '3-month High', value: monthHigh?.toFixed(2) || 'N/A' },
-        { label: isDaily ? '1-month Low' : '3-month Low', value: monthLow?.toFixed(2) || 'N/A' },
-      ]
-    };
-  };
-
-  // Transform Supabase data to expected format
+  // ─── Data transform ────────────────────────────────────────────────────────
   const data = useMemo(() => {
     if (!supabaseData) return null;
-    
-    // Get name based on type
-    let name = '';
-    if (type === 'segment') {
-      name = (supabaseData as any).name || TICKER_NAMES[ticker] || ticker;
-    } else if (type === 'sector') {
-      name = (supabaseData as any).sector_name || TICKER_NAMES[ticker] || ticker;
-    } else if (type === 'mega_cap' || type === 'other_stock') {
-      name = (supabaseData as any).company_name || TICKER_NAMES[ticker] || ticker;
-    }
+    const sd = supabaseData as unknown as Record<string, unknown>;
 
-    // Format last updated date and time in human-readable format (user's local timezone)
-    const lastUpdated = supabaseData.updated_at 
-      ? new Date(supabaseData.updated_at).toLocaleString('en-US', { 
-          month: 'long', 
-          day: 'numeric', 
-          year: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        })
+    let name = '';
+    if (type === 'segment') name = String(sd.name ?? TICKER_NAMES[ticker] ?? ticker);
+    else if (type === 'sector') name = String(sd.sector_name ?? TICKER_NAMES[ticker] ?? ticker);
+    else name = String(sd.company_name ?? TICKER_NAMES[ticker] ?? ticker);
+
+    const lastUpdated = supabaseData.updated_at
+      ? new Date(supabaseData.updated_at as string).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
       : 'N/A';
 
-    // PERFORMANCE DATA - Use new simplified fields with fallback to old fields
-    const perf1M = (supabaseData as any)['1m_percent'] ?? supabaseData.daily_1m_percent;
-    const perf3M = (supabaseData as any)['3m_percent'] ?? supabaseData.daily_3m_percent;
-    const vsHigh1Y = (supabaseData as any)['vs_1y_high'] ?? supabaseData.daily_vs_1y_high;
-    const perfSummary = supabaseData.daily_performance_summary;
-    const perfDescription = supabaseData.daily_performance_description;
-    const vsSpyComparison = supabaseData.daily_vs_spy_comparison;
-    const vsBenchmarkComparison = type === 'mega_cap' 
-      ? (supabaseData as any).daily_vs_sector_comparison 
-      : (supabaseData as any).daily_vs_benchmark_comparison;
+    const perf1M = toNum(sd['1m_percent'] ?? supabaseData.daily_1m_percent);
+    const perf3M = toNum(sd['3m_percent'] ?? supabaseData.daily_3m_percent);
+    const vsHigh1Y = toNum(sd['vs_1y_high'] ?? supabaseData.daily_vs_1y_high);
+    const vsSpyComparison = String(supabaseData.daily_vs_spy_comparison ?? 'N/A');
+    const vsBenchmarkComparison = String((type === 'mega_cap' ? sd.daily_vs_sector_comparison : sd.daily_vs_benchmark_comparison) ?? 'N/A');
+
+    const makeTrend = (daily: boolean) => {
+      const p = daily ? 'daily_' : 'weekly_';
+      const p2 = daily ? 'daily_' : 'weekly_';
+      const score = toNum(daily ? supabaseData.daily_trend_score : supabaseData.weekly_trend_score) ?? 0;
+      const outlookRaw = String(daily ? (supabaseData.daily_outlook ?? '') : (supabaseData.weekly_outlook ?? '')).trim();
+      const templateOutlookKey = normalizeTemplateOutlookKey(outlookRaw);
+      const outlook = outlookRaw || 'Stable';
+      return {
+        templateOutlookKey,
+        score,
+        rating: String(daily ? supabaseData.daily_rating : supabaseData.weekly_rating) || 'N/A',
+        outlook,
+        description: String(daily ? supabaseData.daily_trend_description : supabaseData.weekly_trend_description) || '',
+        currentPrice: toNum(sd[`${p}current_price`]),
+        ema9: toNum(sd[`${p}ema_9`]),
+        ema21or30: toNum(daily ? sd[`${p2}ema_21`] : sd[`${p2}ema_30`]),
+        signals: [
+          { label: daily ? 'Price vs 9-day EMA' : 'Price vs 9-week EMA', raw: toNum(sd[`${p}price_vs_9ema`]), icon: String(sd[`${p}price_vs_9ema_icon`] ?? '') },
+          { label: daily ? 'Price vs 21-day EMA' : 'Price vs 30-week EMA', raw: toNum(daily ? sd[`${p2}price_vs_21ema`] : sd[`${p2}price_vs_30ema`]), icon: String(daily ? (sd[`${p2}price_vs_21ema_icon`] ?? '') : (sd[`${p2}price_vs_30ema_icon`] ?? '')) },
+          { label: daily ? '9-day EMA vs. 21-day EMA' : '9-week EMA vs. 30-week EMA', raw: toNum(daily ? sd[`${p2}ema9_vs_21ema`] : sd[`${p2}ema9_vs_30ema`]), icon: String(daily ? (sd[`${p2}ema9_vs_21ema_icon`] ?? '') : (sd[`${p2}ema9_vs_30ema_icon`] ?? '')) },
+          { label: daily ? 'Slope 9-day EMA' : 'Slope 9-week EMA', raw: null as null, strVal: String(sd[`${p}slope_9ema`] ?? 'N/A'), icon: String(sd[`${p}slope_9ema_icon`] ?? '') },
+          { label: daily ? 'Slope 21-day EMA' : 'Slope 30-week EMA', raw: null as null, strVal: String(daily ? (sd[`${p2}slope_21ema`] ?? 'N/A') : (sd[`${p2}slope_30ema`] ?? 'N/A')), icon: String(daily ? (sd[`${p2}slope_21ema_icon`] ?? '') : (sd[`${p2}slope_30ema_icon`] ?? '')) },
+        ],
+        keyLevels: [
+          { label: 'Current Price', value: toNum(sd[`${p}current_price`])?.toFixed(2) ?? 'N/A' },
+          { label: daily ? '9-day EMA' : '9-week EMA', value: toNum(sd[`${p}ema_9`])?.toFixed(2) ?? 'N/A' },
+          { label: daily ? '21-day EMA' : '30-week EMA', value: toNum(daily ? sd[`${p2}ema_21`] : sd[`${p2}ema_30`])?.toFixed(2) ?? 'N/A' },
+          { label: daily ? '1-month High' : '3-month High', value: toNum(sd[`${p}month_high`])?.toFixed(2) ?? 'N/A' },
+          { label: daily ? '1-month Low' : '3-month Low', value: toNum(sd[`${p}month_low`])?.toFixed(2) ?? 'N/A' },
+        ],
+      };
+    };
 
     return {
       name,
       lastUpdated,
-      performance: {
-        summary: perfSummary || 'N/A',
-        description: perfDescription || 'N/A',
-        oneMonth: perf1M ?? 0,
-        threeMonth: perf3M ?? 0,
-        vsHigh1Y: vsHigh1Y ?? 0,
-        performanceStrength: (supabaseData as any)['performance_strength'] ?? supabaseData.daily_performance_strength ?? null,
-        distanceToHighs: (supabaseData as any)['distance_to_highs'] ?? supabaseData.daily_distance_to_highs ?? null,
-        price1M: supabaseData.price_1m ?? null,
-        price3M: supabaseData.price_3m ?? null,
-        spyPrice1M: supabaseData.spy_price_1m ?? null,
-        spyPrice3M: supabaseData.spy_price_3m ?? null,
-        sectorPrice1M: type === 'mega_cap' ? (supabaseData as any).sector_price_1m ?? null : null,
-        sectorPrice3M: type === 'mega_cap' ? (supabaseData as any).sector_price_3m ?? null : null,
-        vsSP500_Benchmark: vsSpyComparison || 'N/A',
-        vsBenchmark2: vsBenchmarkComparison || 'N/A',
-        benchmarks: {
-          first: {
-            ticker: (supabaseData as any).first_benchmark_ticker ?? (firstBenchmarkTicker || 'N/A'),
-            name: firstBenchmarkName,
-            oneMonth: (supabaseData as any).first_benchmark_1m_percent ?? firstBenchmarkData?.daily_1m_percent ?? (firstBenchmarkData as any)?.['1m_percent'] ?? 0,
-            threeMonth: (supabaseData as any).first_benchmark_3m_percent ?? firstBenchmarkData?.daily_3m_percent ?? (firstBenchmarkData as any)?.['3m_percent'] ?? 0
-          },
-          sector: { 
-            ticker: (supabaseData as any).second_benchmark_ticker ?? (benchmarkTicker || 'N/A'),
-            name: benchmarkName,
-            oneMonth: (supabaseData as any).second_benchmark_1m_percent ?? sectorBenchmarkData?.daily_1m_percent ?? (sectorBenchmarkData as any)?.['1m_percent'] ?? 0,
-            threeMonth: (supabaseData as any).second_benchmark_3m_percent ?? sectorBenchmarkData?.daily_3m_percent ?? (sectorBenchmarkData as any)?.['3m_percent'] ?? 0
-          }
-        }
-      },
-      dailyTrend: transformTrendData(true),
-      weeklyTrend: transformTrendData(false)
+      perf1M,
+      perf3M,
+      vsHigh1Y,
+      vsSpyComparison,
+      vsBenchmarkComparison,
+      firstBenchmarkLabel: String(sd.first_benchmark_name ?? `$${firstBenchmarkTicker ?? 'N/A'}`),
+      firstBenchmark1M: toNum(sd.first_benchmark_1m_percent ?? (firstBenchmarkData as Record<string, unknown> | null)?.[`1m_percent`] ?? null),
+      firstBenchmark3M: toNum(sd.first_benchmark_3m_percent ?? (firstBenchmarkData as Record<string, unknown> | null)?.[`3m_percent`] ?? null),
+      secondBenchmarkLabel: String(sd.second_benchmark_name ?? `$${benchmarkTicker ?? 'N/A'}`),
+      secondBenchmark1M: toNum(sd.second_benchmark_1m_percent ?? (sectorBenchmarkData as Record<string, unknown> | null)?.[`1m_percent`] ?? null),
+      secondBenchmark3M: toNum(sd.second_benchmark_3m_percent ?? (sectorBenchmarkData as Record<string, unknown> | null)?.[`3m_percent`] ?? null),
+      perfSummary: String(supabaseData.daily_performance_summary ?? 'N/A'),
+      perfDescription: String(supabaseData.daily_performance_description ?? ''),
+      weekly: makeTrend(false),
+      daily: makeTrend(true),
     };
   }, [supabaseData, ticker, type, firstBenchmarkData, firstBenchmarkTicker, firstBenchmarkName, sectorBenchmarkData, benchmarkTicker, benchmarkName]);
 
-  // Get performance color and icon based on value (matching sheet logic)
-  const getPerformanceColor = (value: number) => {
-    // Background colors removed - keeping for text color if needed
-    return '';
-  };
+  const ratingLabelByTier = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of ratingLabelRows) map.set(row.tier, row.label);
+    return map;
+  }, [ratingLabelRows]);
 
-  const getPerformanceIcon = (value: number) => {
-    if (value > 0) return '🟩';
-    if (value === 0) return '🟨';
-    return '🟥';
-  };
+  const ratingTierFromScore = useCallback(
+    (score: number | null | undefined) => ratingTierFromTrendScore(score, formulaNums),
+    [formulaNums],
+  );
 
-  const getVsHighIcon = (value: number) => {
-    if (value > -5) return '✅';
-    if (value > -10) return '⚪️';
-    return '❌';
-  };
+  const ratingLabelFromTier = useCallback(
+    (tier: 'strong_bull' | 'bull' | 'neutral' | 'bear' | 'strong_bear' | null): string =>
+      tier ? ratingLabelByTier.get(tier) ?? tier : 'N/A',
+    [ratingLabelByTier]
+  );
 
-  // Helper function to get comparison icon and text
-  const getComparisonIcon = (comparisonText: string | null | undefined) => {
-    if (!comparisonText || comparisonText === 'N/A') return { icon: null, text: comparisonText || 'N/A' };
-    
-    // Extract the comparison status (Leading, In line, Lagging)
-    const leadingMatch = comparisonText.match(/Leading/i);
-    const inLineMatch = comparisonText.match(/In line/i);
-    const laggingMatch = comparisonText.match(/Lagging/i);
-    
-    if (leadingMatch) {
-      return { icon: '✅', text: comparisonText };
-    } else if (inLineMatch) {
-      return { icon: '⚪️', text: comparisonText };
-    } else if (laggingMatch) {
-      return { icon: '❌', text: comparisonText };
+  const ratingDescriptionByTier = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of ratingLabelRows) {
+      if (row.description && row.description.trim()) map.set(row.tier, row.description.trim());
     }
-    
-    return { icon: null, text: comparisonText };
-  };
+    return map;
+  }, [ratingLabelRows]);
 
-  const renderStars = (rating: number) => {
-    const stars = [];
-    for (let i = 0; i < 5; i++) {
-      stars.push(
-        <Star 
-          key={i} 
-          className={`w-4 h-4 ${i < Math.floor(rating) ? 'fill-yellow-400 text-yellow-400' : 'text-neutral-300'}`} 
-        />
-      );
+  const trendTemplateDescriptionMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of trendTemplateRows) {
+      map.set(`${row.tier}|${row.outlook}|${row.timeframe}`, row.description);
     }
-    return stars;
-  };
+    return map;
+  }, [trendTemplateRows]);
 
+  const activeRatingTier = useMemo(
+    () => ratingTierFromScore(chartTf === 'W' ? data?.weekly?.score : data?.daily?.score),
+    [chartTf, data?.daily?.score, data?.weekly?.score, ratingTierFromScore]
+  );
+  const activeRatingLabel = useMemo(() => ratingLabelFromTier(activeRatingTier), [activeRatingTier, ratingLabelFromTier]);
+  const activeTrendDescription = useMemo(() => {
+    const active = chartTf === 'W' ? data?.weekly : data?.daily;
+    if (!active || !activeRatingTier || !active.templateOutlookKey) return active?.description ?? '';
+    const timeframe = chartTf === 'W' ? 'Weekly' : 'Daily';
+    return (
+      trendTemplateDescriptionMap.get(`${activeRatingTier}|${active.templateOutlookKey}|${timeframe}`) ??
+      active.description ??
+      ''
+    );
+  }, [activeRatingTier, chartTf, data?.daily, data?.weekly, trendTemplateDescriptionMap]);
+
+  const performanceSummaryText = data?.perfSummary ?? 'N/A';
+  const performanceDescriptionText = data?.perfDescription ?? '';
+
+  // ─── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center">
-        <div className="text-center">
-          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-neutral-500" />
-          <p className="text-neutral-600">Loading data from Supabase...</p>
+      <div className="flex min-h-screen flex-col bg-background">
+        <AppHeader userEmail={userEmail} currentAppMode={currentAppMode} onGoToPortfolio={onGoToPortfolio} onGoToMWS={onGoToMWS} onSignOut={onSignOut} onBack={() => onNavigate('index')} backLabel="Back to MWS" />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-center">
+            <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="text-xs text-muted-foreground sm:text-sm">Loading ticker data…</p>
+          </div>
         </div>
       </div>
     );
@@ -437,310 +500,482 @@ export function TickerAnalysisPage({ userEmail, onSignOut, onNavigate, initialTi
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-neutral-50">
-        <AppHeader
-          userEmail={userEmail}
-          currentAppMode={currentAppMode}
-          onGoToPortfolio={onGoToPortfolio}
-          onGoToMWS={onGoToMWS}
-          onSignOut={onSignOut}
-          onBack={() => onNavigate('index')}
-          backLabel="Back to MWS"
-        />
-        <main className="p-6">
-          <h1 className="font-semibold text-neutral-900 mb-4">Error Loading Ticker</h1>
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-            <div className="flex items-center gap-2 text-red-800 mb-2">
-              <AlertCircle className="w-5 h-5" />
-              <h3 className="font-semibold">Error loading data</h3>
+      <div className="flex min-h-screen flex-col bg-background">
+        <AppHeader userEmail={userEmail} currentAppMode={currentAppMode} onGoToPortfolio={onGoToPortfolio} onGoToMWS={onGoToMWS} onSignOut={onSignOut} onBack={() => onNavigate('index')} backLabel="Back to MWS" />
+        <main className="mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-6">
+            <div className="mb-2 flex items-center gap-2 text-sm text-destructive sm:text-base">
+              <AlertCircle className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+              <span className="font-semibold">Error loading ticker data</span>
             </div>
-            <p className="text-red-700 text-sm mb-4">
-              {error ? error.message : `Ticker "${ticker}" not found in Supabase`}
-            </p>
-            <Button onClick={handleRefresh} variant="outline" size="sm">
-              <RefreshCw className="w-4 h-4 mr-2" />
+            <p className="mb-4 text-xs text-muted-foreground sm:text-sm">{error ? error.message : `"${ticker}" was not found.`}</p>
+            <button onClick={handleRefresh} className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs hover:bg-muted/50 sm:text-sm">
+              <RefreshCw className="h-3.5 w-3.5" />
               Retry
-            </Button>
+            </button>
           </div>
         </main>
       </div>
     );
   }
 
+  // ─── Chart data ────────────────────────────────────────────────────────────
+  const isWeekly = chartTf === 'W';
+  const activeTrend = isWeekly ? data.weekly : data.daily;
+  const emaPeriodShort = isWeekly ? 9 : 9;
+  const emaPeriodLong  = isWeekly ? 30 : 21;
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+  const SectionHead = ({ children }: { children: React.ReactNode }) => (
+    <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-3 sm:px-[22px] sm:py-[15px]">
+      {children}
+    </div>
+  );
+
+  const SectionTitle = ({ children }: { children: React.ReactNode }) => (
+    <h3 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted-foreground sm:text-[12px]">{children}</h3>
+  );
+
+  const SectionCard = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
+    <div className={`overflow-hidden rounded-[18px] border border-border bg-card shadow-sm ${className}`}>
+      {children}
+    </div>
+  );
+
+  const SignalRow = ({ label, value, icon, isNum }: { label: string; value: string; icon?: string; isNum?: boolean }) => {
+    const isPos = /rising|✅|🟩|\+/.test(value) && !/falling|❌|🟥|-/.test(value);
+    const isNeg = /falling|❌|🟥/.test(value) || (isNum && value.startsWith('-'));
+    return (
+      <div className="flex items-center justify-between border-b border-border/50 py-[11px] last:border-0">
+        <span className="min-w-0 flex-1 pr-3 text-xs text-muted-foreground sm:text-[13px]">{label}</span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className={`font-mono text-xs font-medium sm:text-[13px] ${isNeg ? 'text-rose-600 dark:text-rose-400' : isPos ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground'}`}>
+            {value}
+          </span>
+          {icon && <span className="text-xs leading-none sm:text-[13px]">{icon}</span>}
+        </span>
+      </div>
+    );
+  };
+
+  const formatSignalValue = (sig: { raw: number | null; strVal?: string }) => {
+    if (sig.raw != null) {
+      const pct = sig.raw * 100;
+      return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
+    }
+    return sig.strVal ?? 'N/A';
+  };
+
+  const PerfCell = ({ value }: { value: number | null }) => {
+    if (value == null) return <td className="border-b border-border px-3 py-2.5 text-center font-mono text-xs text-muted-foreground sm:px-4 sm:py-[11px] sm:text-[13px]">—</td>;
+    const pct = Math.abs(value) <= 1 ? value * 100 : value;
+    const pos = pct >= 0;
+    return (
+      <td className={`border-b border-border px-3 py-2.5 text-center font-mono text-xs font-medium tabular-nums sm:px-4 sm:py-[11px] sm:text-[13px] ${pos ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-500/8' : 'text-rose-700 dark:text-rose-400 bg-rose-500/8'}`}>
+        {pos ? '+' : ''}{pct.toFixed(1)}%
+      </td>
+    );
+  };
+
+  const vsHighPct = data.vsHigh1Y != null
+    ? (Math.abs(data.vsHigh1Y) <= 1 ? data.vsHigh1Y * 100 : data.vsHigh1Y)
+    : null;
+
+  const trendThresholds = {
+    extended_threshold: formulaNums.extended_threshold,
+    score_weak: formulaNums.score_weak,
+  };
+
+  const firstBenchSym = (firstBenchmarkTicker ?? extractBenchmarkTicker(data.firstBenchmarkLabel) ?? '').toUpperCase() || null;
+  const secondBenchSym = (benchmarkTicker ?? extractBenchmarkTicker(data.secondBenchmarkLabel) ?? '').toUpperCase() || null;
+
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader
         userEmail={userEmail}
         currentAppMode={currentAppMode}
         onGoToPortfolio={onGoToPortfolio}
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
-        onBack={() => onNavigate('index')}
-        backLabel="Back to MWS"
       />
-      <main className="p-4 sm:p-6 lg:p-8 w-full max-w-none">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-5">
-          <div className="flex items-center gap-2">
-            <Select value={ticker} onValueChange={setTicker}>
-              <SelectTrigger className="w-full sm:w-[180px] h-9 bg-white border-slate-300">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-[300px]">
-                {allTickers.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    <span className="flex items-center gap-2">
-                      <TickerIcon ticker={t} size={14} />
-                      <span>{t}</span>
+
+      <main className="w-full flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <div className="mx-auto w-full max-w-[1400px]">
+
+          {/* ── Ticker header ── */}
+          <div className="mb-5 flex flex-col items-start justify-between gap-3 border-b border-border pb-4 sm:mb-6 sm:gap-4 sm:pb-5 sm:flex-row sm:items-end">
+            <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+              <button
+                type="button"
+                onClick={() => onNavigate('index')}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-colors hover:bg-muted/50"
+                aria-label="Back"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+              <div className="flex h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-border bg-muted sm:h-14 sm:w-14">
+                <TickerIcon ticker={ticker} size={56} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-xl font-semibold leading-tight tracking-tight text-foreground sm:text-[1.45rem] md:text-[1.6rem] lg:text-[1.85rem]">
+                  {data.name}
+                </h1>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground sm:text-[13px]">
+                  <span className="inline-flex items-center gap-1.5 font-mono font-medium text-foreground">
+                    <span className="flex h-5 w-5 shrink-0 overflow-hidden rounded-md border border-border bg-muted sm:h-5 sm:w-5">
+                      <TickerIcon ticker={ticker} size={20} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
                     </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-xs text-slate-500 hidden sm:inline whitespace-nowrap">last updated {data.lastUpdated}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 sm:hidden flex-1">last updated {data.lastUpdated}</span>
-            <Button
-              onClick={handleRefresh}
-              disabled={loading}
-              size="sm"
-              variant="outline"
-              className="flex-shrink-0"
-            >
-              <RefreshCw className={`w-3 h-3 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
-            </Button>
-          </div>
-        </div>
-        <div className="space-y-4 sm:space-y-5">
-          {/* Company Name Banner */}
-          <div className="bg-white border border-slate-200 px-4 sm:px-6 py-3 rounded-xl">
-            <h1 className="text-lg sm:text-xl font-semibold text-slate-900 truncate flex items-center gap-2">
-              <TickerIcon ticker={ticker} size={22} />
-              <span className="truncate">{data.name}</span>
-            </h1>
-          </div>
-
-          {/* PERFORMANCE Section */}
-          <div className="bg-white border border-slate-200 rounded-xl">
-            <div className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-slate-50/80">
-              <h2 className="font-semibold text-sm sm:text-base tracking-wide text-slate-900">PERFORMANCE</h2>
-            </div>
-            <div className="px-4 sm:px-6 py-4 space-y-4">
-              <div>
-                <p className="font-medium text-sm sm:text-base text-slate-900">{data.performance.summary}</p>
-                <p className="text-xs sm:text-sm text-slate-600 mt-1">{data.performance.description}</p>
-              </div>
-
-              {/* Performance Table */}
-              <div className="border border-slate-200 rounded-lg overflow-x-auto">
-                <table className="w-full text-xs sm:text-sm min-w-[600px]">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="px-3 sm:px-4 py-2.5 text-left text-slate-900 border-r border-slate-200 w-1/4">Ticker</th>
-                      <th className="px-3 sm:px-4 py-2.5 text-center text-slate-900 border-r border-slate-200 w-1/4">1-month</th>
-                      <th className="px-3 sm:px-4 py-2.5 text-center text-slate-900 border-r border-slate-200 w-1/4">3-month</th>
-                      <th className="px-3 sm:px-4 py-2.5 text-center text-slate-900 w-1/4">${ticker} performance vs:</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-b border-slate-200">
-                      <td className="px-3 sm:px-4 py-2.5 font-medium text-slate-900 border-r border-slate-200">
-                        <div className="flex items-center gap-2">
-                          <TickerIcon ticker={ticker} size={16} />
-                          <span>${ticker} ({data.name.split(' ')[0]})</span>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
-                        <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.oneMonth)}</div>
-                          <div className="flex-1 text-center tabular-nums">{data.performance.oneMonth > 0 ? '+' : ''}{data.performance.oneMonth}%</div>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
-                        <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.threeMonth)}</div>
-                          <div className="flex-1 text-center tabular-nums">{data.performance.threeMonth > 0 ? '+' : ''}{data.performance.threeMonth}%</div>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5">
-                        <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getVsHighIcon(data.performance.vsHigh1Y)}</div>
-                          <div className="flex-1 text-center tabular-nums">
-                            <span className="text-xs text-slate-600">1Y High:</span> {data.performance.vsHigh1Y > 0 ? '+' : ''}{data.performance.vsHigh1Y}%
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="px-3 sm:px-4 py-2.5 text-slate-700 border-r border-slate-200 truncate">
-                        <div className="flex items-center gap-2">
-                          <TickerIcon ticker={data.performance.benchmarks.first?.ticker} size={16} />
-                          <span className="truncate">
-                            {(supabaseData as any).first_benchmark_name || `$${data.performance.benchmarks.first?.ticker || 'N/A'}`}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
-                        <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.oneMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.oneMonth || 0}%</div>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
-                        <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.first?.threeMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.first?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.first?.threeMonth || 0}%</div>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5">
-                        {(() => {
-                          const comparison = getComparisonIcon(data.performance.vsSP500_Benchmark);
-                          return (
-                            <div className="flex items-center">
-                              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{comparison.icon || ''}</div>
-                              <div className="flex-1 text-center text-xs sm:text-sm text-slate-700">{comparison.text}</div>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 sm:px-4 py-2.5 text-slate-700 border-r border-slate-200 truncate">
-                        <div className="flex items-center gap-2">
-                          <TickerIcon ticker={data.performance.benchmarks.sector?.ticker} size={16} />
-                          <span className="truncate">
-                            {(supabaseData as any).second_benchmark_name || `$${data.performance.benchmarks.sector?.ticker || 'N/A'}`}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
-                        <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.oneMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.oneMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.oneMonth || 0}%</div>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5 border-r border-slate-200">
-                        <div className="flex items-center">
-                          <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{getPerformanceIcon(data.performance.benchmarks.sector?.threeMonth || 0)}</div>
-                          <div className="flex-1 text-center tabular-nums">{(data.performance.benchmarks.sector?.threeMonth || 0) > 0 ? '+' : ''}{data.performance.benchmarks.sector?.threeMonth || 0}%</div>
-                        </div>
-                      </td>
-                      <td className="px-3 sm:px-4 py-2.5">
-                        {(() => {
-                          const comparison = getComparisonIcon(data.performance.vsBenchmark2);
-                          return (
-                            <div className="flex items-center">
-                              <div className="w-4 sm:w-5 flex items-center justify-start flex-shrink-0">{comparison.icon || ''}</div>
-                              <div className="flex-1 text-center text-xs sm:text-sm text-slate-700">{comparison.text}</div>
-                            </div>
-                          );
-                        })()}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                    {ticker}
+                  </span>
+                  <span className="h-3.5 w-px bg-border" aria-hidden />
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-xs font-semibold ${ratingBadgeClassName(activeRatingLabel, ratingLabelRows)}`}
+                    style={ratingBadgeInlineStyle(activeRatingLabel, ratingLabelRows)}
+                  >
+                    {activeRatingLabel}
+                  </span>
+                  <span
+                    className={TREND_OUTLOOK_PILL_CLASS}
+                    title={trendOutlookAriaLabel(activeTrend.outlook, activeTrend.score, trendThresholds)}
+                  >
+                    <span className={trendOutlookDotClass(activeTrend.outlook)} aria-hidden />
+                    {activeTrend.outlook}
+                  </span>
+                  <span className="h-3.5 w-px bg-border" aria-hidden />
+                  <span>Updated {data.lastUpdated}</span>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Helper function to render trend section */}
-          {(() => {
-            const renderTrendSection = (trendData: any) => {
-              if (!trendData) return null;
-              
-              return (
-                <div className="bg-white border border-slate-200 rounded-xl">
-                  <div className="px-4 sm:px-6 py-3 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between gap-3">
-                    <h2 className="font-semibold text-sm sm:text-base tracking-wide text-slate-900">
-                      {trendTimeframe === 'D' ? 'DAILY CHART TREND' : 'WEEKLY CHART TREND'}
-                    </h2>
-                    <div className="flex border border-slate-300 rounded-md overflow-hidden">
-                      <button
-                        onClick={() => setTrendTimeframe('D')}
-                        className={`px-2 sm:px-3 py-1 text-xs transition-colors ${trendTimeframe === 'D' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
-                      >
-                        D
-                      </button>
-                      <button
-                        onClick={() => setTrendTimeframe('W')}
-                        className={`px-2 sm:px-3 py-1 text-xs border-l border-slate-300 transition-colors ${trendTimeframe === 'W' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
-                      >
-                        W
-                      </button>
-                    </div>
+            {/* Right: ticker search + refresh */}
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Custom search dropdown */}
+              <div ref={searchRef} className="relative">
+                <div className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-xs shadow-sm sm:px-3 sm:text-sm">
+                  <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={searchOpen ? searchQ : ticker}
+                    placeholder="Search ticker…"
+                    onFocus={() => { setSearchOpen(true); setSearchQ(''); }}
+                    onChange={(e) => setSearchQ(e.target.value)}
+                    className="w-[min(100%,7.5rem)] min-w-0 flex-1 bg-transparent font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none sm:w-[120px] sm:flex-none sm:text-[13px]"
+                  />
+                </div>
+
+                {searchOpen && (
+                  <div
+                    className="absolute right-0 top-[calc(100%+6px)] z-50 w-[min(100vw-2rem,20rem)] max-w-[calc(100vw-2rem)] max-h-[min(60vh,360px)] touch-pan-y overflow-y-auto overscroll-contain rounded-xl border border-border bg-card p-1.5 shadow-lg [-webkit-overflow-scrolling:touch] sm:w-[320px] sm:max-w-none"
+                    onWheel={(e) => e.stopPropagation()}
+                  >
+                    {searchHits.map((item) => {
+                      const m1 = item.m1;
+                      const pct = m1 != null ? (Math.abs(m1) <= 1 ? m1 * 100 : m1) : null;
+                      const isPos = pct != null && pct >= 0;
+                      return (
+                        <button
+                          key={item.ticker}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setTicker(item.ticker);
+                            setSearchOpen(false);
+                            setSearchQ('');
+                          }}
+                          className="flex w-full items-center gap-2 rounded-[9px] px-2.5 py-2 text-left text-xs transition-colors hover:bg-muted/60 sm:gap-3 sm:px-3 sm:py-2.5 sm:text-sm"
+                        >
+                          <span className="flex h-7 w-7 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
+                            <TickerIcon ticker={item.ticker} size={28} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+                          </span>
+                          {/* Name + symbol */}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-xs font-medium text-foreground sm:text-[13px]">{item.name}</span>
+                            <span className="font-mono text-[11px] text-muted-foreground">{item.ticker}</span>
+                          </span>
+                          {/* 1m% chip */}
+                          {pct != null && (
+                            <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[12px] font-semibold tabular-nums ${
+                              isPos
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                                : 'bg-rose-500/10 text-rose-700 dark:text-rose-400'
+                            }`}>
+                              {isPos ? '+' : ''}{pct.toFixed(1)}%
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="px-4 sm:px-6 py-4 space-y-4">
-                    {/* Rating and Status */}
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 pb-3 border-b border-slate-200">
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <div className="flex">
-                          {renderStars(trendData.rating)}
-                        </div>
-                        <span className="text-base sm:text-lg font-semibold text-slate-900">| {typeof trendData.rating === 'number' ? trendData.rating.toFixed(1) : trendData.rating}</span>
-                      </div>
-                      <div className="text-left sm:text-right">
-                        <p className="text-xs sm:text-sm font-medium text-slate-900">{trendData.direction} | Outlook: {trendData.outlook}</p>
-                      </div>
-                    </div>
+                )}
+              </div>
 
-                    {/* Description */}
-                    <p className="text-xs sm:text-sm text-slate-700 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg p-3 sm:p-4">
-                      {trendData.description}
-                    </p>
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={loading}
+                className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-medium transition-colors hover:bg-muted/50 disabled:opacity-50 sm:px-3.5 sm:text-sm"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh</span>
+              </button>
+            </div>
+          </div>
 
-                    {/* Two Column Layout */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-                      {/* Trend Signals */}
-                      <div>
-                        <h3 className="font-semibold text-sm sm:text-base text-slate-900 mb-2 sm:mb-3 pb-2 border-b border-slate-200">Trend Signals</h3>
-                        <div className="space-y-2">
-                          {trendData.signals.map((signal: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-slate-100 pb-2 last:border-0">
-                              <span className="text-slate-700 pr-2">{signal.label}</span>
-                              <span className="flex items-center gap-1 flex-shrink-0">
-                                {typeof signal.value === 'number' && signal.value !== 0 ? (
-                                  <span className="text-slate-900">
-                                    {typeof signal.value === 'number' ? signal.value.toFixed(1) : signal.value}%
-                                  </span>
-                                ) : typeof signal.value === 'number' ? (
-                                  <span className="text-slate-900">0%</span>
-                                ) : (
-                                  <span className="text-slate-900">{signal.value}</span>
-                                )}
-                                {/* Use stored icon from sheet if available, otherwise fallback to generated icon */}
-                                {signal.icon ? (
-                                  <span>{signal.icon}</span>
-                                ) : signal.isNegative && signal.value !== 'N/A' ? (
-                                  <span className="text-red-600 font-bold">✕</span>
-                                ) : null}
+          {/* ── 2-column grid ── */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
+
+            {/* LEFT column */}
+            <div className="flex flex-col gap-5">
+
+              {/* PERFORMANCE */}
+              <SectionCard>
+                <SectionHead>
+                  <SectionTitle>Performance</SectionTitle>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground sm:px-2.5 sm:text-[12px]">
+                    {performanceSummaryText.split('|')[1]?.trim() ?? performanceSummaryText}
+                  </span>
+                </SectionHead>
+                <div className="p-4 sm:p-[22px]">
+                  <p className="text-sm font-semibold leading-snug tracking-tight text-foreground sm:text-[15px] md:text-[15.5px]">
+                    {performanceSummaryText.split('|')[0]?.trim() ?? performanceSummaryText}
+                    {performanceSummaryText.includes('|') && (
+                      <span className="ml-1.5 block font-normal text-muted-foreground sm:ml-2 sm:inline sm:text-[14px]">
+                        | {performanceSummaryText.split('|').slice(1).join('|').trim()}
+                      </span>
+                    )}
+                  </p>
+                  {performanceDescriptionText && (
+                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground sm:text-[13px]">{performanceDescriptionText}</p>
+                  )}
+                  <div className="mt-4 overflow-x-auto sm:mt-5">
+                    <table className="w-full border-separate border-spacing-0 overflow-hidden rounded-xl border border-border text-xs sm:text-[13px]" style={{ minWidth: 460 }}>
+                      <thead>
+                        <tr>
+                          {['TICKER', '1-MONTH', '3-MONTH', `${ticker} PERFORMANCE VS`].map((h) => (
+                            <th key={h} className="border-b border-border bg-muted/50 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.05em] text-muted-foreground first:rounded-tl-xl last:rounded-tr-xl sm:px-4 sm:py-[11px] sm:text-[11px]">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {/* Main ticker row */}
+                        <tr>
+                          <td className="border-b border-border px-3 py-2.5 sm:px-4 sm:py-[11px]">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <div className="flex h-6 w-6 shrink-0 overflow-hidden rounded-md border border-border bg-muted sm:h-7 sm:w-7">
+                                <TickerIcon ticker={ticker} size={28} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+                              </div>
+                              <span className="min-w-0 font-mono text-xs font-semibold text-foreground sm:text-[13px]">
+                                ${ticker} ({data.name.split(' ')[0]})
                               </span>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Key Levels */}
-                      <div>
-                        <h3 className="font-semibold text-sm sm:text-base text-slate-900 mb-2 sm:mb-3 pb-2 border-b border-slate-200">Key Levels</h3>
-                        <div className="space-y-2">
-                          {trendData.keyLevels.map((level: any, idx: number) => (
-                            <div key={idx} className="flex items-center justify-between text-xs sm:text-sm border-b border-slate-100 pb-2 last:border-0">
-                              <span className="text-slate-700 pr-2">{level.label}</span>
-                              <span className="font-medium text-slate-900 flex-shrink-0">{level.value}</span>
+                          </td>
+                          <PerfCell value={data.perf1M} />
+                          <PerfCell value={data.perf3M} />
+                          <td className={`border-b border-border px-3 py-2.5 font-mono text-xs sm:px-4 sm:py-[11px] sm:text-[13px] ${vsHighClass()}`}>
+                            {vsHighPct != null ? `1Y High: ${vsHighPct > 0 ? '+' : ''}${vsHighPct.toFixed(1)}%` : 'N/A'}
+                          </td>
+                        </tr>
+                        {/* Benchmark 1 */}
+                        <tr>
+                          <td className="border-b border-border px-3 py-2.5 sm:px-4 sm:py-[11px]">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {firstBenchSym ? (
+                                <div className="flex h-6 w-6 shrink-0 overflow-hidden rounded-md border border-border bg-muted sm:h-7 sm:w-7">
+                                  <TickerIcon ticker={firstBenchSym} size={28} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+                                </div>
+                              ) : null}
+                              <span className="min-w-0 font-mono text-xs text-muted-foreground sm:text-[13px]">{data.firstBenchmarkLabel}</span>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+                          </td>
+                          <PerfCell value={data.firstBenchmark1M} />
+                          <PerfCell value={data.firstBenchmark3M} />
+                          <td className={`border-b border-border px-3 py-2.5 text-xs font-medium sm:px-4 sm:py-[11px] sm:text-[13px] ${getComparisonInfo(data.vsSpyComparison).cls}`}>
+                            {getComparisonInfo(data.vsSpyComparison).short}
+                          </td>
+                        </tr>
+                        {/* Benchmark 2 */}
+                        <tr>
+                          <td className="px-3 py-2.5 sm:px-4 sm:py-[11px]">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {secondBenchSym ? (
+                                <div className="flex h-6 w-6 shrink-0 overflow-hidden rounded-md border border-border bg-muted sm:h-7 sm:w-7">
+                                  <TickerIcon ticker={secondBenchSym} size={28} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+                                </div>
+                              ) : null}
+                              <span className="min-w-0 font-mono text-xs text-muted-foreground sm:text-[13px]">{data.secondBenchmarkLabel}</span>
+                            </div>
+                          </td>
+                          <PerfCell value={data.secondBenchmark1M} />
+                          <PerfCell value={data.secondBenchmark3M} />
+                          <td className={`px-3 py-2.5 text-xs font-medium sm:px-4 sm:py-[11px] sm:text-[13px] ${getComparisonInfo(data.vsBenchmarkComparison).cls}`}>
+                            {getComparisonInfo(data.vsBenchmarkComparison).short}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              );
-            };
+              </SectionCard>
 
-            const activeTrend = trendTimeframe === 'D' ? data.dailyTrend : data.weeklyTrend;
-            return renderTrendSection(activeTrend);
-          })()}
+              {/* CHART TREND */}
+              <SectionCard>
+                <SectionHead>
+                  <SectionTitle>{isWeekly ? 'Weekly' : 'Daily'} Chart Trend</SectionTitle>
+                  <div className="flex items-center gap-3">
+                    {/* Weekly range */}
+                    {isWeekly && (
+                      <div className="inline-flex gap-0.5 rounded-[10px] border border-border bg-muted/50 p-[3px]">
+                        {(['3M', '6M', '1Y', 'ALL'] as const).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            aria-pressed={weeklyRange === r}
+                            onClick={() => setWeeklyRange(r)}
+                            className={`rounded-[7px] px-2 py-1 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-[12px] ${
+                              weeklyRange === r
+                                ? 'bg-card text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            {r}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {/* Legend */}
+                    <div className="hidden items-center gap-4 text-[12px] text-muted-foreground sm:flex">
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-[3px] w-[10px] rounded-full" style={{ background: 'oklch(0.56 0.21 285)' }} />
+                        Price
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-[3px] w-[10px] rounded-full" style={{ background: 'oklch(0.72 0.14 85)' }} />
+                        {isWeekly ? '9-week EMA' : '9-day EMA'}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-[3px] w-[10px] rounded-full" style={{ background: 'oklch(0.6 0.1 240)' }} />
+                        {isWeekly ? '30-week EMA' : '21-day EMA'}
+                      </span>
+                    </div>
+                    {/* D/W toggle */}
+                    <div className="inline-flex gap-0.5 rounded-[10px] border border-border bg-muted/50 p-[3px]">
+                      {(['W', 'D'] as const).map((tf) => (
+                        <button
+                          key={tf}
+                          type="button"
+                          aria-pressed={chartTf === tf}
+                          onClick={() => setChartTf(tf)}
+                          className={`rounded-[7px] px-2.5 py-1 text-xs font-medium transition-colors sm:px-3.5 sm:py-1.5 sm:text-[12.5px] ${
+                            chartTf === tf
+                              ? 'bg-card text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {tf}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </SectionHead>
+                <div className="p-4 sm:p-[22px]">
+                  {/* Stars + Rating */}
+                  <div className="mb-4 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+                    <ScoreBars score={activeTrend.score} rating={activeRatingLabel} ratingRows={ratingLabelRows} />
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground sm:text-[13px]">
+                      <span
+                        className={`rounded-md px-2 py-0.5 text-xs font-semibold ${ratingBadgeClassName(activeRatingLabel, ratingLabelRows)}`}
+                        style={ratingBadgeInlineStyle(activeRatingLabel, ratingLabelRows)}
+                      >
+                        {activeRatingLabel}
+                      </span>
+                      <span className="text-muted-foreground/80" aria-hidden>
+                        |
+                      </span>
+                      <span
+                        className={TREND_OUTLOOK_PILL_CLASS}
+                        title={trendOutlookAriaLabel(activeTrend.outlook, activeTrend.score, trendThresholds)}
+                      >
+                        <span className={trendOutlookDotClass(activeTrend.outlook)} aria-hidden />
+                        {activeTrend.outlook}
+                      </span>
+                    </span>
+                  </div>
+
+                  {/* Description */}
+                  {activeTrendDescription && (
+                    <div className="mb-4 rounded-[10px] bg-muted/50 py-3 text-left text-xs leading-relaxed text-muted-foreground sm:py-3.5 sm:text-[13px]">
+                      {activeTrendDescription}
+                    </div>
+                  )}
+
+                  {/* Real Price Chart */}
+                  <div className="relative overflow-hidden rounded-xl bg-muted/30">
+                    {chartLoading && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-background/40 z-10">
+                        <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    {priceHistory.length > 0 ? (
+                      <PriceChart
+                        bars={priceHistory}
+                        interval={isWeekly ? 'weekly' : 'daily'}
+                        emaShort={emaPeriodShort}
+                        emaLong={emaPeriodLong}
+                        height={240}
+                      />
+                    ) : (
+                      <div className="flex h-[240px] items-center justify-center">
+                        <p className="px-2 text-center text-xs text-muted-foreground sm:text-[13px]">
+                          {chartLoading ? 'Loading chart…' : 'Chart data is not available yet for this ticker.'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </SectionCard>
+
+            </div>{/* /LEFT */}
+
+            {/* RIGHT column */}
+            <div className="flex flex-col gap-5">
+
+              {/* TREND SIGNALS */}
+              <SectionCard>
+                <SectionHead>
+                  <SectionTitle>Trend Signals</SectionTitle>
+                </SectionHead>
+                <div className="px-4 py-2 sm:px-[22px]">
+                  {activeTrend.signals.map((sig, i) => (
+                    <SignalRow
+                      key={i}
+                      label={sig.label}
+                      value={formatSignalValue(sig)}
+                      icon={sig.icon || undefined}
+                      isNum={sig.raw != null}
+                    />
+                  ))}
+                </div>
+              </SectionCard>
+
+              {/* KEY LEVELS */}
+              <SectionCard>
+                <SectionHead>
+                  <SectionTitle>Key Levels</SectionTitle>
+                </SectionHead>
+                <div className="px-4 py-2 sm:px-[22px]">
+                  {activeTrend.keyLevels.map((lv, i) => (
+                    <div key={i} className="flex items-center justify-between border-b border-border/50 py-[11px] last:border-0">
+                      <span className="text-xs text-muted-foreground sm:text-[13px]">{lv.label}</span>
+                      <span className="font-mono text-xs font-semibold tabular-nums text-foreground sm:text-[13px]">{lv.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </SectionCard>
+
+            </div>{/* /RIGHT */}
+          </div>
         </div>
       </main>
     </div>

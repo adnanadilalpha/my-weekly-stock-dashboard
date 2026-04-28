@@ -41,3 +41,6 @@ google-apps-script/
 
 
 sheets/
+
+.claude/
+.cursor/

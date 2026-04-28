@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseConfig } from '@/lib/supabase-env';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const {
+  url: supabaseUrl,
+  anonKey: supabaseAnonKey,
+  serviceRoleKey: supabaseServiceRoleKey,
+} = getSupabaseConfig();
 
 // Server-side Supabase client with service role for admin operations (if available)
 const supabaseAdmin = supabaseServiceRoleKey

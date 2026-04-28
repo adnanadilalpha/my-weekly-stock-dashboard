@@ -1,4 +1,5 @@
 import { supabase } from '../supabase-client';
+import { USER_TICKER_ACTIVE_OR, rowVisibleToEndUser } from './user-ticker-visibility';
 
 export interface MegaCap {
   id: string;
@@ -86,6 +87,7 @@ export async function getAllMegaCaps(timeframe: 'D' | 'W' = 'D'): Promise<MegaCa
   const { data, error } = await supabase
     .from('mega_caps')
     .select('*')
+    .or(USER_TICKER_ACTIVE_OR)
     .order('ticker');
 
   if (error) {
@@ -108,6 +110,7 @@ export async function getMegaCapByTicker(ticker: string): Promise<MegaCap | null
     throw error;
   }
 
-  return data ?? null;
+  if (!rowVisibleToEndUser(data)) return null;
+  return data;
 }
 

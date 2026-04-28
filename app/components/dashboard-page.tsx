@@ -1,45 +1,57 @@
 'use client';
 
-import { useState } from 'react';
-import { RefreshCw, Star, Check, X, AlertCircle } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { RefreshCw, AlertCircle, Search, ChevronRight, ChevronDown } from 'lucide-react';
 import { Button } from './ui/button';
-import { AppHeader } from './app-header';
 import { TickerIcon } from './ui/ticker-icon';
+import { AppHeader } from './app-header';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { useDashboardData } from '../../lib/hooks/useDashboardData';
+import { fetchFormulaRatingLabels } from '@/lib/queries/formula-display';
+import { ratingBadgeClassName, ratingBadgeInlineStyle } from '@/lib/mws-formula-badges';
 
 // Mapping of ticker symbols to display names (matching index-page.tsx)
 const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
-  // Segments
-  'SPY': 'S&P500',
-  'QQQ': 'Nasdaq',
-  'IWM': 'Small Caps',
-  'TLT': 'Treasuries',
-  'UUP': 'US Dollar fund',
-  'GLD': 'Gold',
-  'SLV': 'Silver',
-  'IBIT': 'Bitcoin',
-  'ETHA': 'Ethereum',
-  'USO': 'Oil',
-  // Sectors
-  'XLK': 'Technology',
-  'XLC': 'Communication Services',
-  'SMH': 'Semiconductors',
-  'XLY': 'Consumer Cyclicals',
-  'XLF': 'Financials',
-  'XLI': 'Industrials',
-  'XLE': 'Energy',
-  'XLB': 'Materials',
-  'XLRE': 'Real Estate',
-  'XLU': 'Utilities',
-  'XLV': 'Healthcare',
-  'XLP': 'Consumer Defensive',
+  SPY: 'S&P500',
+  QQQ: 'Nasdaq',
+  IWM: 'Small Caps',
+  TLT: 'Treasuries',
+  UUP: 'US Dollar fund',
+  GLD: 'Gold',
+  SLV: 'Silver',
+  IBIT: 'Bitcoin',
+  ETHA: 'Ethereum',
+  USO: 'Oil',
+  XLK: 'Technology',
+  XLC: 'Communication Services',
+  SMH: 'Semiconductors',
+  XLY: 'Consumer Cyclicals',
+  XLF: 'Financials',
+  XLI: 'Industrials',
+  XLE: 'Energy',
+  XLB: 'Materials',
+  XLRE: 'Real Estate',
+  XLU: 'Utilities',
+  XLV: 'Healthcare',
+  XLP: 'Consumer Defensive',
 };
 
-// Order arrays for segments and sectors
 const SEGMENT_ORDER = ['SPY', 'QQQ', 'IWM', 'TLT', 'UUP', 'GLD', 'SLV', 'IBIT', 'ETHA', 'USO'];
 const SECTOR_ORDER = ['XLK', 'XLC', 'SMH', 'XLY', 'XLF', 'XLI', 'XLE', 'XLB', 'XLRE', 'XLU', 'XLV', 'XLP'];
+
+type TrendFilter = 'all' | 'up' | 'flat' | 'down';
+
+interface TableRow {
+  segment: string;
+  ticker: string;
+  perf1M: number | null;
+  perf3M: number | null;
+  vsHigh: number | null;
+  trendScore: number;
+  rating: string;
+  outlook: string;
+}
 
 interface DashboardPageProps {
   userEmail: string;
@@ -50,237 +62,411 @@ interface DashboardPageProps {
   onGoToMWS: () => void;
 }
 
-export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode, onGoToPortfolio, onGoToMWS }: DashboardPageProps) {
+function toNumeric(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatPercentSigned(value: number | null, decimals = 1) {
+  if (value == null) return '—';
+  const pct = Math.abs(value) <= 1 ? value * 100 : value;
+  const rounded = Number(pct.toFixed(decimals));
+  const sign = rounded > 0 ? '+' : '';
+  return `${sign}${rounded}%`;
+}
+
+/** Center-zero perf bar (design); maxAbs scales bar fill */
+function vsHighToneClasses(pct: number): { text: string; bar: string } {
+  return { text: 'text-muted-foreground', bar: 'bg-neutral-400 dark:bg-neutral-500' };
+}
+
+function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; maxAbs: number; mode?: 'default' | 'vsHigh' }) {
+  if (value == null) {
+    return (
+      <div className="flex min-w-[120px] items-center gap-2">
+        <span className="min-w-[52px] text-left font-mono text-xs text-muted-foreground">—</span>
+        <div className="relative h-1.5 flex-1 rounded-full bg-muted" />
+      </div>
+    );
+  }
+  const pct = Math.abs(value) <= 1 ? value * 100 : value;
+  const clamped = Math.max(-maxAbs, Math.min(maxAbs, pct));
+  const widthPct = maxAbs > 0 ? (Math.abs(clamped) / maxAbs) * 50 : 0;
+  const visibleWidthPct = clamped !== 0 ? (mode === 'vsHigh' ? Math.max(widthPct, 10) : widthPct) : 0;
+  const pos = clamped >= 0;
+  const tone = mode === 'vsHigh' ? vsHighToneClasses(pct) : null;
+  const valueClass = tone ? tone.text : (pos ? 'text-emerald-600' : 'text-red-600');
+  const barClass = tone ? tone.bar : (pos ? 'bg-emerald-500' : 'bg-red-500');
+  return (
+    <div className="flex min-w-[120px] max-w-full items-center gap-2">
+      <span
+        className={`min-w-[52px] text-left font-mono text-xs font-medium tabular-nums ${valueClass}`}
+      >
+        {formatPercentSigned(value, 1)}
+      </span>
+      <div className="relative h-1.5 flex-1 rounded-full bg-muted">
+        <span className="absolute left-1/2 top-0 z-[1] h-full w-px -translate-x-1/2 bg-border" aria-hidden />
+        {clamped !== 0 && (
+          <span
+            className={`absolute top-0 h-full rounded-full ${pos ? 'left-1/2' : 'right-1/2'} ${barClass}`}
+            style={{ width: `${visibleWidthPct}%` }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScoreBars({ score, rating, ratingRows }: { score: number; rating: string; ratingRows: { tier: string; label: string; color_hex?: string | null }[] }) {
+  const s = Math.max(0, Math.min(5, score));
+  const full = Math.floor(s);
+  const partial = s - full >= 0.5 ? 1 : 0;
+  const filled = Math.min(5, full + partial);
+  const tone = ratingBadgeInlineStyle(rating, ratingRows)?.backgroundColor ?? '#f59e0b';
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex gap-0.5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <span
+            key={i}
+            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? '' : 'bg-muted'}`}
+            style={{ backgroundColor: i < filled ? tone : undefined }}
+          />
+        ))}
+      </div>
+      <span className="min-w-[2rem] font-mono text-sm font-semibold tabular-nums text-foreground">{s.toFixed(1)}</span>
+    </div>
+  );
+}
+
+function RatingChip({ rating, ratingRows }: { rating: string; ratingRows: { tier: string; label: string; color_hex?: string | null }[] }) {
+  return (
+    <span
+      className={`inline-flex max-w-full items-center justify-center truncate rounded-full border px-2.5 py-0.5 text-xs font-medium ${ratingBadgeClassName(rating, ratingRows)}`}
+      style={ratingBadgeInlineStyle(rating, ratingRows)}
+      title={rating}
+    >
+      {rating}
+    </span>
+  );
+}
+
+function outlookDotClass(outlook: string): { dot: string; text: string } {
+  const o = outlook.toLowerCase();
+  if (o.includes('stable')) {
+    return { dot: 'bg-green-600', text: 'text-foreground' };
+  }
+  if (o.includes('firm')) {
+    return { dot: 'bg-emerald-500', text: 'text-foreground' };
+  }
+  if (o.includes('cool')) {
+    return { dot: 'bg-orange-600', text: 'text-foreground' };
+  }
+  if (o.includes('soft')) {
+    return { dot: 'bg-amber-800', text: 'text-foreground' };
+  }
+  if (o.includes('warm')) {
+    return { dot: 'bg-cyan-700', text: 'text-foreground' };
+  }
+  if (o.includes('extend')) {
+    return { dot: 'bg-amber-500', text: 'text-foreground' };
+  }
+  if (o.includes('revers')) {
+    return { dot: 'bg-red-500', text: 'text-foreground' };
+  }
+  return { dot: 'bg-muted-foreground/60', text: 'text-muted-foreground' };
+}
+
+function OutlookCell({ outlook }: { outlook: string }) {
+  const { dot, text } = outlookDotClass(outlook);
+  return (
+    <div className={`flex items-center justify-start gap-2 text-xs ${text}`}>
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full  shadow-none outline-none ${dot}`} aria-hidden />
+      <span className="max-w-[140px] truncate">{outlook}</span>
+    </div>
+  );
+}
+
+function applyRowFilter(rows: TableRow[], q: string, filter: TrendFilter): TableRow[] {
+  let out = rows;
+  const n = q.trim().toLowerCase();
+  if (n) {
+    out = out.filter((x) => x.segment.toLowerCase().includes(n) || x.ticker.toLowerCase().includes(n));
+  }
+  if (filter === 'up') out = out.filter((x) => x.trendScore >= 3);
+  else if (filter === 'flat') out = out.filter((x) => x.trendScore >= 2 && x.trendScore < 3);
+  else if (filter === 'down') out = out.filter((x) => x.trendScore < 2);
+  return out;
+}
+
+function groupSummary(rows: TableRow[]) {
+  const upN = rows.filter((x) => x.trendScore >= 3).length;
+  const dnN = rows.filter((x) => x.trendScore < 2).length;
+  const avg = rows.length ? (rows.reduce((s, x) => s + x.trendScore, 0) / rows.length).toFixed(1) : '—';
+  return { upN, dnN, avg };
+}
+
+export function DashboardPage({
+  userEmail,
+  onSignOut,
+  onNavigate,
+  currentAppMode,
+  onGoToPortfolio,
+  onGoToMWS,
+}: DashboardPageProps) {
   const [timeframe, setTimeframe] = useState<'D' | 'W'>('D');
+  const [query, setQuery] = useState('');
+  const [trendFilter, setTrendFilter] = useState<TrendFilter>('all');
+  const [ratingLabelRows, setRatingLabelRows] = useState<{ tier: string; label: string; color_hex?: string | null }[]>([]);
   const { segments, sectors, loading, error, refetch } = useDashboardData(timeframe);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchFormulaRatingLabels()
+      .then((rows) => {
+        if (!cancelled) setRatingLabelRows(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleRefresh = async () => {
     await refetch();
   };
 
-  // Get the most recent update date from all data
   const getLastUpdatedDate = (): string | null => {
     const allItems = [...segments, ...sectors];
     if (allItems.length === 0) return null;
-
     let mostRecent: Date | null = null;
-
-    allItems.forEach(item => {
-      const dateStr = (item as any).updated_at;
+    allItems.forEach((item) => {
+      const dateStr = (item as { updated_at?: string }).updated_at;
       if (dateStr) {
         const date = new Date(dateStr);
-        if (!isNaN(date.getTime())) {
-          if (mostRecent === null || date > mostRecent) {
-            mostRecent = date;
-          }
+        if (!Number.isNaN(date.getTime()) && (mostRecent === null || date > mostRecent)) {
+          mostRecent = date;
         }
       }
     });
-
-    if (mostRecent === null) {
-      return null;
-    }
-
-    // TypeScript type guard - mostRecent is definitely Date here
-    const dateToFormat: Date = mostRecent;
-    return dateToFormat.toLocaleString('en-US', { 
-      month: 'long', 
-      day: 'numeric', 
+    if (mostRecent === null) return null;
+    const formatted: Date = mostRecent;
+    return formatted.toLocaleString('en-US', {
+      month: 'numeric',
+      day: 'numeric',
       year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
   };
 
   const lastUpdated = getLastUpdatedDate();
 
-  // Transform Supabase data to table format
-  const transformToTableData = (item: any, getSegmentName: (item: any) => string) => {
+  const getDisplayName = (ticker: string, dbName: string | null | undefined) =>
+    TICKER_TO_DISPLAY_NAME[ticker] || dbName || ticker;
+
+  const sortByOrder = <T extends { ticker: string }>(items: T[], order: string[]): T[] =>
+    [...items].sort((a, b) => {
+      const ia = order.indexOf(a.ticker);
+      const ib = order.indexOf(b.ticker);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return 0;
+    });
+
+  const transformToTableData = (item: Record<string, unknown>, getSegmentName: (item: Record<string, unknown>) => string): TableRow => {
     const isDaily = timeframe === 'D';
-    // Performance data - use new simplified fields with fallback to old fields
-    const perf1M = item['1m_percent'] ?? item.daily_1m_percent;
-    const perf3M = item['3m_percent'] ?? item.daily_3m_percent;
-    const vsHigh = item['vs_1y_high'] ?? item.daily_vs_1y_high;
-    // Only trend data switches based on timeframe
-    const trendScore = isDaily ? item.daily_trend_score : item.weekly_trend_score;
+    const perf1M = toNumeric(item['1m_percent'] ?? item.daily_1m_percent);
+    const perf3M = toNumeric(item['3m_percent'] ?? item.daily_3m_percent);
+    const vsHigh = toNumeric(item['vs_1y_high'] ?? item.daily_vs_1y_high);
+    const trendScore = isDaily ? toNumeric(item.daily_trend_score) : toNumeric(item.weekly_trend_score);
     const rating = isDaily ? item.daily_rating : item.weekly_rating;
-    const outlook = isDaily ? item.daily_outlook : item.weekly_outlook;
-    
+    const resolvedScore = trendScore ?? 0;
+    const outlook = String(isDaily ? (item.daily_outlook ?? '') : (item.weekly_outlook ?? '')).trim() || 'Stable';
     return {
       segment: getSegmentName(item),
-      ticker: item.ticker,
-      perf1M: perf1M ?? 0,
-      perf3M: perf3M ?? 0,
-      vsHigh: vsHigh ?? 0,
-      trendScore: trendScore ?? 0,
-      rating: rating ?? 'N/A',
-      outlook: outlook ?? 'N/A',
-      hasX: (vsHigh ?? 0) <= -10, // Show X for values at or below -10%
-      // No logic - all data comes from Supabase
+      ticker: String(item.ticker ?? ''),
+      perf1M,
+      perf3M,
+      vsHigh,
+      trendScore: resolvedScore,
+      rating: rating != null ? String(rating) : 'N/A',
+      outlook,
     };
   };
 
-  // Helper function to get display name from ticker
-  const getDisplayName = (ticker: string, dbName: string | null | undefined): string => {
-    return TICKER_TO_DISPLAY_NAME[ticker] || dbName || ticker;
-  };
-
-  // Helper function to sort by order array
-  const sortByOrder = <T extends { ticker: string }>(items: T[], order: string[]): T[] => {
-    return [...items].sort((a, b) => {
-      const indexA = order.indexOf(a.ticker);
-      const indexB = order.indexOf(b.ticker);
-      // If both are in order array, sort by their position
-      if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-      // If only one is in order array, prioritize it
-      if (indexA !== -1) return -1;
-      if (indexB !== -1) return 1;
-      // If neither is in order array, maintain original order
-      return 0;
-    });
-  };
-
-  const marketSegmentsData = sortByOrder(
-    segments.map(s => transformToTableData(s, (item) => getDisplayName(item.ticker, item.name))),
-    SEGMENT_ORDER
-  );
-  const sectorsData = sortByOrder(
-    sectors.map(s => transformToTableData(s, (item) => getDisplayName(item.ticker, item.sector_name))),
-    SECTOR_ORDER
+  const marketSegmentsData: TableRow[] = useMemo(
+    () =>
+      sortByOrder(
+        segments.map((s) =>
+          transformToTableData(s as unknown as Record<string, unknown>, (it) =>
+            getDisplayName(String(it.ticker), it.name as string | undefined),
+          ),
+        ),
+        SEGMENT_ORDER,
+      ),
+    [segments, timeframe],
   );
 
-  // Get performance color and icon based on value (matching sheet logic)
-  const getPerformanceColor = (value: number) => {
-    // Background colors removed - keeping for text color if needed
-    return '';
-  };
+  const sectorsData: TableRow[] = useMemo(
+    () =>
+      sortByOrder(
+        sectors.map((s) =>
+          transformToTableData(s as unknown as Record<string, unknown>, (it) =>
+            getDisplayName(String(it.ticker), it.sector_name as string | undefined),
+          ),
+        ),
+        SECTOR_ORDER,
+      ),
+    [sectors, timeframe],
+  );
 
-  const getPerformanceIcon = (value: number) => {
-    if (value > 0) return '🟩';
-    if (value === 0) return '🟨';
-    return '🟥';
-  };
+  const filteredSegments = useMemo(
+    () => applyRowFilter(marketSegmentsData, query, trendFilter),
+    [marketSegmentsData, query, trendFilter],
+  );
+  const filteredSectors = useMemo(() => applyRowFilter(sectorsData, query, trendFilter), [sectorsData, query, trendFilter]);
 
-  const getVsHighIcon = (value: number) => {
-    if (value > -5) return '✅';
-    if (value > -10) return '⚪️';
-    return '❌';
-  };
+  const segSummary = useMemo(() => groupSummary(marketSegmentsData), [marketSegmentsData]);
+  const secSummary = useMemo(() => groupSummary(sectorsData), [sectorsData]);
 
-  const getCheckOrX = (value: number, hasX?: boolean) => {
-    if (hasX) return <X className="w-3 h-3 text-red-600" />;
-    return <Check className="w-3 h-3 text-green-600" />;
-  };
+  const subtitleParts = [
+    'Performance & trend across market segments and sectors',
+    lastUpdated ? `last updated ${lastUpdated}` : null,
+  ].filter(Boolean);
 
-  const renderStars = (score: number) => {
-    const fullStars = Math.floor(score);
-    const hasHalfStar = score % 1 >= 0.5;
-    const stars = [];
-    
-    for (let i = 0; i < 5; i++) {
-      if (i < fullStars) {
-        stars.push(<Star key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-yellow-400 text-yellow-400" />);
-      } else if (i === fullStars && hasHalfStar) {
-        stars.push(<Star key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-yellow-400/50 text-yellow-400" />);
-      } else {
-        stars.push(<Star key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-neutral-300" />);
-      }
-    }
-    return stars;
-  };
+  const FilterButton = ({
+    label,
+    pressed,
+    onClick,
+  }: {
+    label: string;
+    pressed: boolean;
+    onClick: () => void;
+  }) => (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:text-sm ${
+        pressed ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+      }`}
+    >
+      {label}
+    </button>
+  );
 
-  const renderTableSection = (title: string, data: typeof marketSegmentsData) => (
-    <div className="mb-7 sm:mb-9 last:mb-0">
-      {/* Section Headers */}
-      <div className="grid grid-cols-[2fr_3fr_5fr] gap-0 mb-0">
-        <div className="bg-slate-900 text-white px-3 sm:px-4 py-2.5 text-center font-semibold border-r border-slate-700 text-xs sm:text-sm tracking-wide">
-          {title}
+  const renderPulseGroup = (
+    titleUpper: string,
+    allRows: TableRow[],
+    filteredRows: TableRow[],
+    summary: { upN: number; dnN: number; avg: string },
+  ) => (
+    <div className="w-full overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-border bg-muted/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titleUpper}</span>
+          <span className="rounded-full border border-border bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground">
+            {allRows.length}
+          </span>
         </div>
-        <div className="bg-slate-900 text-white px-3 sm:px-4 py-2.5 text-center font-semibold border-r border-slate-700 text-xs sm:text-sm tracking-wide">
-          PERFORMANCE
-        </div>
-        <div className="bg-slate-900 text-white px-3 sm:px-4 py-2.5 text-center font-semibold text-xs sm:text-sm tracking-wide">
-          {timeframe === 'D' ? 'DAILY' : 'WEEKLY'} CHART TREND
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground sm:text-sm">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span>{summary.upN} up</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+            <span>{summary.dnN} down</span>
+          </span>
+          <span className="hidden h-3 w-px bg-border sm:inline-block" aria-hidden />
+          <span>
+            Avg <strong className="font-mono text-foreground">{summary.avg}</strong>
+          </span>
         </div>
       </div>
 
-      {/* Table with proper column alignment */}
-      <table className="w-full border-collapse">
-        <colgroup>
-          <col className="w-[20%]" />
-          <col className="w-[10%]" />
-          <col className="w-[10%]" />
-          <col className="w-[10%]" />
-          <col className="w-[10%]" />
-          <col className="w-[15%]" />
-          <col className="w-[12%]" />
-          <col className="w-[13%]" />
-        </colgroup>
-        <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-left text-xs sm:text-sm">Segment</th>
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-left text-xs sm:text-sm">Ticker</th>
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">1M</th>
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">3M</th>
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">vs 1Y High</th>
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">Trend Score (0-5)</th>
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 border-r border-slate-200 text-center text-xs sm:text-sm">Rating</th>
-            <th className="px-3 sm:px-4 py-2.5 font-semibold text-slate-900 text-center text-xs sm:text-sm">Outlook</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, idx) => (
-            <tr 
-              key={idx} 
-              className="border-b border-slate-100 hover:bg-slate-50/70 cursor-pointer transition-colors"
-              onClick={() => onNavigate('ticker-analysis', row.ticker)}
-            >
-              <td className="px-3 sm:px-4 py-2.5 text-slate-900 border-r border-slate-100 truncate text-xs sm:text-sm">{row.segment}</td>
-              <td className="px-3 sm:px-4 py-2.5 text-slate-700 border-r border-slate-100 text-left text-xs sm:text-sm">
-                <span className="inline-flex items-center gap-1.5 font-medium">
-                  <TickerIcon ticker={row.ticker} size={14} />
-                  <span>{row.ticker}</span>
-                </span>
-              </td>
-              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-slate-900 font-medium text-xs sm:text-sm">
-                <div className="flex items-center gap-0.5 sm:gap-1">
-                  <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf1M)}</span>
-                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf1M > 0 ? '+' : ''}{row.perf1M}%</span>
-                </div>
-              </td>
-              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-slate-900 font-medium text-xs sm:text-sm">
-                <div className="flex items-center gap-0.5 sm:gap-1">
-                  <span className="flex-shrink-0 text-[10px] sm:text-xs">{getPerformanceIcon(row.perf3M)}</span>
-                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.perf3M > 0 ? '+' : ''}{row.perf3M}%</span>
-                </div>
-              </td>
-              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-slate-900 font-medium text-xs sm:text-sm">
-                <div className="flex items-center gap-0.5 sm:gap-1">
-                  <span className="flex-shrink-0 text-[10px] sm:text-xs">{getVsHighIcon(row.vsHigh)}</span>
-                  <span className="flex-1 text-center tabular-nums whitespace-nowrap">{row.vsHigh > 0 ? '+' : ''}{row.vsHigh}%</span>
-                </div>
-              </td>
-              <td className="px-3 sm:px-4 py-2.5 border-r border-slate-100 text-xs sm:text-sm">
-                <div className="flex items-center justify-center gap-1 sm:gap-2">
-                  <div className="flex gap-0.5 flex-shrink-0">
-                    {renderStars(row.trendScore)}
-                  </div>
-                  <span className="text-slate-900 font-medium whitespace-nowrap">| {row.trendScore}</span>
-                </div>
-              </td>
-              <td className="px-3 sm:px-4 py-2.5 text-center text-slate-900 border-r border-slate-100 text-xs sm:text-sm">{row.rating}</td>
-              <td className="px-3 sm:px-4 py-2.5 text-center text-slate-700 italic text-xs sm:text-sm truncate">{row.outlook}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {filteredRows.length === 0 ? (
+        <div className="px-4 py-10 text-center text-sm text-muted-foreground">No rows match your filters.</div>
+      ) : (
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[900px] border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground sm:px-5">
+                  Asset
+                </th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">1-Month</th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">3-Month</th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">vs 1Y High</th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    Score
+                    <ChevronDown className="h-3 w-3 opacity-50" aria-hidden />
+                  </span>
+                </th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Rating</th>
+                <th className="px-3 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Outlook</th>
+                <th className="w-10 px-2 py-3" aria-hidden />
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map((row) => (
+                <tr
+                  key={row.ticker}
+                  className="cursor-pointer border-b border-border/60 transition-colors last:border-b-0 hover:bg-muted/40"
+                  onClick={() => onNavigate('ticker-analysis', row.ticker)}
+                >
+                  <td className="px-4 py-3 sm:px-5">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
+                        <TickerIcon ticker={row.ticker} size={36} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground sm:text-base">{row.segment}</div>
+                        <div className="font-mono text-xs text-muted-foreground">{row.ticker}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <PerfBar value={row.perf1M} maxAbs={20} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <PerfBar value={row.perf3M} maxAbs={30} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <PerfBar value={row.vsHigh} maxAbs={12} mode="vsHigh" />
+                  </td>
+                  <td className="px-3 py-3">
+                    <ScoreBars score={row.trendScore} rating={row.rating} ratingRows={ratingLabelRows} />
+                  </td>
+                  <td className="px-3 py-3 text-left">
+                    <RatingChip rating={row.rating} ratingRows={ratingLabelRows} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <OutlookCell outlook={row.outlook} />
+                  </td>
+                  <td className="px-2 py-3 text-muted-foreground">
+                    <ChevronRight className="mx-auto h-4 w-4" aria-hidden />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="flex min-h-screen flex-col bg-background">
       <AppHeader
         userEmail={userEmail}
         currentAppMode={currentAppMode}
@@ -290,68 +476,93 @@ export function DashboardPage({ userEmail, onSignOut, onNavigate, currentAppMode
         onBack={() => onNavigate('index')}
         backLabel="Back to MWS"
       />
-      <main className="p-4 sm:p-6 lg:p-8 w-full max-w-none">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
-          <div>
-            <h1 className="font-semibold text-base text-slate-900">MWS&apos;s Momentum Pulse Check</h1>
-            {lastUpdated && (
-              <span className="text-xs text-slate-500">last updated {lastUpdated}</span>
-            )}
+
+      <main className="flex w-full flex-1 flex-col px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
+        {/* Page header — same content as before, layout matches design */}
+        <div className="mb-4 flex w-full flex-col gap-4 lg:mb-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl md:text-[1.75rem]">
+              MWS&apos;s Momentum Pulse Check
+            </h1>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">{subtitleParts.join(' · ')}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex border border-slate-300 rounded-md overflow-hidden bg-white">
+          <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+            <div className="inline-flex rounded-xl border border-border bg-muted/60 p-1">
               <button
+                type="button"
+                aria-pressed={timeframe === 'D'}
                 onClick={() => setTimeframe('D')}
-                className={`px-2 sm:px-3 py-1 text-xs transition-colors ${timeframe === 'D' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium sm:text-sm ${
+                  timeframe === 'D' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
               >
                 D
               </button>
               <button
+                type="button"
+                aria-pressed={timeframe === 'W'}
                 onClick={() => setTimeframe('W')}
-                className={`px-2 sm:px-3 py-1 text-xs border-l border-slate-300 transition-colors ${timeframe === 'W' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'}`}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium sm:text-sm ${
+                  timeframe === 'W' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
               >
                 W
               </button>
             </div>
-            <Button
-              onClick={handleRefresh}
-              disabled={loading}
-              size="sm"
-              variant="outline"
-              className="flex-shrink-0"
-            >
-              <RefreshCw className={`w-3 h-3 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
+            <Button onClick={handleRefresh} disabled={loading} size="sm" variant="outline" className="h-9 gap-2 rounded-lg">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
             </Button>
           </div>
         </div>
-        {loading && (
-          <div className="bg-white border border-neutral-200 rounded-lg p-4 sm:p-6 text-center">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-neutral-500" />
-            <p className="text-sm sm:text-base text-neutral-600">Loading data from Supabase...</p>
+
+        {/* Toolbar — search + trend filters (client-side only, same dataset) */}
+        {!loading && !error && (
+          <div className="mb-4 flex w-full flex-col gap-3 lg:mb-5 lg:flex-row lg:items-center lg:gap-4">
+            <div className="relative min-w-0 flex-1 lg:max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filter tickers…"
+                className="h-10 w-full rounded-xl border border-border bg-card py-2 pl-10 pr-3 text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </div>
+            <div className="inline-flex shrink-0 flex-wrap rounded-xl border border-border bg-muted/60 p-1">
+              <FilterButton label="All" pressed={trendFilter === 'all'} onClick={() => setTrendFilter('all')} />
+              <FilterButton label="Uptrends" pressed={trendFilter === 'up'} onClick={() => setTrendFilter('up')} />
+              <FilterButton label="Sideways" pressed={trendFilter === 'flat'} onClick={() => setTrendFilter('flat')} />
+              <FilterButton label="Downtrends" pressed={trendFilter === 'down'} onClick={() => setTrendFilter('down')} />
+            </div>
           </div>
         )}
-        
+
+        {loading && (
+          <div className="rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
+            <RefreshCw className="mx-auto mb-3 h-7 w-7 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">Loading data from Supabase...</p>
+          </div>
+        )}
+
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 sm:p-6 mb-4 sm:mb-6">
-            <div className="flex items-center gap-2 text-red-800 mb-2">
-              <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-              <h3 className="font-semibold text-sm sm:text-base">Error loading data</h3>
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40 sm:p-6">
+            <div className="mb-2 flex items-center gap-2 text-red-800 dark:text-red-200">
+              <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5" />
+              <h3 className="text-sm font-semibold sm:text-base">Error loading data</h3>
             </div>
-            <p className="text-red-700 text-xs sm:text-sm">{error.message}</p>
+            <p className="text-xs text-red-700 dark:text-red-300 sm:text-sm">{error.message}</p>
             <Button onClick={handleRefresh} variant="outline" size="sm" className="mt-4">
-              <RefreshCw className="w-4 h-4 mr-2" />
+              <RefreshCw className="mr-2 h-4 w-4" />
               Retry
             </Button>
           </div>
         )}
-        
+
         {!loading && !error && (
-          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 overflow-x-auto">
-            <div className="min-w-[800px]">
-            {renderTableSection('MARKET SEGMENTS', marketSegmentsData)}
-            {renderTableSection('SECTORS', sectorsData)}
-            </div>
+          <div className="flex w-full flex-1 flex-col gap-4 pb-8 sm:gap-5">
+            {renderPulseGroup('Market segments', marketSegmentsData, filteredSegments, segSummary)}
+            {renderPulseGroup('Sectors', sectorsData, filteredSectors, secSummary)}
           </div>
         )}
       </main>

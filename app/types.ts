@@ -6,6 +6,7 @@ export type AppMode = 'hub' | 'mws' | 'portfolio';
 /** Portfolio detail pages (client-requested 5 only for now) */
 export type PortfolioPage =
   | 'dashboard'
+  | 'momentum-combined'
   | 'dow30'
   | 'large-caps'
   | 'nasdaq100'

@@ -66,6 +66,8 @@
     --destructive-foreground: oklch(0.637 0.237 25.331);
     --border: oklch(0.269 0 0);
     --input: oklch(0.269 0 0);
+    /* :root keeps light #f3f3f5; without this, native fields stay light in dark mode */
+    --input-background: oklch(0.22 0 0);
     --ring: oklch(0.439 0 0);
     --font-weight-medium: 500;
     --font-weight-normal: 400;
