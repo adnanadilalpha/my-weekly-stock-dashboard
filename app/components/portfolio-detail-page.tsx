@@ -127,6 +127,17 @@ function buildPortfolioSummaryModel(
         ? summaryCols.slice(0, netAvgReturnIdx + 1 + (includeNextCagr ? 1 : 0))
         : summaryCols;
 
+  // Keep key recap stats even if they appear after the usual cutoff.
+  const mustKeepStatCols = summaryCols.filter((key) => {
+    const l = resolvedLabel(key).toLowerCase();
+    return l.includes('total trades') || (l.includes('start') && (l.includes('date') || l.includes('buy')));
+  });
+  const summaryColsFilteredWithRequired = [
+    ...summaryColsFiltered,
+    ...mustKeepStatCols.filter((k) => !summaryColsFiltered.includes(k)),
+  ];
+  const summaryColsFinal = summaryColsFilteredWithRequired;
+
   const isYearColumn = (label: string) => /^20(1[8-9]|2[0-6])$/.test(label.replace(/,/g, '').trim());
   const yearColKeys = summaryCols.filter((key) => isYearColumn(resolvedLabel(key)));
   const firstYearKey = yearColKeys[0];
@@ -140,32 +151,32 @@ function buildPortfolioSummaryModel(
 
   const summaryRowsToShowFiltered = summaryRowsToShow
     .filter((row) =>
-      summaryColsFiltered.some((key) => {
+      summaryColsFinal.some((key) => {
         const val = getVal(row as Record<string, unknown>, key);
         const label = labelByCol[key] || '';
         const raw = val != null ? String(val).trim() : '';
         const display = label
-          ? formatSummaryValue(label, val)
+          ? formatSummaryValue(label, val, portfolioPage)
           : raw === ''
             ? '\u00a0'
             : /^-?[\d.]+$/.test(raw)
-              ? formatSummaryValue('', val)
+              ? formatSummaryValue('', val, portfolioPage)
               : raw;
         return display !== '—' && display !== '\u00a0' && String(display).trim() !== '';
       }),
     )
     .filter((row) => {
-      const nonEmpty = summaryColsFiltered
+      const nonEmpty = summaryColsFinal
         .map((key) => {
           const val = getVal(row as Record<string, unknown>, key);
           const label = labelByCol[key] || '';
           const raw = val != null ? String(val).trim() : '';
           const display = label
-            ? formatSummaryValue(label, val)
+            ? formatSummaryValue(label, val, portfolioPage)
             : raw === ''
               ? '\u00a0'
               : /^-?[\d.]+$/.test(raw)
-                ? formatSummaryValue('', val)
+                ? formatSummaryValue('', val, portfolioPage)
                 : raw;
           return display;
         })
@@ -178,9 +189,9 @@ function buildPortfolioSummaryModel(
       return !onlyTitle && !onlyOpenPositions;
     });
 
-  if (summaryColsFiltered.length === 0) return null;
+  if (summaryColsFinal.length === 0) return null;
   return {
-    summaryColsFiltered,
+    summaryColsFiltered: summaryColsFinal,
     labelByCol,
     summaryRowsToShowFiltered,
     resolvedLabel,
@@ -296,6 +307,18 @@ function statCardSubtitle(
   return null;
 }
 
+function compactText(s: string): string {
+  return s.replace(/\s+/g, ' ').replace(/:/g, '').replace(/,/g, '').trim().toLowerCase();
+}
+
+function isIgnoredSummaryDisplay(display: string, titleText: string): boolean {
+  const d = compactText(display);
+  if (!d || display === '—') return true;
+  if (/^open positions?$/.test(d)) return true;
+  if (d === compactText(titleText)) return true;
+  return false;
+}
+
 function isDow30ColoredColumn(header: string): boolean {
   const h = header.toLowerCase();
   const is5d = h.includes('5-d') && h.includes('return') && (h.includes('%') || h.includes('$'));
@@ -382,6 +405,10 @@ function formatCell(
     if (isPercent) {
       const isPositionReturnPct = /return\s*%/.test(h) && !/returns\s*%/.test(h);
       let pct = n >= 1 || n <= -1 ? n : n * 100;
+      if (isMomentumCumulativePct) {
+        // Combined weekly cumulative columns store ratio-style values (e.g. 10.5 => 1050%).
+        pct = n * 100;
+      }
       if (isPositionReturnPct && Math.abs(pct) < 50 && pct !== 0) {
         pct = n * 100;
       }
@@ -444,7 +471,7 @@ function formatCell(
 }
 
 /** Format summary cell to match sheet: no long decimals. Uses column label (from first summary row) to decide format. */
-function formatSummaryValue(label: string, val: unknown): string {
+function formatSummaryValue(label: string, val: unknown, portfolioPage?: DetailPageKey): string {
   if (val == null || val === '') return '—';
   const s = String(val).trim();
   if (s.toLowerCase() === 'back to home page') return '—';
@@ -471,7 +498,9 @@ function formatSummaryValue(label: string, val: unknown): string {
     }
     if ((h.includes('return') && h.includes('%')) || h.includes('hit rate') || h.includes('avg gain') || h.includes('avg loss') || h.includes('net avg')) {
       const isPositionReturnPct = /return\s*%/.test(h) && !/returns\s*%/.test(h);
-      let pct = Math.abs(n) >= 1 ? n : n * 100;
+      // Combined summary stores "Returns %" as ratio-style value (10.87 => 1087%).
+      const isCombinedReturnsPct = portfolioPage === 'momentum-combined' && h.includes('returns %');
+      let pct = isCombinedReturnsPct ? n * 100 : Math.abs(n) >= 1 ? n : n * 100;
       if (isPositionReturnPct && Math.abs(pct) < 50 && pct !== 0) pct = n * 100;
       return pct.toFixed(1) + '%';
     }
@@ -666,6 +695,7 @@ export function PortfolioDetailPage({
   }, [summaryModel]);
 
   const pageSubtitle = useMemo(() => {
+    if (portfolioPage === 'macro-etf' || portfolioPage === 'macro-3x') return '';
     if (!summaryModel || !summaryValueRow) {
       return `${macroDetailRows.length} positions`;
     }
@@ -677,11 +707,12 @@ export function PortfolioDetailPage({
       ? formatSummaryValue(
           summaryModel.labelByCol[startKey] ?? '',
           getVal(summaryValueRow as Record<string, unknown>, startKey),
+          portfolioPage,
         )
       : null;
     const startPart = startText && startText !== '—' ? startText : null;
     return `Weekly log${startPart ? ` · tracked since ${startPart}` : ''} · ${macroDetailRows.length} positions`;
-  }, [summaryModel, summaryValueRow, macroDetailRows.length]);
+  }, [summaryModel, summaryValueRow, macroDetailRows.length, portfolioPage]);
 
   const statKeysSorted = useMemo(() => {
     if (!summaryModel) return [];
@@ -693,13 +724,97 @@ export function PortfolioDetailPage({
     const hide = supplementalStatKeysForDesign(statKeysSorted, summaryModel);
     const row = summaryValueRow as Record<string, unknown>;
     return statKeysSorted.filter((k) => {
+      const resolved = summaryModel.resolvedLabel(k).toLowerCase();
+      // Client request: remove only the "First Buy Date" stat tile.
+      if (resolved.includes('first buy') || resolved.includes('1st buy')) return false;
       if (hide.has(k)) return false;
       const label = summaryModel.labelByCol[k] || summaryModel.resolvedLabel(k);
       const raw = getVal(row, k);
-      const display = label ? formatSummaryValue(label, raw) : String(raw ?? '—');
+      const display = label ? formatSummaryValue(label, raw, portfolioPage) : String(raw ?? '—');
       return !isRedundantTitleStatTile(label, display, titleText);
     });
   }, [summaryModel, statKeysSorted, summaryValueRow, titleText]);
+
+  const preferredSummaryValueRow = useMemo(() => {
+    if (!summaryModel || summaryModel.summaryRowsToShowFiltered.length === 0) return null;
+    let best: PortfolioSheetRow | null = null;
+    let bestScore = -1;
+    for (const row of summaryModel.summaryRowsToShowFiltered) {
+      let score = 0;
+      for (const key of summaryModel.summaryColsFiltered) {
+        const label = summaryModel.labelByCol[key] || summaryModel.resolvedLabel(key);
+        const raw = getVal(row as Record<string, unknown>, key);
+        if (raw == null || String(raw).trim() === '') continue;
+        const display = formatSummaryValue(label, raw, portfolioPage);
+        if (isIgnoredSummaryDisplay(String(display), titleText)) continue;
+        const rawNum = Number(String(raw).replace(/[%,$]/g, '').trim());
+        if (Number.isFinite(rawNum)) score += 2;
+        else score += 1;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = row;
+      }
+    }
+    return best;
+  }, [summaryModel, portfolioPage, titleText]);
+
+  const summaryValueByKey = useMemo(() => {
+    const out = new Map<string, unknown>();
+    if (!summaryModel) return out;
+    const preferred = preferredSummaryValueRow as Record<string, unknown> | null;
+    const colSet = new Set(summaryModel.summaryColsFiltered);
+    const nextColKey = (key: string): string | null => {
+      const m = key.match(/^col_(\d+)$/);
+      if (!m) return null;
+      const next = `col_${Number(m[1]) + 1}`;
+      return colSet.has(next) ? next : null;
+    };
+    for (const key of summaryModel.summaryColsFiltered) {
+      const label = summaryModel.labelByCol[key] || summaryModel.resolvedLabel(key);
+      const labelNorm = compactText(label);
+      // Some sheets store KPI as horizontal label/value pair (e.g. TOTAL TRADES in col_3, value in col_4).
+      if (labelNorm.includes('total trades')) {
+        const rightKey = nextColKey(key);
+        if (rightKey) {
+          for (const row of summaryModel.summaryRowsToShowFiltered) {
+            const leftRaw = getVal(row as Record<string, unknown>, key);
+            const leftNorm = compactText(String(leftRaw ?? ''));
+            if (!leftNorm || !leftNorm.includes('total trades')) continue;
+            const rightRaw = getVal(row as Record<string, unknown>, rightKey);
+            const n = Number(String(rightRaw ?? '').replace(/[%,$]/g, '').trim());
+            if (Number.isFinite(n)) {
+              out.set(key, rightRaw);
+              continue;
+            }
+          }
+          if (out.has(key)) continue;
+        }
+      }
+      let chosen: unknown = preferred ? getVal(preferred, key) : null;
+      const chosenDisplay = formatSummaryValue(label, chosen, portfolioPage);
+      if (chosen == null || String(chosen).trim() === '' || isIgnoredSummaryDisplay(String(chosenDisplay), titleText)) {
+        chosen = null;
+      }
+      if (chosen == null) {
+        for (const row of summaryModel.summaryRowsToShowFiltered) {
+          const raw = getVal(row as Record<string, unknown>, key);
+          if (raw == null || String(raw).trim() === '') continue;
+          const display = formatSummaryValue(label, raw, portfolioPage);
+          if (isIgnoredSummaryDisplay(String(display), titleText)) continue;
+          const rawNum = Number(String(raw).replace(/[%,$]/g, '').trim());
+          const isNumericLike = Number.isFinite(rawNum);
+          if (chosen == null) chosen = raw;
+          if (isNumericLike) {
+            chosen = raw;
+            break;
+          }
+        }
+      }
+      out.set(key, chosen);
+    }
+    return out;
+  }, [summaryModel, titleText, portfolioPage, preferredSummaryValueRow]);
 
   const pickLogScrollRef = useRef<HTMLDivElement>(null);
   const [pickLogScrollEdges, setPickLogScrollEdges] = useState({ canLeft: false, canRight: false });
@@ -810,8 +925,8 @@ export function PortfolioDetailPage({
               <div className="mb-4 grid w-full min-w-0 grid-cols-1 gap-3 sm:mb-5 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(10.5rem,1fr))]">
                 {statGridKeys.map((key) => {
                   const label = summaryModel.labelByCol[key] || summaryModel.resolvedLabel(key);
-                  const raw = getVal(summaryValueRow as Record<string, unknown>, key);
-                  const display = label ? formatSummaryValue(label, raw) : String(raw ?? '—');
+                  const raw = summaryValueByKey.get(key) ?? getVal(summaryValueRow as Record<string, unknown>, key);
+                  const display = label ? formatSummaryValue(label, raw, portfolioPage) : String(raw ?? '—');
                   const tone = summaryCellTone(label, raw);
                   const valueClass =
                     tone === 'pos'
@@ -819,7 +934,12 @@ export function PortfolioDetailPage({
                       : tone === 'neg'
                         ? 'text-rose-600 dark:text-rose-400'
                         : 'text-foreground';
-                  const sub = statCardSubtitle(key, summaryModel, summaryValueRow, statKeysSorted);
+                  const sub = statCardSubtitle(
+                    key,
+                    summaryModel,
+                    Object.fromEntries(summaryValueByKey) as unknown as PortfolioSheetRow,
+                    statKeysSorted,
+                  );
                   return (
                     <div
                       key={key}
@@ -857,15 +977,15 @@ export function PortfolioDetailPage({
                     </span>
                   </div>
                   <span className="shrink-0 text-[11px] leading-tight text-muted-foreground sm:text-right">
-                    Average P&amp;L per position
+                    Average P&amp;L per week
                   </span>
                 </div>
                 <div className="w-full min-w-0 rounded-b-xl sm:rounded-b-2xl">
                   <div className="flex w-full min-w-0 flex-col divide-y divide-border sm:min-w-max sm:flex-row sm:divide-x sm:divide-y-0">
                     {tradeKeys.map((key) => {
                       const label = summaryModel.labelByCol[key] || summaryModel.resolvedLabel(key);
-                      const raw = getVal(summaryValueRow as Record<string, unknown>, key);
-                      const display = label ? formatSummaryValue(label, raw) : String(raw ?? '—');
+                      const raw = summaryValueByKey.get(key) ?? getVal(summaryValueRow as Record<string, unknown>, key);
+                      const display = label ? formatSummaryValue(label, raw, portfolioPage) : String(raw ?? '—');
                       const tone = summaryCellTone(label, raw);
                       const labLower = label.toLowerCase();
                       const valueColor =
@@ -905,10 +1025,7 @@ export function PortfolioDetailPage({
                       <Radar className="h-[13px] w-[13px]" />
                     </span>
                     <span className="text-[11px] font-semibold uppercase leading-tight tracking-[0.08em] text-muted-foreground">
-                      Weekly pick log
-                    </span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {momentumCombinedDataRows.length}
+                      Portfolio positions
                     </span>
                   </div>
                   <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-border/70 pl-2 sm:ml-2 sm:pl-3">
@@ -1027,10 +1144,7 @@ export function PortfolioDetailPage({
                       <Radar className="h-[13px] w-[13px]" />
                     </span>
                     <span className="text-[11px] font-semibold uppercase leading-tight tracking-[0.08em] text-muted-foreground">
-                      Weekly pick log
-                    </span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {macroDetailRows.length}
+                      Portfolio positions
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">

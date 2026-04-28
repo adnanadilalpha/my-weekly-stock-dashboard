@@ -128,32 +128,28 @@ function normalizeTemplateOutlookKey(value: unknown): 'Extended' | 'Stable' | 'C
 
 function getComparisonInfo(text: string | null | undefined): { cls: string; short: string } {
   if (!text || text === 'N/A') return { cls: 'text-muted-foreground', short: text ?? 'N/A' };
-  if (/leading/i.test(text)) return { cls: 'text-emerald-600 dark:text-emerald-400', short: text };
   if (/in line/i.test(text)) return { cls: 'text-muted-foreground', short: text };
-  if (/lagging/i.test(text)) return { cls: 'text-rose-600 dark:text-rose-400', short: text };
-  return { cls: 'text-muted-foreground', short: text };
+  return { cls: 'text-foreground', short: text };
 }
 
-function vsHighClass(pct: number | null): string {
-  if (pct == null) return 'text-muted-foreground';
-  if (pct >= -5 && pct <= 0) return 'text-emerald-600 dark:text-emerald-400';
-  if (pct >= -10 && pct < -5) return 'text-orange-600 dark:text-orange-400';
-  if (pct < -10) return 'text-rose-600 dark:text-rose-400';
+function vsHighClass(): string {
   return 'text-muted-foreground';
 }
 
-function ScoreBars({ score }: { score: number }) {
+function ScoreBars({ score, rating, ratingRows }: { score: number; rating: string; ratingRows: { tier: string; label: string; color_hex?: string | null }[] }) {
   const s = Math.max(0, Math.min(5, score));
   const full = Math.floor(s);
   const partial = s - full >= 0.5 ? 1 : 0;
   const filled = Math.min(5, full + partial);
+  const tone = ratingBadgeInlineStyle(rating, ratingRows)?.backgroundColor ?? '#f59e0b';
   return (
     <div className="flex items-center gap-2">
       <div className="flex gap-0.5">
         {Array.from({ length: 5 }).map((_, i) => (
           <span
             key={i}
-            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? 'bg-amber-500' : 'bg-muted'}`}
+            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? '' : 'bg-muted'}`}
+            style={{ backgroundColor: i < filled ? tone : undefined }}
           />
         ))}
       </div>
@@ -168,7 +164,7 @@ export function TickerAnalysisPage({
 }: TickerAnalysisPageProps) {
   const [ticker, setTicker] = useState(initialTicker);
   const [chartTf, setChartTf] = useState<'W' | 'D'>('W');
-  const [weeklyRange, setWeeklyRange] = useState<WeeklyRange>('3M');
+  const [weeklyRange, setWeeklyRange] = useState<WeeklyRange>('1Y');
   const { data: supabaseData, type, loading, error, refetch } = useTickerData(ticker);
 
   const [firstBenchmarkData, setFirstBenchmarkData] = useState<Record<string, unknown> | null>(null);
@@ -777,7 +773,7 @@ export function TickerAnalysisPage({
                           </td>
                           <PerfCell value={data.perf1M} />
                           <PerfCell value={data.perf3M} />
-                          <td className={`border-b border-border px-3 py-2.5 font-mono text-xs sm:px-4 sm:py-[11px] sm:text-[13px] ${vsHighClass(vsHighPct)}`}>
+                          <td className={`border-b border-border px-3 py-2.5 font-mono text-xs sm:px-4 sm:py-[11px] sm:text-[13px] ${vsHighClass()}`}>
                             {vsHighPct != null ? `1Y High: ${vsHighPct > 0 ? '+' : ''}${vsHighPct.toFixed(1)}%` : 'N/A'}
                           </td>
                         </tr>
@@ -886,7 +882,7 @@ export function TickerAnalysisPage({
                 <div className="p-4 sm:p-[22px]">
                   {/* Stars + Rating */}
                   <div className="mb-4 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
-                    <ScoreBars score={activeTrend.score} />
+                    <ScoreBars score={activeTrend.score} rating={activeRatingLabel} ratingRows={ratingLabelRows} />
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground sm:text-[13px]">
                       <span
                         className={`rounded-md px-2 py-0.5 text-xs font-semibold ${ratingBadgeClassName(activeRatingLabel, ratingLabelRows)}`}

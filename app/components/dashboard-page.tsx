@@ -8,6 +8,8 @@ import { AppHeader } from './app-header';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { useDashboardData } from '../../lib/hooks/useDashboardData';
+import { fetchFormulaRatingLabels } from '@/lib/queries/formula-display';
+import { ratingBadgeClassName, ratingBadgeInlineStyle } from '@/lib/mws-formula-badges';
 
 // Mapping of ticker symbols to display names (matching index-page.tsx)
 const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
@@ -79,9 +81,7 @@ function formatPercentSigned(value: number | null, decimals = 1) {
 
 /** Center-zero perf bar (design); maxAbs scales bar fill */
 function vsHighToneClasses(pct: number): { text: string; bar: string } {
-  if (pct >= -5) return { text: 'text-emerald-600', bar: 'bg-emerald-500' };
-  if (pct >= -10) return { text: 'text-amber-600', bar: 'bg-amber-500' };
-  return { text: 'text-red-600', bar: 'bg-red-500' };
+  return { text: 'text-muted-foreground', bar: 'bg-neutral-400 dark:bg-neutral-500' };
 }
 
 function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; maxAbs: number; mode?: 'default' | 'vsHigh' }) {
@@ -96,6 +96,7 @@ function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; ma
   const pct = Math.abs(value) <= 1 ? value * 100 : value;
   const clamped = Math.max(-maxAbs, Math.min(maxAbs, pct));
   const widthPct = maxAbs > 0 ? (Math.abs(clamped) / maxAbs) * 50 : 0;
+  const visibleWidthPct = clamped !== 0 ? (mode === 'vsHigh' ? Math.max(widthPct, 10) : widthPct) : 0;
   const pos = clamped >= 0;
   const tone = mode === 'vsHigh' ? vsHighToneClasses(pct) : null;
   const valueClass = tone ? tone.text : (pos ? 'text-emerald-600' : 'text-red-600');
@@ -112,7 +113,7 @@ function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; ma
         {clamped !== 0 && (
           <span
             className={`absolute top-0 h-full rounded-full ${pos ? 'left-1/2' : 'right-1/2'} ${barClass}`}
-            style={{ width: `${widthPct}%` }}
+            style={{ width: `${visibleWidthPct}%` }}
           />
         )}
       </div>
@@ -120,18 +121,20 @@ function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; ma
   );
 }
 
-function ScoreBars({ score }: { score: number }) {
+function ScoreBars({ score, rating, ratingRows }: { score: number; rating: string; ratingRows: { tier: string; label: string; color_hex?: string | null }[] }) {
   const s = Math.max(0, Math.min(5, score));
   const full = Math.floor(s);
   const partial = s - full >= 0.5 ? 1 : 0;
   const filled = Math.min(5, full + partial);
+  const tone = ratingBadgeInlineStyle(rating, ratingRows)?.backgroundColor ?? '#f59e0b';
   return (
     <div className="flex items-center gap-2">
       <div className="flex gap-0.5">
         {Array.from({ length: 5 }).map((_, i) => (
           <span
             key={i}
-            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? 'bg-amber-500' : 'bg-muted'}`}
+            className={`h-3.5 w-1.5 rounded-sm ${i < filled ? '' : 'bg-muted'}`}
+            style={{ backgroundColor: i < filled ? tone : undefined }}
           />
         ))}
       </div>
@@ -140,27 +143,11 @@ function ScoreBars({ score }: { score: number }) {
   );
 }
 
-function ratingChipClass(rating: string): string {
-  const r = rating.toLowerCase();
-  if (r.includes('strong') && r.includes('up')) {
-    return 'bg-emerald-600 text-white border-transparent';
-  }
-  if (r.includes('strong') && r.includes('down')) {
-    return 'bg-red-600 text-white border-transparent';
-  }
-  if (r.includes('up')) {
-    return 'bg-emerald-100 text-emerald-800 border-emerald-200/80 dark:bg-emerald-950/50 dark:text-emerald-200 dark:border-emerald-800';
-  }
-  if (r.includes('down')) {
-    return 'bg-red-100 text-red-800 border-red-200/80 dark:bg-red-950/50 dark:text-red-200 dark:border-red-800';
-  }
-  return 'bg-muted text-foreground border-border';
-}
-
-function RatingChip({ rating }: { rating: string }) {
+function RatingChip({ rating, ratingRows }: { rating: string; ratingRows: { tier: string; label: string; color_hex?: string | null }[] }) {
   return (
     <span
-      className={`inline-flex max-w-full items-center justify-center truncate rounded-full border px-2.5 py-0.5 text-xs font-medium ${ratingChipClass(rating)}`}
+      className={`inline-flex max-w-full items-center justify-center truncate rounded-full border px-2.5 py-0.5 text-xs font-medium ${ratingBadgeClassName(rating, ratingRows)}`}
+      style={ratingBadgeInlineStyle(rating, ratingRows)}
       title={rating}
     >
       {rating}
@@ -234,7 +221,20 @@ export function DashboardPage({
   const [timeframe, setTimeframe] = useState<'D' | 'W'>('D');
   const [query, setQuery] = useState('');
   const [trendFilter, setTrendFilter] = useState<TrendFilter>('all');
+  const [ratingLabelRows, setRatingLabelRows] = useState<{ tier: string; label: string; color_hex?: string | null }[]>([]);
   const { segments, sectors, loading, error, refetch } = useDashboardData(timeframe);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchFormulaRatingLabels()
+      .then((rows) => {
+        if (!cancelled) setRatingLabelRows(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleRefresh = async () => {
     await refetch();
@@ -442,13 +442,13 @@ export function DashboardPage({
                     <PerfBar value={row.perf3M} maxAbs={30} />
                   </td>
                   <td className="px-3 py-3">
-                    <PerfBar value={row.vsHigh} maxAbs={40} mode="vsHigh" />
+                    <PerfBar value={row.vsHigh} maxAbs={12} mode="vsHigh" />
                   </td>
                   <td className="px-3 py-3">
-                    <ScoreBars score={row.trendScore} />
+                    <ScoreBars score={row.trendScore} rating={row.rating} ratingRows={ratingLabelRows} />
                   </td>
                   <td className="px-3 py-3 text-left">
-                    <RatingChip rating={row.rating} />
+                    <RatingChip rating={row.rating} ratingRows={ratingLabelRows} />
                   </td>
                   <td className="px-3 py-3">
                     <OutlookCell outlook={row.outlook} />

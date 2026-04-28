@@ -109,7 +109,7 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
 
     const priceSeries = chart.addSeries(LineSeries, {
       color:              '#6366f1',
-      lineWidth:          2,
+      lineWidth:          interval === 'weekly' ? 2 : 2,
       priceLineVisible:   false,
       lastValueVisible:   true,
       crosshairMarkerVisible: true,
@@ -117,19 +117,19 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
 
     const ema1Series = chart.addSeries(LineSeries, {
       color:              '#f59e0b',
-      lineWidth:          1,
-      lineStyle:          LineStyle.Dashed,
+      lineWidth:          interval === 'weekly' ? 3 : 2,
+      lineStyle:          LineStyle.Solid,
       priceLineVisible:   false,
-      lastValueVisible:   false,
+      lastValueVisible:   true,
       crosshairMarkerVisible: false,
     });
 
     const ema2Series = chart.addSeries(LineSeries, {
-      color:              '#10b981',
-      lineWidth:          1,
-      lineStyle:          LineStyle.Dashed,
+      color:              '#3b82f6',
+      lineWidth:          interval === 'weekly' ? 3 : 2,
+      lineStyle:          LineStyle.Solid,
       priceLineVisible:   false,
-      lastValueVisible:   false,
+      lastValueVisible:   true,
       crosshairMarkerVisible: false,
     });
 

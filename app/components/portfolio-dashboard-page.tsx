@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { ChevronRight, Activity, CircleDot, TrendingUp, ShieldCheck, RefreshCw, Layers, PieChart } from 'lucide-react';
+import { ChevronRight, Activity, TrendingUp, ShieldCheck, RefreshCw, Layers, PieChart } from 'lucide-react';
 import { AppHeader } from './app-header';
 import {
   usePerformanceRecap,
@@ -41,6 +41,14 @@ function formatPct(val: string | number | null): string {
   return pct.toFixed(1) + '%';
 }
 
+function formatCombinedReturnPct(val: string | number | null): string {
+  if (val == null) return '—';
+  const n = Number(val);
+  if (Number.isNaN(n)) return String(val);
+  // Combined Performance row stores return as ratio-style (10.87 => 1087%).
+  return `${(n * 100).toFixed(1)}%`;
+}
+
 function formatInt(val: string | number | null): string {
   if (val == null) return '—';
   const n = Number(val);
@@ -68,37 +76,13 @@ function toPercent(value: unknown): number | null {
   return Math.abs(n) <= 1 ? n * 100 : n;
 }
 
-function median(nums: number[]): number {
-  if (nums.length === 0) return 0;
-  const s = [...nums].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+function toPercentFromCombinedReturn(value: unknown): number | null {
+  const n = Number(value);
+  if (Number.isNaN(n)) return null;
+  // Combined Performance row stores return as ratio-style (10.87 => 1087%).
+  return n * 100;
 }
 
-type CharFilter = 'all' | 'highCagr' | 'consistent';
-
-function applyCharFilter<T extends { row_index: number }>(
-  rows: T[],
-  getRow: (r: T) => Record<string, unknown>,
-  filter: CharFilter,
-): T[] {
-  if (filter === 'all' || rows.length === 0) return rows;
-  const cagrs = rows.map((r) => toPercent(getCol(getRow(r), 'column_14'))).filter((v): v is number => v != null);
-  const med = median(cagrs);
-  if (filter === 'highCagr') {
-    return rows.filter((r) => {
-      const c = toPercent(getCol(getRow(r), 'column_14'));
-      return c != null && c >= med;
-    });
-  }
-  if (filter === 'consistent') {
-    return rows.filter((r) => {
-      const h = toPercent(getCol(getRow(r), 'column_10'));
-      return h != null && h >= 50;
-    });
-  }
-  return rows;
-}
 
 export interface PortfolioDashboardPageProps {
   userEmail: string;
@@ -118,7 +102,6 @@ export function PortfolioDashboardPage({
   onSelectPortfolio,
 }: PortfolioDashboardPageProps) {
   const { rows, portfolioRows, loading, error, refetch } = usePerformanceRecap();
-  const [charFilter, setCharFilter] = useState<CharFilter>('all');
 
   const weeklyNames = new Set<string>([PORTFOLIO_NAMES.DOW30, PORTFOLIO_NAMES.LARGE_CAPS, PORTFOLIO_NAMES.NASDAQ100]);
   const etfNames = new Set<string>([PORTFOLIO_NAMES.MACRO_ETF, PORTFOLIO_NAMES.MACRO_2_3X]);
@@ -155,8 +138,10 @@ export function PortfolioDashboardPage({
   );
   const etfRows = portfolioRows.filter((r) => etfNames.has(getCol2(r)) && hasRowData(r));
 
-  /** Individual portfolios only (exclude combined aggregate for KPI averages). */
-  const kpiRows = [...weeklyRows, ...etfRows];
+  /** Weekly Momentum KPI source is the COMBINED PERFORMANCE recap row. */
+  const kpiSourceRow = combinedRows[0] ?? null;
+  /** Weekly sub-strategy rows kept as fallback if combined recap row is unavailable. */
+  const kpiFallbackRows = weeklyRows;
   /** All recap rows shown in tables + subtitle. */
   const allRows = [...combinedRows, ...weeklyRows, ...etfRows];
   const getAverage = (vals: Array<number | null>) => {
@@ -164,27 +149,23 @@ export function PortfolioDashboardPage({
     if (valid.length === 0) return null;
     return valid.reduce((sum, v) => sum + v, 0) / valid.length;
   };
-  const avgReturnPct = getAverage(kpiRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_9'))));
-  const avgCagr = getAverage(kpiRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_14'))));
-  const combinedMomentumHitRate = combinedRows.length
-    ? toPercent(getCol(combinedRows[0] as unknown as Record<string, unknown>, 'column_10'))
-    : null;
-  const avgHitRate = combinedMomentumHitRate;
-  const accessibleCount = kpiRows.filter((r) => NAME_TO_PAGE[getCol2(r)]).length;
+  const avgReturnPct = kpiSourceRow
+    ? toPercentFromCombinedReturn(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_9'))
+    : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_9'))));
+  const avgCagr = kpiSourceRow
+    ? toPercent(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_14'))
+    : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_14'))));
+  const avgHitRate = kpiSourceRow
+    ? toPercent(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_10'))
+    : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_10'))));
 
   const momentumRowsOrdered = useMemo(
     () => [...combinedRows],
     [combinedRows],
   );
 
-  const filteredMomentum = useMemo(
-    () => applyCharFilter(momentumRowsOrdered, (r) => r as unknown as Record<string, unknown>, charFilter),
-    [momentumRowsOrdered, charFilter],
-  );
-  const filteredEtf = useMemo(
-    () => applyCharFilter(etfRows, (r) => r as unknown as Record<string, unknown>, charFilter),
-    [etfRows, charFilter],
-  );
+  const filteredMomentum = momentumRowsOrdered;
+  const filteredEtf = etfRows;
 
   const pageSubtitle = useMemo(() => {
     let earliest: Date | null = null;
@@ -202,7 +183,7 @@ export function PortfolioDashboardPage({
     return `Tracked since ${since} · ${allRows.length} strategies · updated ${updated}`;
   }, [allRows]);
 
-  const formatCell = (key: string, value: string | number | null): string => {
+  const formatCell = (key: string, value: string | number | null, strategyName?: string): string => {
     if (value == null || value === '') return '—';
     const s = String(value).trim();
     if (s.toLowerCase() === 'back to home page') return '—';
@@ -215,7 +196,8 @@ export function PortfolioDashboardPage({
     if (key === 'column_5') {
       if (s.toLowerCase() === 'n/a') return 'N/A';
       const n = Number(value);
-      if (!Number.isNaN(n)) return n >= 1 ? formatPct(value) : (n * 100).toFixed(2) + '%';
+      // Recap stores cash-invested as ratio-style values (1 => 100%).
+      if (!Number.isNaN(n)) return (n * 100).toFixed(2) + '%';
       return s;
     }
     if (key === 'column_7' || key === 'column_8') return formatCurrency(value);
@@ -231,8 +213,12 @@ export function PortfolioDashboardPage({
       key === 'column_11' ||
       key === 'column_12' ||
       key === 'column_13'
-    )
+    ) {
+      if (key === 'column_9' && isCombinedPerformanceRecapName(strategyName)) {
+        return formatCombinedReturnPct(value);
+      }
       return formatPct(value);
+    }
     if (key === 'column_15') return formatInt(value);
     return s;
   };
@@ -245,7 +231,7 @@ export function PortfolioDashboardPage({
     const name = getCol2(row);
     const page = NAME_TO_PAGE[name];
     const navigable = Boolean(page);
-    const sinceLine = formatCell('column_3', getCol(r, 'column_3'));
+    const sinceLine = formatCell('column_3', getCol(r, 'column_3'), name);
 
     return (
       <tr
@@ -257,7 +243,7 @@ export function PortfolioDashboardPage({
       >
         {tableColumns.map((col, idx) => {
           const raw = idx === 0 ? name : getCol(r, col.key);
-          const display = formatCell(col.key, raw as string | number | null);
+          const display = formatCell(col.key, raw as string | number | null, name);
           const num = typeof raw === 'number' ? raw : Number(raw);
           const isPositive = !Number.isNaN(num) && num > 0 && isPositiveHighlightCol(col.key);
           const isNegative = !Number.isNaN(num) && num < 0 && isPositiveHighlightCol(col.key);
@@ -384,21 +370,6 @@ export function PortfolioDashboardPage({
     );
   };
 
-  const filterBtn = (id: CharFilter, label: string) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => setCharFilter(id)}
-      className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors sm:px-3.5 sm:text-[13px] ${
-        charFilter === id
-          ? 'bg-foreground text-background shadow-sm'
-          : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
-      }`}
-    >
-      {label}
-    </button>
-  );
-
   const TableSection = ({
     title,
     subtitle,
@@ -492,7 +463,7 @@ export function PortfolioDashboardPage({
                 <div className="mt-1 text-[1.375rem] font-semibold leading-none tracking-tight text-emerald-600 dark:text-emerald-400 sm:text-2xl md:text-[1.75rem] lg:text-[30px]">
                   {avgReturnDisplay}
                 </div>
-                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Across all portfolios</p>
+                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Weekly momentum picks only</p>
               </div>
             </div>
             <div className="box-border flex min-h-[112px] min-w-0 flex-[1_1_12rem] flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-sm sm:min-h-[124px] sm:flex-[1_1_calc(50%-0.4375rem)] sm:p-5 lg:flex-[1_1_0]">
@@ -504,7 +475,7 @@ export function PortfolioDashboardPage({
                 <div className="mt-1 text-[1.375rem] font-semibold leading-none tracking-tight text-foreground sm:text-2xl md:text-[1.75rem] lg:text-[30px]">
                   {avgCagr != null ? `${avgCagr.toFixed(0)}%` : '—'}
                 </div>
-                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Compound annual</p>
+                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Weekly momentum picks only</p>
               </div>
             </div>
             <div className="box-border flex min-h-[112px] min-w-0 flex-[1_1_12rem] flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-sm sm:min-h-[124px] sm:flex-[1_1_calc(50%-0.4375rem)] sm:p-5 lg:flex-[1_1_0]">
@@ -516,32 +487,8 @@ export function PortfolioDashboardPage({
                 <div className="mt-1 text-[1.375rem] font-semibold leading-none tracking-tight text-foreground sm:text-2xl md:text-[1.75rem] lg:text-[30px]">
                   {avgHitRate != null ? `${avgHitRate.toFixed(1)}%` : '—'}
                 </div>
-                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Consolidated weekly momentum picks</p>
+                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">Weekly momentum picks only</p>
               </div>
-            </div>
-            <div className="box-border flex min-h-[112px] min-w-0 flex-[1_1_12rem] flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-sm sm:min-h-[124px] sm:flex-[1_1_calc(50%-0.4375rem)] sm:p-5 lg:flex-[1_1_0]">
-              <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[12.5px]">
-                <CircleDot className="h-4 w-4 opacity-70" />
-                Active
-              </div>
-              <div>
-                <div className="mt-1 text-[1.375rem] font-semibold leading-none tracking-tight text-foreground sm:text-2xl md:text-[1.75rem] lg:text-[30px]">
-                  {accessibleCount}
-                  <span className="ml-1 text-sm font-medium text-muted-foreground sm:text-base md:text-lg">/ {kpiRows.length}</span>
-                </div>
-                <p className="mt-2 text-[11px] text-muted-foreground sm:text-[12px]">With detailed log</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {!loading && !error && allRows.length > 0 && (
-          <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <span className="shrink-0 text-xs text-muted-foreground sm:text-[13px]">Filter by characteristic:</span>
-            <div className="flex min-w-0 flex-wrap gap-1.5">
-              {filterBtn('all', 'All')}
-              {filterBtn('highCagr', 'High CAGR')}
-              {filterBtn('consistent', 'Consistent')}
             </div>
           </div>
         )}
