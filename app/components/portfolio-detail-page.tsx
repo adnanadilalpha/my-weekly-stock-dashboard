@@ -688,6 +688,9 @@ export function PortfolioDetailPage({
     return nonTrade.length > 0 && tradeKeys.length > 0;
   }, [summaryModel, tradeKeys]);
 
+  const tradeEconomicsSubtitle =
+    portfolioPage === 'momentum-combined' ? 'Average P&L per week' : 'Average P&L per position';
+
   const summaryValueRow = useMemo(() => {
     if (!summaryModel || summaryModel.summaryRowsToShowFiltered.length === 0) return null;
     const rowsShown = summaryModel.summaryRowsToShowFiltered;
@@ -977,7 +980,7 @@ export function PortfolioDetailPage({
                     </span>
                   </div>
                   <span className="shrink-0 text-[11px] leading-tight text-muted-foreground sm:text-right">
-                    Average P&amp;L per week
+                    {tradeEconomicsSubtitle}
                   </span>
                 </div>
                 <div className="w-full min-w-0 rounded-b-xl sm:rounded-b-2xl">

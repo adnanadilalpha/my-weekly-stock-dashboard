@@ -42,6 +42,16 @@ import {
   type FormulaTrendTemplateRow,
 } from '../../_actions/formulas';
 import { useAdmin } from '../../_lib/admin-context';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/app/components/ui/alert-dialog';
 
 type CategoryKey = FormulaSetting['category'];
 type NavCategory = CategoryKey | 'rating_labels';
@@ -218,6 +228,12 @@ export default function FormulaManager() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState<FormulaHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState<{
+    title: string;
+    description: string;
+    actionLabel: string;
+    kind: 'chart_trend' | 'performance' | 'numeric';
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -303,29 +319,27 @@ export default function FormulaManager() {
     }
   };
 
-  const onReset = async () => {
+  const performReset = async (kind: 'chart_trend' | 'performance' | 'numeric') => {
     setError(null);
     setFlash(null);
     setSaving(true);
     try {
       const token = await getAccessToken();
-      if (activeNav === 'rating_labels') {
-        if (ratingSubtab === 'chart_trend') {
-          if (!confirm('Reset chart-trend rating labels and trend templates to defaults?')) return;
-          const [labelRes, trendRes] = await Promise.all([resetFormulaRatingLabelsAction(token), resetFormulaTrendTemplatesAction(token)]);
-          if (!labelRes.ok) {
-            setError(labelRes.error);
-            return;
-          }
-          if (!trendRes.ok) {
-            setError(trendRes.error);
-            return;
-          }
-          setFlash('Chart-trend labels and templates reset to defaults.');
-          await load();
+      if (kind === 'chart_trend') {
+        const [labelRes, trendRes] = await Promise.all([resetFormulaRatingLabelsAction(token), resetFormulaTrendTemplatesAction(token)]);
+        if (!labelRes.ok) {
+          setError(labelRes.error);
           return;
         }
-        if (!confirm('Reset performance templates to defaults?')) return;
+        if (!trendRes.ok) {
+          setError(trendRes.error);
+          return;
+        }
+        setFlash('Chart-trend labels and templates reset to defaults.');
+        await load();
+        return;
+      }
+      if (kind === 'performance') {
         const res = await resetFormulaPerformanceTemplatesAction(token);
         if (!res.ok) {
           setError(res.error);
@@ -335,7 +349,6 @@ export default function FormulaManager() {
         await load();
         return;
       }
-      if (!confirm('Reset all numeric parameters to their default values?')) return;
       const res = await resetFormulaSettingsAction(token);
       if (!res.ok) {
         setError(res.error);
@@ -348,6 +361,32 @@ export default function FormulaManager() {
     } finally {
       setSaving(false);
     }
+  };
+  const onReset = () => {
+    if (activeNav === 'rating_labels' && ratingSubtab === 'chart_trend') {
+      setResetConfirm({
+        title: 'Reset chart-trend templates?',
+        description: 'This will reset chart-trend rating labels and trend templates to default values.',
+        actionLabel: 'Reset chart trend',
+        kind: 'chart_trend',
+      });
+      return;
+    }
+    if (activeNav === 'rating_labels' && ratingSubtab === 'performance') {
+      setResetConfirm({
+        title: 'Reset performance templates?',
+        description: 'This will reset performance templates to default values.',
+        actionLabel: 'Reset performance',
+        kind: 'performance',
+      });
+      return;
+    }
+    setResetConfirm({
+      title: 'Reset numeric parameters?',
+      description: 'This will reset all numeric parameters to their default values.',
+      actionLabel: 'Reset parameters',
+      kind: 'numeric',
+    });
   };
 
   const trendRowsForTable = useMemo(
@@ -589,6 +628,29 @@ export default function FormulaManager() {
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-6">
+      <AlertDialog open={Boolean(resetConfirm)} onOpenChange={(open) => !open && setResetConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{resetConfirm?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{resetConfirm?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={saving}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!resetConfirm) return;
+                await performReset(resetConfirm.kind);
+                setResetConfirm(null);
+              }}
+            >
+              {resetConfirm?.actionLabel ?? 'Confirm'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className="flex min-w-0 flex-wrap items-center justify-between gap-4">
         <p className="min-w-0 flex-1 text-sm text-muted-foreground md:max-w-2xl">
           {activeNav === 'rating_labels'

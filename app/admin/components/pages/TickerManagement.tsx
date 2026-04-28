@@ -17,6 +17,16 @@ import { useDebouncedValue } from '../../_lib/use-debounced-value';
 import { useLiveAdminRefresh } from '../../_lib/use-live-admin-refresh';
 import { Switch } from '@/app/components/ui/switch';
 import { TickerIcon } from '@/app/components/ui/ticker-icon';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/app/components/ui/alert-dialog';
 
 const PAGE_SIZE = 50;
 
@@ -89,6 +99,12 @@ export default function TickerManagement() {
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateFlash, setUpdateFlash] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    description: string;
+    actionLabel: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
 
   const listKey = `${sourceFilter}|${debouncedQuery}|${statusFilter}|${updatedSort}`;
   const lastListKeyRef = useRef<string | null>(null);
@@ -274,8 +290,7 @@ export default function TickerManagement() {
     }
   };
 
-  const onDeleteOne = async (row: AdminTickerRow) => {
-    if (!confirm(`Delete ${row.ticker}? This cannot be undone.`)) return;
+  const executeDeleteOne = async (row: AdminTickerRow) => {
     setError(null);
     setBusyId(row.id);
     try {
@@ -299,11 +314,18 @@ export default function TickerManagement() {
       setBusyId(null);
     }
   };
+  const onDeleteOne = (row: AdminTickerRow) => {
+    setConfirmDialog({
+      title: `Delete ${row.ticker}?`,
+      description: 'This action cannot be undone.',
+      actionLabel: 'Delete',
+      onConfirm: () => executeDeleteOne(row),
+    });
+  };
 
-  const onDeleteSelected = async () => {
+  const executeDeleteSelected = async () => {
     const selected = filteredSorted.filter((t) => selectedIds.has(t.id));
     if (selected.length === 0) return;
-    if (!confirm(`Delete ${selected.length} selected ticker${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
     setDeleteBusy(true);
     setError(null);
     try {
@@ -326,9 +348,42 @@ export default function TickerManagement() {
       setDeleteBusy(false);
     }
   };
+  const onDeleteSelected = () => {
+    const selected = filteredSorted.filter((t) => selectedIds.has(t.id));
+    if (selected.length === 0) return;
+    setConfirmDialog({
+      title: `Delete ${selected.length} selected ticker${selected.length === 1 ? '' : 's'}?`,
+      description: 'This action cannot be undone.',
+      actionLabel: 'Delete selected',
+      onConfirm: () => executeDeleteSelected(),
+    });
+  };
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-5 sm:gap-6">
+      <AlertDialog open={Boolean(confirmDialog)} onOpenChange={(open) => !open && setConfirmDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmDialog?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmDialog?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBusy || busyId != null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteBusy || busyId != null}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!confirmDialog) return;
+                await confirmDialog.onConfirm();
+                setConfirmDialog(null);
+              }}
+            >
+              {confirmDialog?.actionLabel ?? 'Confirm'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className="grid min-w-0 grid-cols-2 gap-4 sm:gap-5 md:gap-6 lg:grid-cols-4">
         {stats.map((stat, i) => (
           <div
