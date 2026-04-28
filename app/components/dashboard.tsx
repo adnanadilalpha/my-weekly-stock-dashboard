@@ -283,6 +283,32 @@ export function IndexPage({
     return Array.from(merged);
   }, [dbTickers]);
 
+  // Picker list for customization modal: curated names + full DB ticker universe
+  // (includes other_stocks), deduped by ticker.
+  const customizePickerRows = useMemo<CuratedHubRow[]>(() => {
+    const byTicker = new Map<string, CuratedHubRow>();
+
+    for (const row of CURATED_HUB_ROWS) {
+      const t = row.ticker.toUpperCase();
+      if (!t) continue;
+      byTicker.set(t, { name: row.name, ticker: t });
+    }
+
+    for (const raw of dbTickers) {
+      const t = String(raw).trim().toUpperCase();
+      if (!t) continue;
+      if (byTicker.has(t)) continue;
+      const metricName = metricsMap.get(t)?.name?.trim();
+      byTicker.set(t, { name: metricName || t, ticker: t });
+    }
+
+    return Array.from(byTicker.values()).sort((a, b) => {
+      const byName = a.name.localeCompare(b.name);
+      if (byName !== 0) return byName;
+      return a.ticker.localeCompare(b.ticker);
+    });
+  }, [dbTickers, metricsMap]);
+
   const searchHits = useMemo(() => {
     const q = searchQuery.trim();
     if (!q) return [];
@@ -708,7 +734,7 @@ export function IndexPage({
         prefs={prefs}
         onChangePrefs={setPrefs}
         onReset={resetPrefs}
-        curatedRows={CURATED_HUB_ROWS}
+        curatedRows={customizePickerRows}
       />
     </div>
   );
