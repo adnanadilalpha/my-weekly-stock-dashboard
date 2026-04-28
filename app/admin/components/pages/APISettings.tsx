@@ -1,7 +1,7 @@
 'use client';
 
 import { CheckCircle2, RefreshCw, Save, Zap, Activity } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getAdminApiConfigAction,
   getApiDashboardMetricsAction,
@@ -45,17 +45,40 @@ function isProgressRow(raw: string | null) {
   return raw != null && raw.includes('__progress__');
 }
 
+function sameAdminConfig(a: AdminApiConfig | null, b: AdminApiConfig | null) {
+  if (!a || !b) return false;
+  return (
+    a.preferred_provider === b.preferred_provider &&
+    a.refresh_interval_seconds === b.refresh_interval_seconds &&
+    a.auto_retry === b.auto_retry &&
+    a.cache_responses === b.cache_responses &&
+    a.realtime_updates === b.realtime_updates &&
+    a.rate_limit_rpm === b.rate_limit_rpm
+  );
+}
+
 export default function APISettings() {
   const { getAccessToken } = useAdmin();
   const [keys, setKeys] = useState<ApiKeyMetadata[]>([]);
   const [health, setHealth] = useState<ApiHealthRow[]>([]);
   const [metrics, setMetrics] = useState<ApiDashboardMetrics | null>(null);
   const [config, setConfig] = useState<AdminApiConfig | null>(null);
+  const [syncedConfig, setSyncedConfig] = useState<AdminApiConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
+  const configRef = useRef<AdminApiConfig | null>(null);
+  const syncedConfigRef = useRef<AdminApiConfig | null>(null);
+
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  useEffect(() => {
+    syncedConfigRef.current = syncedConfig;
+  }, [syncedConfig]);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
@@ -73,7 +96,14 @@ export default function APISettings() {
       else setKeys(keysRes.data);
       if (healthRes.ok) setHealth(healthRes.data as ApiHealthRow[]);
       if (metricsRes.ok) setMetrics(metricsRes.data);
-      if (cfgRes.ok) setConfig(cfgRes.data);
+      if (cfgRes.ok) {
+        const hasLocalUnsavedConfig = !sameAdminConfig(configRef.current, syncedConfigRef.current);
+        // Silent refreshes should not overwrite form edits in progress.
+        if (!silent || !hasLocalUnsavedConfig) {
+          setConfig(cfgRes.data);
+        }
+        setSyncedConfig(cfgRes.data);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
@@ -186,6 +216,7 @@ export default function APISettings() {
         return;
       }
       setConfig(cfgRes.data);
+      setSyncedConfig(cfgRes.data);
       const trimmed = keyDraft.trim();
       if (trimmed) {
         const keyRes = await saveApiKeyAction(token, {

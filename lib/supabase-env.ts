@@ -67,7 +67,11 @@ function readServerServiceRole(target: EnvironmentTarget) {
 function assertProdSafety(target: EnvironmentTarget) {
   if (target !== 'prod') return;
 
-  const allowProdFromLocal = process.env.ALLOW_PROD_FROM_LOCAL === 'true';
+  // This guard runs in both server and browser bundles. Browser code only
+  // receives NEXT_PUBLIC_* env vars, so support both forms explicitly.
+  const allowProdFromLocal =
+    process.env.ALLOW_PROD_FROM_LOCAL === 'true' ||
+    process.env.NEXT_PUBLIC_ALLOW_PROD_FROM_LOCAL === 'true';
   if (nodeEnv !== 'production' && !allowProdFromLocal) {
     throw new Error(
       'Refusing to use production Supabase outside production runtime. Set ALLOW_PROD_FROM_LOCAL=true only when intentionally testing prod.'

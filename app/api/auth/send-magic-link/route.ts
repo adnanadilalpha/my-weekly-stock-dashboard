@@ -18,7 +18,7 @@ const supabaseAdmin = supabaseServiceRoleKey
     })
   : null;
 
-// Client-side Supabase for checking authorization
+// Fallback anon client (used only if service role is unavailable)
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export async function POST(request: Request) {
@@ -34,11 +34,13 @@ export async function POST(request: Request) {
 
     const emailLower = email.toLowerCase().trim();
 
-    // Check if email is authorized
-    const { data: authorizedUsers, error: checkError } = await supabase
+    // Check if email is authorized. Prefer service-role so this does not depend
+    // on public/anon read policies for authorized_users.
+    const authClient = supabaseAdmin ?? supabase;
+    const { data: authorizedUsers, error: checkError } = await authClient
       .from('authorized_users')
       .select('email, role')
-      .eq('email', emailLower)
+      .ilike('email', emailLower)
       .limit(1);
 
     if (checkError) {

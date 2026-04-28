@@ -84,7 +84,7 @@ export default function TickerManagement() {
     width: 320,
   });
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-  const [sourceFilter, setSourceFilter] = useState<TickerTable | 'all'>('other_stocks');
+  const [sourceFilter, setSourceFilter] = useState<TickerTable | 'all'>('all');
   const [updatedSort, setUpdatedSort] = useState<'latest' | 'oldest'>('latest');
   const [etfFilter, setEtfFilter] = useState<'all' | 'mapped' | 'unmapped'>('all');
   const [tickers, setTickers] = useState<AdminTickerRow[]>([]);
@@ -565,7 +565,7 @@ export default function TickerManagement() {
                         setQuery('');
                         setSectorFilter('all');
                         setStatusFilter('all');
-                        setSourceFilter('other_stocks');
+                        setSourceFilter('all');
                         setEtfFilter('all');
                         setUpdatedSort('latest');
                         setFiltersOpen(false);

@@ -8,7 +8,6 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
-import { supabase } from '@/lib/supabase-client';
 
 interface AuthScreenProps {
   onAuthSuccess: (email: string) => void;
@@ -40,26 +39,6 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
     try {
       const emailLower = email.toLowerCase().trim();
-      
-      // Check if email is authorized
-      const { data: authorizedUsers, error: checkError } = await supabase
-        .from('authorized_users')
-        .select('email, role')
-        .eq('email', emailLower)
-        .limit(1);
-
-      if (checkError) {
-        console.error('Error checking authorization:', checkError);
-        setError('Unable to verify authorization. Please try again.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      if (!authorizedUsers || authorizedUsers.length === 0) {
-        setError('This email is not authorized to access the dashboard. Please contact an administrator.');
-        setIsSubmitting(false);
-        return;
-      }
 
       // Send magic link via our API (which uses Resend)
       const response = await fetch('/api/auth/send-magic-link', {
@@ -74,6 +53,11 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
 
       if (!response.ok) {
         // Show more helpful error messages
+        if (response.status === 403) {
+          setError('This email is not authorized to access the dashboard. Please contact an administrator.');
+          setIsSubmitting(false);
+          return;
+        }
         if (data.details && data.details.includes('verify a domain')) {
           setError('Email service configuration needed. Please contact your administrator to verify the email domain.');
         } else {
