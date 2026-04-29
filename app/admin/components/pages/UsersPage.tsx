@@ -297,6 +297,79 @@ export default function UsersPage() {
           </table>
         </div>
 
+        <div className="space-y-3 p-4 md:hidden">
+          {loading && (
+            <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              Loading…
+            </div>
+          )}
+          {!loading && users.length === 0 && (
+            <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+              No users match.
+            </div>
+          )}
+          {!loading &&
+            users.map((u) => {
+              const isSelf = u.email.toLowerCase() === admin?.email;
+              return (
+                <div key={u.id} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-foreground">{u.email}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{formatDate(u.created_at)}</span>
+                        <span aria-hidden>·</span>
+                        <span>Updated {formatDate(u.updated_at)}</span>
+                        {isSelf && (
+                          <>
+                            <span aria-hidden>·</span>
+                            <span>(you)</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
+                        u.role === 'Admin'
+                          ? 'border border-emerald-500/25 bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
+                          : 'border border-border bg-muted/60 text-muted-foreground'
+                      }`}
+                    >
+                      <Shield size={12} /> {u.role ?? 'User'}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center justify-end gap-1 text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(u)}
+                      className="rounded-lg p-2 text-foreground transition-colors hover:bg-muted"
+                      title="Edit role"
+                    >
+                      <Edit2 size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPasswordUser(u)}
+                      className="rounded-lg p-2 text-foreground transition-colors hover:bg-muted"
+                      title="Set password"
+                    >
+                      <KeyRound size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingDelete(u)}
+                      disabled={isSelf}
+                      className="rounded-lg p-2 text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-30 dark:text-rose-400"
+                      title={isSelf ? 'Cannot delete your own account' : 'Delete user'}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+
         <div className="flex flex-col gap-2 border-t border-border px-4 py-4 text-sm md:flex-row md:items-center md:justify-between md:px-6">
           <div className="text-muted-foreground">
             Page <span className="font-semibold text-foreground">{page + 1}</span> of{' '}

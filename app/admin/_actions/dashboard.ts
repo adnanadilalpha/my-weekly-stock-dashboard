@@ -273,9 +273,9 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     const [usersRes, newUsersRes, adminsRes, runs24hRes, recapRes, authAct] = await Promise.all([
-      admin.from('authorized_users').select('*', { count: 'planned', head: true }),
-      admin.from('authorized_users').select('*', { count: 'planned', head: true }).gte('created_at', sinceWeek),
-      admin.from('authorized_users').select('*', { count: 'planned', head: true }).eq('role', 'Admin'),
+      admin.from('authorized_users').select('id', { count: 'exact', head: true }),
+      admin.from('authorized_users').select('id', { count: 'exact', head: true }).gte('created_at', sinceWeek),
+      admin.from('authorized_users').select('id', { count: 'exact', head: true }).eq('role', 'Admin'),
       admin.from('api_health_log').select('status').gte('run_at', since24h),
       admin.from('performance_recap').select('*').order('row_index', { ascending: true }),
       authSignInActivity(admin),
