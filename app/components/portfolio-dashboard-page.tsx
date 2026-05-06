@@ -6,6 +6,7 @@ import { ChevronRight, Activity, TrendingUp, ShieldCheck, RefreshCw, Layers, Pie
 import { AppHeader } from './app-header';
 import {
   usePerformanceRecap,
+  usePortfolioSheet,
   PORTFOLIO_NAMES,
   GROUP_WEEKLY_MOMENTUM,
   GROUP_ETF,
@@ -102,6 +103,12 @@ export function PortfolioDashboardPage({
   onSelectPortfolio,
 }: PortfolioDashboardPageProps) {
   const { rows, portfolioRows, loading, error, refetch } = usePerformanceRecap();
+  const {
+    rows: momentumSummaryRows,
+    loading: momentumSummaryLoading,
+    error: momentumSummaryError,
+    refetch: refetchMomentumSummary,
+  } = usePortfolioSheet('momentum-combined');
 
   const weeklyNames = new Set<string>([PORTFOLIO_NAMES.DOW30, PORTFOLIO_NAMES.LARGE_CAPS, PORTFOLIO_NAMES.NASDAQ100]);
   const etfNames = new Set<string>([PORTFOLIO_NAMES.MACRO_ETF, PORTFOLIO_NAMES.MACRO_2_3X]);
@@ -149,9 +156,42 @@ export function PortfolioDashboardPage({
     if (valid.length === 0) return null;
     return valid.reduce((sum, v) => sum + v, 0) / valid.length;
   };
-  const avgReturnPct = kpiSourceRow
-    ? toPercentFromCombinedReturn(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_9'))
-    : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_9'))));
+  /** Same scaling as combined detail header `formatSummaryValue` for "Returns %" (ratio × 100 → display %). */
+  const getMomentumSummaryReturnsPct = (): number | null => {
+    if (momentumSummaryRows.length === 0) return null;
+    const maxSummaryRows = 6;
+    const candidateRows = momentumSummaryRows.filter(
+      (r) => typeof r.row_index === 'number' && r.row_index >= 1 && r.row_index <= maxSummaryRows,
+    );
+    const isReturnsPctLabel = (raw: string) =>
+      raw
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase() === 'returns %';
+    for (const row of candidateRows) {
+      const rec = row as unknown as Record<string, unknown>;
+      for (let i = 1; i <= 37; i++) {
+        const key = `col_${i}`;
+        const cell = String(rec[key] ?? '').trim();
+        if (!isReturnsPctLabel(cell)) continue;
+        const right = rec[`col_${i + 1}`];
+        const belowRow = candidateRows.find((r) => r.row_index === Number(row.row_index) + 1);
+        const below = belowRow ? (belowRow as unknown as Record<string, unknown>)[key] : null;
+        for (const opt of [right, below]) {
+          const n = Number(opt);
+          if (Number.isNaN(n)) continue;
+          return n * 100;
+        }
+      }
+    }
+    return null;
+  };
+  const summaryAvgReturnPct = getMomentumSummaryReturnsPct();
+  const avgReturnPct = summaryAvgReturnPct != null
+    ? summaryAvgReturnPct
+    : kpiSourceRow
+      ? toPercentFromCombinedReturn(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_9'))
+      : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_9'))));
   const avgCagr = kpiSourceRow
     ? toPercent(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_14'))
     : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_14'))));
@@ -443,16 +483,19 @@ export function PortfolioDashboardPage({
           </div>
           <button
             type="button"
-            onClick={() => void refetch()}
-            disabled={loading}
+            onClick={() => {
+              void refetch();
+              void refetchMomentumSummary();
+            }}
+            disabled={loading || momentumSummaryLoading}
             className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-card px-3.5 text-xs font-medium shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50 sm:w-auto sm:justify-start sm:text-[13px]"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${loading || momentumSummaryLoading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
         </div>
 
-        {!loading && !error && (
+        {!loading && !error && !momentumSummaryLoading && !momentumSummaryError && (
           <div className="flex w-full min-w-0 flex-wrap gap-3.5">
             <div className="box-border flex min-h-[112px] min-w-0 flex-[1_1_12rem] flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-sm sm:min-h-[124px] sm:flex-[1_1_calc(50%-0.4375rem)] sm:p-5 lg:flex-[1_1_0]">
               <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[12.5px]">
