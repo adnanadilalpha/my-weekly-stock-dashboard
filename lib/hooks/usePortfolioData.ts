@@ -45,8 +45,8 @@ export function isCombinedPerformanceRecapName(column2: string | null | undefine
   return n.length > 0 && /^combined performance(\b|$)/i.test(n);
 }
 
-/** Group headers as in recap */
-export const GROUP_WEEKLY_MOMENTUM = 'WEEKLY MOMENTUM PICKS';
+/** Group header for weekly momentum recap table (client label). */
+export const GROUP_WEEKLY_MOMENTUM = 'Weekly Momentum Picks';
 export const GROUP_ETF = 'ETF PORTFOLIOS';
 
 /** Matches column_2 from sheet (exact or with leading/trailing spaces) */

@@ -9,11 +9,15 @@ import {
   type DashboardStats,
   type PortfolioRecapRowDisplay,
 } from '../../_actions/dashboard';
+import {
+  adminEtfRecapHeaders,
+  adminWeeklyMomentumRecapHeaders,
+  GROUP_WEEKLY_MOMENTUM_TITLE,
+} from '@/lib/portfolio/recap-table-columns';
 
 const DASHBOARD_REFRESH_MS = 45_000;
 const BACKGROUND_FETCH_THROTTLE_MS = 4_000;
 
-const PORTFOLIO_SECTION_WEEKLY = 'Weekly momentum picks';
 const PORTFOLIO_SECTION_ETF = 'ETF portfolios';
 
 type DashboardProps = {
@@ -192,8 +196,8 @@ export default function Dashboard({ dataActive = true }: DashboardProps) {
           </section>
 
           <section className="mb-8 flex min-h-0 flex-col gap-5 sm:gap-6">
-            <PortfolioRecapSection title={PORTFOLIO_SECTION_WEEKLY} rows={weeklyRecap} />
-            <PortfolioRecapSection title={PORTFOLIO_SECTION_ETF} rows={etfRecap} />
+            <PortfolioRecapSection title={GROUP_WEEKLY_MOMENTUM_TITLE} rows={weeklyRecap} headers={adminWeeklyMomentumRecapHeaders()} />
+            <PortfolioRecapSection title={PORTFOLIO_SECTION_ETF} rows={etfRecap} headers={adminEtfRecapHeaders()} />
           </section>
         </>
       )}
@@ -312,21 +316,7 @@ function KpiCard({
   );
 }
 
-const RECAP_HEADERS: { key: keyof PortfolioRecapRowDisplay; label: string }[] = [
-  { key: 'portfolioName', label: 'Portfolio' },
-  { key: 'start', label: 'Start' },
-  { key: 'initialValue', label: 'Initial Value' },
-  { key: 'cashInvested', label: 'Cash Invested' },
-  { key: 'portfolioValue', label: 'Portfolio Value' },
-  { key: 'returnUsd', label: 'Return $' },
-  { key: 'returnsPct', label: 'Returns %' },
-  { key: 'hitRate', label: 'Hit Rate' },
-  { key: 'avgGain', label: 'Avg Gain' },
-  { key: 'avgLoss', label: 'Avg Loss' },
-  { key: 'netAvgReturn', label: 'Net Avg Return' },
-  { key: 'cagr', label: 'CAGR' },
-  { key: 'holdingDays', label: 'Holding (days)' },
-];
+const RECAP_HEADERS = adminEtfRecapHeaders();
 
 /** Signed parse for return $ / returns % / net avg return cells (formatted strings). */
 function recapReturnSign(key: keyof PortfolioRecapRowDisplay, display: string): 'positive' | 'negative' | 'neutral' {
@@ -351,7 +341,15 @@ function portfolioCellClass(key: keyof PortfolioRecapRowDisplay, display: string
   return `${base} text-muted-foreground`;
 }
 
-function PortfolioRecapSection({ title, rows }: { title: string; rows: PortfolioRecapRowDisplay[] }) {
+function PortfolioRecapSection({
+  title,
+  rows,
+  headers = RECAP_HEADERS,
+}: {
+  title: string;
+  rows: PortfolioRecapRowDisplay[];
+  headers?: { key: keyof PortfolioRecapRowDisplay; label: string }[];
+}) {
   return (
     <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       <div className="border-b border-border bg-muted/40 px-4 py-4 sm:px-5 sm:py-4">
@@ -362,7 +360,7 @@ function PortfolioRecapSection({ title, rows }: { title: string; rows: Portfolio
         <table className="w-full min-w-[1100px] border-separate border-spacing-0 text-sm">
           <thead>
             <tr className="text-left">
-              {RECAP_HEADERS.map((h) => (
+              {headers.map((h) => (
                 <th
                   key={h.key}
                   className="whitespace-nowrap border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]"
@@ -375,7 +373,7 @@ function PortfolioRecapSection({ title, rows }: { title: string; rows: Portfolio
           <tbody>
             {rows.length === 0 && (
               <tr className="border-b border-border">
-                <td className="px-4 py-8 text-sm text-muted-foreground sm:px-6" colSpan={RECAP_HEADERS.length}>
+                <td className="px-4 py-8 text-sm text-muted-foreground sm:px-6" colSpan={headers.length}>
                   No recap rows for this group.
                 </td>
               </tr>
@@ -385,7 +383,7 @@ function PortfolioRecapSection({ title, rows }: { title: string; rows: Portfolio
                 key={`${r.portfolioName}-${idx}`}
                 className="border-b border-border transition-colors last:border-b-0 hover:bg-muted/30"
               >
-                {RECAP_HEADERS.map((h) => {
+                {headers.map((h) => {
                   const display = r[h.key];
                   return (
                     <td key={h.key} className={portfolioCellClass(h.key, display)}>

@@ -13,6 +13,8 @@ import {
   pctReturn,
   distanceFrom52wHigh,
   ratingLabel,
+  trendComponentScore,
+  trendSignalIcon,
   type FormulaParams,
   type RatingLabelMap,
 } from './compute.ts';
@@ -1536,12 +1538,12 @@ function buildUpdatePatch(
     priceVsShortEma: dailyPriceVsShort,
     priceVsLongEma: dailyPriceVsLong,
     emaCross: dailyEmaCross,
-  });
+  }, params);
   const weeklyOutlook  = trendOutlook(weeklyScore, {
     priceVsShortEma: weeklyPriceVsShort,
     priceVsLongEma: weeklyPriceVsLong,
     emaCross: weeklyEmaCross,
-  });
+  }, params);
   const dailyMonth     = rollingHighLow(daily,  21);
   const weeklyQuarter  = rollingHighLow(weekly, 13);
 
@@ -1614,11 +1616,13 @@ function buildUpdatePatch(
     'Daily',
     trendTemplates
   );
-  patch.daily_price_vs_9ema_icon   = signalIcon(dailyPriceVsShort);
-  patch.daily_price_vs_21ema_icon  = signalIcon(dailyPriceVsLong);
-  patch.daily_ema9_vs_21ema_icon   = signalIcon(dailyEmaCross);
-  patch.daily_slope_9ema_icon      = slopeIcon(dailySlope9);
-  patch.daily_slope_21ema_icon     = slopeIcon(dailySlope21);
+  const dailyTh = TREND_SIGNAL_THRESHOLDS.daily;
+  const weeklyTh = TREND_SIGNAL_THRESHOLDS.weekly;
+  patch.daily_price_vs_9ema_icon   = trendSignalIcon(dailyPriceVsShort, dailyTh.short);
+  patch.daily_price_vs_21ema_icon  = trendSignalIcon(dailyPriceVsLong, dailyTh.long);
+  patch.daily_ema9_vs_21ema_icon   = trendSignalIcon(dailyEmaCross, dailyTh.cross);
+  patch.daily_slope_9ema_icon      = trendSignalIcon(dailySlope9Pct, dailyTh.slopeShort);
+  patch.daily_slope_21ema_icon     = trendSignalIcon(dailySlope21Pct, dailyTh.slopeLong);
 
   // --- Weekly trend ---
   patch.weekly_price_vs_9ema  = weeklyPriceVsShort;
@@ -1641,11 +1645,11 @@ function buildUpdatePatch(
     'Weekly',
     trendTemplates
   );
-  patch.weekly_price_vs_9ema_icon   = signalIcon(weeklyPriceVsShort);
-  patch.weekly_price_vs_30ema_icon  = signalIcon(weeklyPriceVsLong);
-  patch.weekly_ema9_vs_30ema_icon   = signalIcon(weeklyEmaCross);
-  patch.weekly_slope_9ema_icon      = slopeIcon(weeklySlope9);
-  patch.weekly_slope_30ema_icon     = slopeIcon(weeklySlope30);
+  patch.weekly_price_vs_9ema_icon   = trendSignalIcon(weeklyPriceVsShort, weeklyTh.short);
+  patch.weekly_price_vs_30ema_icon  = trendSignalIcon(weeklyPriceVsLong, weeklyTh.long);
+  patch.weekly_ema9_vs_30ema_icon   = trendSignalIcon(weeklyEmaCross, weeklyTh.cross);
+  patch.weekly_slope_9ema_icon      = trendSignalIcon(weeklySlope9Pct, weeklyTh.slopeShort);
+  patch.weekly_slope_30ema_icon     = trendSignalIcon(weeklySlope30Pct, weeklyTh.slopeLong);
 
   // Volume — sourced from the most-recent candle (Finnhub only; null for TwelveData).
   if (result.history.volume != null) {
@@ -1663,13 +1667,6 @@ function perfComponentScore(value: number | null, bull: number, bear: number): n
   if (value === null) return 1;
   if (value >= bull) return 3;
   if (value <= bear) return 0;
-  return 1;
-}
-
-function trendComponentScore(value: number | null, threshold: number): number {
-  if (value === null) return 1;
-  if (value > threshold) return 3;
-  if (value < -threshold) return 0;
   return 1;
 }
 
@@ -1759,27 +1756,30 @@ function trendOutlook(
     priceVsLongEma: number | null;
     emaCross: number | null;
   },
+  p: Pick<FormulaParams, 'score_mixed_high' | 'score_mixed_low'>,
 ): 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming' {
   const pvs = inputs.priceVsShortEma;
   const pvl = inputs.priceVsLongEma;
   const cross = inputs.emaCross;
+  const uptrendFloor = p.score_mixed_high;
+  const sidewaysFloor = p.score_mixed_low;
   // Client formula sheet (27.04.2026):
-  // Uptrend bands (>2.7): IF(pvs > 5%, Extended, IF(pvl < 0, Reversing, IF(pvs < 0, Cooling, Stable)))
-  if (score > 2.7) {
+  // Uptrend bands (> score_mixed_high): IF(pvs > 5%, Extended, IF(pvl < 0, Reversing, IF(pvs < 0, Cooling, Stable)))
+  if (score > uptrendFloor) {
     if (pvs !== null && pvs > 0.05) return 'Extended';
     if (pvl !== null && pvl < 0) return 'Reversing';
     if (pvs !== null && pvs < 0) return 'Cooling';
     return 'Stable';
   }
 
-  // Sideways band (>1.6 and <=2.7): IF(cross <= -1.5%, Softening, IF(cross >= 1.5%, Firming, Stable))
-  if (score > 1.6) {
+  // Sideways band (> score_mixed_low and <= score_mixed_high): IF(cross <= -1.5%, Softening, IF(cross >= 1.5%, Firming, Stable))
+  if (score > sidewaysFloor) {
     if (cross !== null && cross <= -0.015) return 'Softening';
     if (cross !== null && cross >= 0.015) return 'Firming';
     return 'Stable';
   }
 
-  // Downtrend bands (<=1.6): IF(pvs < -5%, Extended, IF(pvl > 0, Reversing, IF(pvs > 0, Warming, Stable)))
+  // Downtrend bands (<= score_mixed_low): IF(pvs < -5%, Extended, IF(pvl > 0, Reversing, IF(pvs > 0, Warming, Stable)))
   if (pvs !== null && pvs < -0.05) return 'Extended';
   if (pvl !== null && pvl > 0) return 'Reversing';
   if (pvs !== null && pvs > 0) return 'Warming';
@@ -1821,19 +1821,6 @@ function trendDescription(
   if (score >= 3.0) return `Trend is constructive and above key moving averages. Signal is ${o}.`;
   if (score >= 1.8) return `Trend is mixed with balanced bullish and bearish inputs. Signal is ${o}.`;
   return `Trend is weak with downside pressure across key signals. Signal is ${o}.`;
-}
-
-function signalIcon(v: number | null): string {
-  if (v === null) return '⚪️';
-  if (v > 0) return '✅';
-  if (v < 0) return '❌';
-  return '⚪️';
-}
-
-function slopeIcon(v: 'Rising' | 'Flat' | 'Falling' | null): string {
-  if (v === 'Rising')  return '✅';
-  if (v === 'Falling') return '❌';
-  return '⚪️';
 }
 
 function capitalize(s: string): string {

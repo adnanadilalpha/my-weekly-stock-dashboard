@@ -61,10 +61,10 @@ export function ratingTierFromTrendScore(
 ): FormulaRatingTier | null {
   const v = typeof score === 'number' && Number.isFinite(score) ? score : null;
   if (v === null) return null;
-  if (v >= n.score_strong) return 'strong_bull';
-  if (v >= n.score_mixed_high) return 'bull';
-  if (v >= n.score_mixed_low) return 'neutral';
-  if (v >= n.score_weak) return 'bear';
+  if (v > n.score_strong) return 'strong_bull';
+  if (v > n.score_mixed_high) return 'bull';
+  if (v > n.score_mixed_low) return 'neutral';
+  if (v > n.score_weak) return 'bear';
   return 'strong_bear';
 }
 

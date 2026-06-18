@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, RefreshCw, BarChart3, Radar } fro
 import { AppHeader } from './app-header';
 import { TickerIcon } from './ui/ticker-icon';
 import { usePortfolioSheet, type PortfolioSheetRow } from '@/lib/hooks/usePortfolioData';
+import { sortPickRowsNewestFirst } from '@/lib/portfolio/sort-pick-rows';
 import type { AppMode, PortfolioPage } from '../types';
 
 const PORTFOLIO_DETAIL_CONFIG: Record<
@@ -589,13 +590,16 @@ export function PortfolioDetailPage({
     });
   }
 
-  const dataRows = dataRowsRaw.filter((row) => {
-    const r = row as Record<string, unknown>;
-    return headerCols.some(({ key }) => {
-      const v = getVal(r, key);
-      return v != null && String(v).trim() !== '';
-    });
-  });
+  const dataRows = useMemo(
+    () => sortPickRowsNewestFirst(dataRowsRaw.filter((row) => {
+      const r = row as Record<string, unknown>;
+      return headerCols.some(({ key }) => {
+        const v = getVal(r, key);
+        return v != null && String(v).trim() !== '';
+      });
+    }), headerCols),
+    [dataRowsRaw, headerCols],
+  );
 
   const momentumCombinedCols = useMemo(() => {
     if (!isMomentumCombinedPage || !combinedColumnHeaderRow) return [];
@@ -632,13 +636,14 @@ export function PortfolioDetailPage({
 
   const momentumCombinedDataRows = useMemo(() => {
     if (!isMomentumCombinedPage) return [];
-    return rows.filter((r) => {
+    const filtered = rows.filter((r) => {
       if ((r.row_index as number) <= 6) return false;
       return momentumCombinedCols.some((col) => {
         const v = getVal(r as Record<string, unknown>, col.key);
         return v != null && String(v).trim() !== '';
       });
     });
+    return sortPickRowsNewestFirst(filtered, momentumCombinedCols);
   }, [isMomentumCombinedPage, rows, momentumCombinedCols]);
 
 
@@ -662,8 +667,11 @@ export function PortfolioDetailPage({
     [summaryRowsFiltered, colKeys, headerRow, portfolioPage, titleText],
   );
 
-  const macroDetailRows =
-    portfolioPage === 'macro-etf' || portfolioPage === 'macro-3x' ? dataRows.slice(0, -2) : dataRows;
+  const macroDetailRows = useMemo(() => {
+    const base =
+      portfolioPage === 'macro-etf' || portfolioPage === 'macro-3x' ? dataRows.slice(0, -2) : dataRows;
+    return base;
+  }, [dataRows, portfolioPage]);
 
   const tradeKeys = useMemo(() => {
     if (!summaryModel) return [];

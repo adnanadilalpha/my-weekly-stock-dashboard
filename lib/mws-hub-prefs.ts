@@ -10,7 +10,7 @@ export const HUB_SECTION_META: Record<
 > = {
   personal: { label: 'Your Tickers', meta: 'up to 20' },
   segments: { label: 'SEGMENT Ticker Page', meta: '10 tickers' },
-  sectors: { label: 'SECTOR Ticker Pages', meta: '12 tickers' },
+  sectors: { label: 'SECTOR Ticker Pages', meta: '11 tickers' },
   large: { label: 'LARGE CAPS Ticker Pages', meta: '60 tickers' },
 };
 
@@ -23,12 +23,15 @@ export interface HubPrefs {
   order: HubSectionKey[];
   hidden: Partial<Record<HubSectionKey, boolean>>;
   personalTickers: HubPersonalTicker[];
+  /** Up to 10 tickers shown on Momentum Pulse dashboard (from personalTickers). */
+  pulseFavorites: HubPersonalTicker[];
 }
 
 export const DEFAULT_HUB_PREFS: HubPrefs = {
   order: [...DEFAULT_HUB_ORDER],
   hidden: {},
   personalTickers: [],
+  pulseFavorites: [],
 };
 
 const KEY_SET = new Set<string>(HUB_SECTION_KEYS);
@@ -71,5 +74,17 @@ export function normalizeHubPrefs(raw: unknown): HubPrefs {
     .filter((x) => x.ticker.length > 0)
     .slice(0, 20);
 
-  return { order, hidden, personalTickers };
+  const pf = Array.isArray(o.pulseFavorites) ? o.pulseFavorites : [];
+  const pulseFavorites: HubPersonalTicker[] = pf
+    .filter((x): x is Record<string, unknown> => x != null && typeof x === 'object')
+    .map((x) => ({
+      ticker: String(x.ticker ?? '')
+        .toUpperCase()
+        .trim(),
+      name: String(x.name ?? x.ticker ?? '').trim(),
+    }))
+    .filter((x) => x.ticker.length > 0)
+    .slice(0, 10);
+
+  return { order, hidden, personalTickers, pulseFavorites };
 }

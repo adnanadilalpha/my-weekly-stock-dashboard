@@ -1,6 +1,14 @@
 'use server';
 
 import { getAdminSupabase } from '@/lib/server/supabase-admin';
+import {
+  combinedRecapRowFromMomentumSummary,
+  legacyCombinedRecapFieldsFromRecap,
+  momentumReturnsDisplayPct,
+  parseMomentumSummaryKpis,
+} from '@/lib/portfolio/momentum-summary-kpis';
+import { recapStrategyDisplayName } from '@/lib/portfolio/recap-table-columns';
+import type { PortfolioSheetRow } from '@/lib/hooks/usePortfolioData';
 import { err, ok, withAdmin, type ActionResult } from './_shared';
 
 export type PortfolioRecapRowDisplay = {
@@ -116,7 +124,7 @@ const RECAP_TABLE_COLUMNS: { key: string; header: string }[] = [
   { key: 'column_12', header: 'Avg Loss' },
   { key: 'column_13', header: 'Net Avg Return' },
   { key: 'column_14', header: 'CAGR' },
-  { key: 'column_15', header: 'Holding Time (days)' },
+  { key: 'column_15', header: 'Holding time (days)' },
 ];
 
 function normalizeCol2(val: string | null): string {
@@ -159,7 +167,14 @@ function formatDateSheet(val: string | number | null): string | null {
   return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
-function formatRecapCell(key: string, value: string | number | null): string {
+function formatCombinedReturnPct(val: string | number | null): string {
+  if (val == null) return '—';
+  const n = Number(val);
+  if (Number.isNaN(n)) return String(val);
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function formatRecapCell(key: string, value: string | number | null, strategyName?: string): string {
   if (value == null || value === '') return '—';
   const s = String(value).trim();
   if (s.toLowerCase() === 'back to home page') return '—';
@@ -189,6 +204,9 @@ function formatRecapCell(key: string, value: string | number | null): string {
     key === 'column_12' ||
     key === 'column_13'
   ) {
+    if (key === 'column_9' && strategyName && /^combined performance(\b|$)/i.test(strategyName)) {
+      return formatCombinedReturnPct(value);
+    }
     return formatPct(value);
   }
   if (key === 'column_15') return formatInt(value);
@@ -212,35 +230,50 @@ function recapRowHasData(row: Record<string, unknown>): boolean {
 }
 
 function buildRecapDisplay(row: Record<string, unknown>): PortfolioRecapRowDisplay {
-  const name = normalizeCol2(String(getCol(row, 'column_2')));
+  const rawName = normalizeCol2(String(getCol(row, 'column_2')));
+  const name = recapStrategyDisplayName(rawName);
   return {
     portfolioName: name,
-    start: formatRecapCell('column_3', getCol(row, 'column_3')),
-    initialValue: formatRecapCell('column_4', getCol(row, 'column_4')),
-    cashInvested: formatRecapCell('column_5', getCol(row, 'column_5')),
-    portfolioValue: formatRecapCell('column_7', getCol(row, 'column_7')),
-    returnUsd: formatRecapCell('column_8', getCol(row, 'column_8')),
-    returnsPct: formatRecapCell('column_9', getCol(row, 'column_9')),
-    hitRate: formatRecapCell('column_10', getCol(row, 'column_10')),
-    avgGain: formatRecapCell('column_11', getCol(row, 'column_11')),
-    avgLoss: formatRecapCell('column_12', getCol(row, 'column_12')),
-    netAvgReturn: formatRecapCell('column_13', getCol(row, 'column_13')),
-    cagr: formatRecapCell('column_14', getCol(row, 'column_14')),
-    holdingDays: formatRecapCell('column_15', getCol(row, 'column_15')),
+    start: formatRecapCell('column_3', getCol(row, 'column_3'), rawName),
+    initialValue: formatRecapCell('column_4', getCol(row, 'column_4'), rawName),
+    cashInvested: formatRecapCell('column_5', getCol(row, 'column_5'), rawName),
+    portfolioValue: formatRecapCell('column_7', getCol(row, 'column_7'), rawName),
+    returnUsd: formatRecapCell('column_8', getCol(row, 'column_8'), rawName),
+    returnsPct: formatRecapCell('column_9', getCol(row, 'column_9'), rawName),
+    hitRate: formatRecapCell('column_10', getCol(row, 'column_10'), rawName),
+    avgGain: formatRecapCell('column_11', getCol(row, 'column_11'), rawName),
+    avgLoss: formatRecapCell('column_12', getCol(row, 'column_12'), rawName),
+    netAvgReturn: formatRecapCell('column_13', getCol(row, 'column_13'), rawName),
+    cagr: formatRecapCell('column_14', getCol(row, 'column_14'), rawName),
+    holdingDays: formatRecapCell('column_15', getCol(row, 'column_15'), rawName),
   };
 }
 
-function processPerformanceRecap(rawRows: Record<string, unknown>[]): {
+function processPerformanceRecap(
+  rawRows: Record<string, unknown>[],
+  momentumSummaryRows: PortfolioSheetRow[] = [],
+): {
   weekly: PortfolioRecapRowDisplay[];
   etf: PortfolioRecapRowDisplay[];
   recapAvgReturnDisplay: string;
 } {
   const getCol2 = (r: Record<string, unknown>) => normalizeCol2(String(getCol(r, 'column_2')));
 
-  const portfolioRows = rawRows.filter((r) => {
+  const momentumKpis = parseMomentumSummaryKpis(momentumSummaryRows);
+  const legacyCombined = legacyCombinedRecapFieldsFromRecap(rawRows);
+  const combinedFromSummary = momentumKpis
+    ? combinedRecapRowFromMomentumSummary(momentumKpis, legacyCombined)
+    : null;
+
+  let portfolioRows = rawRows.filter((r) => {
     const n = getCol2(r);
     return /^combined performance(\b|$)/i.test(n) || RECAP_NAMES_SET.has(n);
   });
+
+  if (combinedFromSummary) {
+    portfolioRows = portfolioRows.filter((r) => !/^combined performance(\b|$)/i.test(getCol2(r)));
+    portfolioRows = [combinedFromSummary, ...portfolioRows];
+  }
 
   const withData = portfolioRows.filter((r) => recapRowHasData(r));
 
@@ -252,11 +285,15 @@ function processPerformanceRecap(rawRows: Record<string, unknown>[]): {
   const etf = withData.filter((r) => ETF_NAMES.has(getCol2(r))).map((r) => buildRecapDisplay(r));
 
   const kpiRecapRows = [...weeklyOnly, ...withData.filter((r) => ETF_NAMES.has(getCol2(r)))];
+  const combinedPts = momentumReturnsDisplayPct(momentumKpis?.returnsRatio ?? null);
   const pts = kpiRecapRows
     .map((r) => parseReturnsPctPoints(getCol(r, 'column_9')))
     .filter((v): v is number => v !== null);
   let recapAvgReturnDisplay = '—';
-  if (pts.length > 0) {
+  if (combinedPts != null) {
+    const sign = combinedPts >= 0 ? '+' : '';
+    recapAvgReturnDisplay = `${sign}${combinedPts.toFixed(1)}%`;
+  } else if (pts.length > 0) {
     const avg = pts.reduce((s, n) => s + n, 0) / pts.length;
     const sign = avg >= 0 ? '+' : '';
     recapAvgReturnDisplay = `${sign}${avg.toFixed(1)}%`;
@@ -272,22 +309,25 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
     const sinceWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const [usersRes, newUsersRes, adminsRes, runs24hRes, recapRes, authAct] = await Promise.all([
+    const [usersRes, newUsersRes, adminsRes, runs24hRes, recapRes, momentumSummaryRes, authAct] = await Promise.all([
       admin.from('authorized_users').select('id', { count: 'exact', head: true }),
       admin.from('authorized_users').select('id', { count: 'exact', head: true }).gte('created_at', sinceWeek),
       admin.from('authorized_users').select('id', { count: 'exact', head: true }).eq('role', 'Admin'),
       admin.from('api_health_log').select('status').gte('run_at', since24h),
       admin.from('performance_recap').select('*').order('row_index', { ascending: true }),
+      admin.from('momentum_picks_summary').select('*').order('row_index', { ascending: true }),
       authSignInActivity(admin),
     ]);
 
     if (usersRes.error) return err('Failed to load user count.', 'db_error');
     if (recapRes.error) return err('Failed to load portfolio recap.', 'db_error');
+    if (momentumSummaryRes.error) return err('Failed to load momentum summary.', 'db_error');
 
     const runs24h = (runs24hRes.data ?? []) as { status: 'ok' | 'partial' | 'error' }[];
     const recapRows = (recapRes.data ?? []) as Record<string, unknown>[];
+    const momentumSummaryRows = (momentumSummaryRes.data ?? []) as PortfolioSheetRow[];
     const { weekly: portfolioRecapWeekly, etf: portfolioRecapEtf, recapAvgReturnDisplay } =
-      processPerformanceRecap(recapRows);
+      processPerformanceRecap(recapRows, momentumSummaryRows);
 
     const stats: DashboardStats = {
       totalUsers: usersRes.count ?? 0,

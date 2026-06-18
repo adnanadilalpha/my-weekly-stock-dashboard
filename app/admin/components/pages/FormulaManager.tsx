@@ -75,15 +75,15 @@ const NAV_META: {
   },
   {
     id: 'scoring_weights',
-    title: 'Scoring Weights',
-    subtitle: 'SUMPRODUCT weights for 5 components',
+    title: 'Trend Score Weights',
+    subtitle: 'EMA trend components for daily & weekly charts (not performance returns)',
     icon: SlidersHorizontal,
     countKey: 'category',
   },
   {
     id: 'return_thresholds',
     title: 'Return Thresholds',
-    subtitle: '1M, 3M and vs 1Y High return cutoffs',
+    subtitle: 'Performance scoring only — 1M, 3M and vs 1Y high cutoffs',
     icon: TrendingUp,
     countKey: 'category',
   },
@@ -97,7 +97,7 @@ const NAV_META: {
   {
     id: 'score_breakpoints',
     title: 'Score Breakpoints',
-    subtitle: 'Rating tier thresholds',
+    subtitle: 'Trend rating tiers (client uses strict > cutoffs)',
     icon: Eye,
     countKey: 'category',
   },
@@ -111,12 +111,36 @@ const NAV_META: {
 ];
 
 const LEGEND: { tier: FormulaRatingTier; label: string; defaultColor: string }[] = [
-  { tier: 'strong_bull', label: 'Strong Bull', defaultColor: '#16a34a' },
-  { tier: 'bull', label: 'Bull', defaultColor: '#22c55e' },
-  { tier: 'neutral', label: 'Neutral', defaultColor: '#f59e0b' },
-  { tier: 'bear', label: 'Bear', defaultColor: '#f97316' },
-  { tier: 'strong_bear', label: 'Strong Bear', defaultColor: '#ef4444' },
+  { tier: 'strong_bull', label: 'Strong Uptrend', defaultColor: '#16a34a' },
+  { tier: 'bull', label: 'Uptrend', defaultColor: '#22c55e' },
+  { tier: 'neutral', label: 'Sideways', defaultColor: '#f59e0b' },
+  { tier: 'bear', label: 'Downtrend', defaultColor: '#f97316' },
+  { tier: 'strong_bear', label: 'Strong Downtrend', defaultColor: '#ef4444' },
 ];
+
+/** Client PDF (27.04.2026) recommended weights — shown in admin for clarity. */
+const TREND_WEIGHT_GUIDE: Record<string, { label: string; guide: string }> = {
+  weight_1m_return: {
+    label: 'Price vs 9-period EMA',
+    guide: '10% — weekly: 9-week; daily: 9-day',
+  },
+  weight_3m_return: {
+    label: 'Price vs 21/30-period EMA',
+    guide: '20% — weekly: 30-week; daily: 21-day',
+  },
+  weight_vs_1y_high: {
+    label: '9 vs 21/30 EMA spread',
+    guide: '30% — most important trend input',
+  },
+  weight_vs_9ema: {
+    label: 'Slope of 9-period EMA',
+    guide: '20% — vs 5 bars ago',
+  },
+  weight_vs_30ema: {
+    label: 'Slope of 21/30-period EMA',
+    guide: '20% — vs 5 bars ago',
+  },
+};
 
 const SCORE_KEY_BY_TIER: Record<FormulaRatingTier, 'score_strong' | 'score_mixed_high' | 'score_mixed_low' | 'score_weak'> = {
   strong_bull: 'score_strong',
@@ -157,15 +181,15 @@ function scoreRuleText(
 ): string {
   switch (tier) {
     case 'strong_bull':
-      return `≥ ${p.score_strong}`;
+      return `> ${p.score_strong}`;
     case 'bull':
-      return `≥ ${p.score_mixed_high}`;
+      return `> ${p.score_mixed_high} and ≤ ${p.score_strong}`;
     case 'neutral':
-      return `≥ ${p.score_mixed_low}`;
+      return `> ${p.score_mixed_low} and ≤ ${p.score_mixed_high}`;
     case 'bear':
-      return `≥ ${p.score_weak}`;
+      return `> ${p.score_weak} and ≤ ${p.score_mixed_low}`;
     case 'strong_bear':
-      return `< ${p.score_weak}`;
+      return `≤ ${p.score_weak}`;
     default:
       return '—';
   }
@@ -904,9 +928,13 @@ export default function FormulaManager() {
           {!loading && activeNav === 'scoring_weights' && (
             <div className="mt-4 space-y-4">
               <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-4 dark:border-emerald-500/20 dark:bg-emerald-500/15">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900 dark:text-emerald-100">Current formula</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900 dark:text-emerald-100">Trend score formula</p>
                 <p className="mt-2 font-mono text-sm text-emerald-900 dark:text-emerald-100 md:text-base">
                   SUMPRODUCT( weights[], component_scores[] ) ÷ 3 × 5
+                </p>
+                <p className="mt-2 text-xs text-emerald-900/90 dark:text-emerald-100/90">
+                  Each component scores 0, 1, or 3 from the client threshold bands. Icons: ✅ bullish (3), ⚪️ neutral (1), ❌ bearish (0).
+                  Weights below apply to <span className="font-medium">daily and weekly trend scores only</span> — not the separate performance block.
                 </p>
               </div>
               <h4 className="text-base font-semibold text-foreground">Component weights</h4>
@@ -922,11 +950,15 @@ export default function FormulaManager() {
                   <tbody>
                     {activeSettings.map((s) => {
                       const draft = drafts[s.key] ?? String(s.value);
+                      const guide = TREND_WEIGHT_GUIDE[s.key];
                       return (
                         <tr key={s.key} className="border-b border-border transition-colors hover:bg-muted/30">
                           <td className="px-4 py-4">
-                            <div className="font-semibold text-foreground">{s.label}</div>
+                            <div className="font-semibold text-foreground">{guide?.label ?? s.label}</div>
                             <div className="font-mono text-xs text-muted-foreground">{s.key}</div>
+                            {guide?.guide ? (
+                              <div className="mt-1 text-xs text-muted-foreground">Client default: {guide.guide}</div>
+                            ) : null}
                           </td>
                           <td className="max-w-md px-4 py-4 text-muted-foreground">{s.description}</td>
                           <td className="px-4 py-4">

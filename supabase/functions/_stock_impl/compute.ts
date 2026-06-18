@@ -109,19 +109,36 @@ export type RatingLabelMap = {
 };
 
 export const DEFAULT_RATING_LABELS: RatingLabelMap = {
-  strong_bull: 'Strong Bull',
-  bull: 'Bull',
-  neutral: 'Neutral',
-  bear: 'Bear',
-  strong_bear: 'Strong Bear',
+  strong_bull: 'Strong Uptrend',
+  bull: 'Uptrend',
+  neutral: 'Sideways',
+  bear: 'Downtrend',
+  strong_bear: 'Strong Downtrend',
 };
+
+/** Trend criterion score: 0 bearish, 1 neutral band, 3 bullish (client PDF 27.04.2026). */
+export function trendComponentScore(value: number | null, threshold: number): number {
+  if (value === null) return 1;
+  if (value > threshold) return 3;
+  if (value < -threshold) return 0;
+  return 1;
+}
+
+/** Icon for a 0/1/3 trend component score (✅ / ⚪️ / ❌). */
+export function trendSignalIcon(value: number | null, threshold: number): string {
+  const score = trendComponentScore(value, threshold);
+  if (score === 3) return '✅';
+  if (score === 0) return '❌';
+  return '⚪️';
+}
 
 export function ratingLabel(score: number, p: FormulaParams, labels?: Partial<RatingLabelMap>): string {
   const L: RatingLabelMap = { ...DEFAULT_RATING_LABELS, ...labels };
-  if (score >= p.score_strong) return L.strong_bull;
-  if (score >= p.score_mixed_high) return L.bull;
-  if (score >= p.score_mixed_low) return L.neutral;
-  if (score >= p.score_weak) return L.bear;
+  // Client sheet uses strict `>` cutoffs (e.g. Strong Uptrend only when score > 3.9).
+  if (score > p.score_strong) return L.strong_bull;
+  if (score > p.score_mixed_high) return L.bull;
+  if (score > p.score_mixed_low) return L.neutral;
+  if (score > p.score_weak) return L.bear;
   return L.strong_bear;
 }
 

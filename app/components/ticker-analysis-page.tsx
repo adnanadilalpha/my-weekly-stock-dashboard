@@ -25,6 +25,14 @@ import {
   fetchFormulaRatingLabels,
   mergeFormulaDefaults,
 } from '@/lib/queries/formula-display';
+import {
+  PERFORMANCE_TONE_CELL_CLASS,
+  PERFORMANCE_TONE_CHIP_CLASS,
+  parsePercentFromDisplayString,
+  performanceToneFromPercent,
+  performanceToneFromRawValue,
+  toDisplayPercent,
+} from '@/lib/mws-performance-tone';
 
 const PriceChart = dynamic(() => import('./price-chart').then((m) => ({ default: m.PriceChart })), {
   ssr: false,
@@ -543,8 +551,24 @@ export function TickerAnalysisPage({
   );
 
   const SignalRow = ({ label, value, icon, isNum }: { label: string; value: string; icon?: string; isNum?: boolean }) => {
-    const isPos = /rising|✅|🟩|\+/.test(value) && !/falling|❌|🟥|-/.test(value);
-    const isNeg = /falling|❌|🟥/.test(value) || (isNum && value.startsWith('-'));
+    const iconBear = icon === '❌';
+    const iconBull = icon === '✅';
+    let isPos = false;
+    let isNeg = false;
+    if (icon) {
+      isPos = iconBull;
+      isNeg = iconBear;
+    } else if (isNum) {
+      const pct = parsePercentFromDisplayString(value);
+      if (pct != null) {
+        const tone = performanceToneFromPercent(pct);
+        isPos = tone === 'positive';
+        isNeg = tone === 'negative';
+      }
+    } else {
+      isPos = /rising|✅|🟩|\+/.test(value) && !/falling|❌|🟥|-/.test(value);
+      isNeg = /falling|❌|🟥/.test(value);
+    }
     return (
       <div className="flex items-center justify-between border-b border-border/50 py-[11px] last:border-0">
         <span className="min-w-0 flex-1 pr-3 text-xs text-muted-foreground sm:text-[13px]">{label}</span>
@@ -568,11 +592,11 @@ export function TickerAnalysisPage({
 
   const PerfCell = ({ value }: { value: number | null }) => {
     if (value == null) return <td className="border-b border-border px-3 py-2.5 text-center font-mono text-xs text-muted-foreground sm:px-4 sm:py-[11px] sm:text-[13px]">—</td>;
-    const pct = Math.abs(value) <= 1 ? value * 100 : value;
-    const pos = pct >= 0;
+    const pct = toDisplayPercent(value);
+    const tone = performanceToneFromRawValue(value);
     return (
-      <td className={`border-b border-border px-3 py-2.5 text-center font-mono text-xs font-medium tabular-nums sm:px-4 sm:py-[11px] sm:text-[13px] ${pos ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-500/8' : 'text-rose-700 dark:text-rose-400 bg-rose-500/8'}`}>
-        {pos ? '+' : ''}{pct.toFixed(1)}%
+      <td className={`border-b border-border px-3 py-2.5 text-center font-mono text-xs font-medium tabular-nums sm:px-4 sm:py-[11px] sm:text-[13px] ${PERFORMANCE_TONE_CELL_CLASS[tone]}`}>
+        {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
       </td>
     );
   };
@@ -670,8 +694,8 @@ export function TickerAnalysisPage({
                   >
                     {searchHits.map((item) => {
                       const m1 = item.m1;
-                      const pct = m1 != null ? (Math.abs(m1) <= 1 ? m1 * 100 : m1) : null;
-                      const isPos = pct != null && pct >= 0;
+                      const pct = m1 != null ? toDisplayPercent(m1) : null;
+                      const tone = pct != null ? performanceToneFromPercent(pct) : 'neutral';
                       return (
                         <button
                           key={item.ticker}
@@ -694,12 +718,8 @@ export function TickerAnalysisPage({
                           </span>
                           {/* 1m% chip */}
                           {pct != null && (
-                            <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[12px] font-semibold tabular-nums ${
-                              isPos
-                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                                : 'bg-rose-500/10 text-rose-700 dark:text-rose-400'
-                            }`}>
-                              {isPos ? '+' : ''}{pct.toFixed(1)}%
+                            <span className={`shrink-0 rounded-md px-2 py-0.5 font-mono text-[12px] font-semibold tabular-nums ${PERFORMANCE_TONE_CHIP_CLASS[tone]}`}>
+                              {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
                             </span>
                           )}
                         </button>
@@ -861,7 +881,10 @@ export function TickerAnalysisPage({
                     </div>
                     {/* D/W toggle */}
                     <div className="inline-flex gap-0.5 rounded-[10px] border border-border bg-muted/50 p-[3px]">
-                      {(['W', 'D'] as const).map((tf) => (
+                      {([
+                        { tf: 'W' as const, label: 'Weekly' },
+                        { tf: 'D' as const, label: 'Daily' },
+                      ]).map(({ tf, label }) => (
                         <button
                           key={tf}
                           type="button"
@@ -873,7 +896,7 @@ export function TickerAnalysisPage({
                               : 'text-muted-foreground hover:text-foreground'
                           }`}
                         >
-                          {tf}
+                          {label}
                         </button>
                       ))}
                     </div>

@@ -1,15 +1,33 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, AlertCircle, Search, ChevronRight, ChevronDown } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { RefreshCw, AlertCircle, Search, ChevronRight, ChevronDown, Star, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { TickerIcon } from './ui/ticker-icon';
 import { AppHeader } from './app-header';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { useDashboardData } from '../../lib/hooks/useDashboardData';
-import { fetchFormulaRatingLabels } from '@/lib/queries/formula-display';
-import { ratingBadgeClassName, ratingBadgeInlineStyle } from '@/lib/mws-formula-badges';
+import { fetchFormulaRatingLabels, DEFAULT_FORMULA_NUMBERS, fetchFormulaNumericSettings, mergeFormulaDefaults } from '@/lib/queries/formula-display';
+import {
+  ratingBadgeClassName,
+  ratingBadgeInlineStyle,
+  trendOutlookDotClass,
+  type TrendScoreTierThresholds,
+} from '@/lib/mws-formula-badges';
+import {
+  PERFORMANCE_TONE_BAR_CLASS,
+  PERFORMANCE_TONE_TEXT_CLASS,
+  performanceToneFromPercent,
+  toDisplayPercent,
+} from '@/lib/mws-performance-tone';
+import {
+  matchesTrendStatusFilter,
+  trendStatusSummary,
+  type TrendStatusFilter,
+} from '@/lib/mws-trend-rating-filters';
+import { useMwsHubPreferences } from '@/lib/hooks/useMwsHubPreferences';
+import type { HubPersonalTicker } from '@/lib/mws-hub-prefs';
 
 // Mapping of ticker symbols to display names (matching index-page.tsx)
 const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
@@ -25,7 +43,6 @@ const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
   USO: 'Oil',
   XLK: 'Technology',
   XLC: 'Communication Services',
-  SMH: 'Semiconductors',
   XLY: 'Consumer Cyclicals',
   XLF: 'Financials',
   XLI: 'Industrials',
@@ -37,10 +54,10 @@ const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
   XLP: 'Consumer Defensive',
 };
 
-const SEGMENT_ORDER = ['SPY', 'QQQ', 'IWM', 'TLT', 'UUP', 'GLD', 'SLV', 'IBIT', 'ETHA', 'USO'];
-const SECTOR_ORDER = ['XLK', 'XLC', 'SMH', 'XLY', 'XLF', 'XLI', 'XLE', 'XLB', 'XLRE', 'XLU', 'XLV', 'XLP'];
+/** Client feedback #4: Semiconductors (SMH) removed from sector dashboard. */
+const EXCLUDED_SECTOR_TICKERS = new Set(['SMH']);
 
-type TrendFilter = 'all' | 'up' | 'flat' | 'down';
+type TrendFilter = TrendStatusFilter;
 
 interface TableRow {
   segment: string;
@@ -79,11 +96,6 @@ function formatPercentSigned(value: number | null, decimals = 1) {
   return `${sign}${rounded}%`;
 }
 
-/** Center-zero perf bar (design); maxAbs scales bar fill */
-function vsHighToneClasses(pct: number): { text: string; bar: string } {
-  return { text: 'text-muted-foreground', bar: 'bg-neutral-400 dark:bg-neutral-500' };
-}
-
 function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; maxAbs: number; mode?: 'default' | 'vsHigh' }) {
   if (value == null) {
     return (
@@ -93,14 +105,20 @@ function PerfBar({ value, maxAbs, mode = 'default' }: { value: number | null; ma
       </div>
     );
   }
-  const pct = Math.abs(value) <= 1 ? value * 100 : value;
+  const pct = toDisplayPercent(value);
   const clamped = Math.max(-maxAbs, Math.min(maxAbs, pct));
   const widthPct = maxAbs > 0 ? (Math.abs(clamped) / maxAbs) * 50 : 0;
   const visibleWidthPct = clamped !== 0 ? (mode === 'vsHigh' ? Math.max(widthPct, 10) : widthPct) : 0;
   const pos = clamped >= 0;
-  const tone = mode === 'vsHigh' ? vsHighToneClasses(pct) : null;
-  const valueClass = tone ? tone.text : (pos ? 'text-emerald-600' : 'text-red-600');
-  const barClass = tone ? tone.bar : (pos ? 'bg-emerald-500' : 'bg-red-500');
+  const tone =
+    mode === 'vsHigh'
+      ? { text: 'text-muted-foreground', bar: 'bg-neutral-400 dark:bg-neutral-500' }
+      : (() => {
+          const t = performanceToneFromPercent(pct);
+          return { text: PERFORMANCE_TONE_TEXT_CLASS[t], bar: PERFORMANCE_TONE_BAR_CLASS[t] };
+        })();
+  const valueClass = tone.text;
+  const barClass = tone.bar;
   return (
     <div className="flex min-w-[120px] max-w-full items-center gap-2">
       <span
@@ -156,29 +174,7 @@ function RatingChip({ rating, ratingRows }: { rating: string; ratingRows: { tier
 }
 
 function outlookDotClass(outlook: string): { dot: string; text: string } {
-  const o = outlook.toLowerCase();
-  if (o.includes('stable')) {
-    return { dot: 'bg-green-600', text: 'text-foreground' };
-  }
-  if (o.includes('firm')) {
-    return { dot: 'bg-emerald-500', text: 'text-foreground' };
-  }
-  if (o.includes('cool')) {
-    return { dot: 'bg-orange-600', text: 'text-foreground' };
-  }
-  if (o.includes('soft')) {
-    return { dot: 'bg-amber-800', text: 'text-foreground' };
-  }
-  if (o.includes('warm')) {
-    return { dot: 'bg-cyan-700', text: 'text-foreground' };
-  }
-  if (o.includes('extend')) {
-    return { dot: 'bg-amber-500', text: 'text-foreground' };
-  }
-  if (o.includes('revers')) {
-    return { dot: 'bg-red-500', text: 'text-foreground' };
-  }
-  return { dot: 'bg-muted-foreground/60', text: 'text-muted-foreground' };
+  return { dot: trendOutlookDotClass(outlook), text: 'text-foreground' };
 }
 
 function OutlookCell({ outlook }: { outlook: string }) {
@@ -191,23 +187,58 @@ function OutlookCell({ outlook }: { outlook: string }) {
   );
 }
 
-function applyRowFilter(rows: TableRow[], q: string, filter: TrendFilter): TableRow[] {
+function applyRowFilter(
+  rows: TableRow[],
+  q: string,
+  filter: TrendFilter,
+  thresholds: TrendScoreTierThresholds,
+): TableRow[] {
   let out = rows;
   const n = q.trim().toLowerCase();
   if (n) {
     out = out.filter((x) => x.segment.toLowerCase().includes(n) || x.ticker.toLowerCase().includes(n));
   }
-  if (filter === 'up') out = out.filter((x) => x.trendScore >= 3);
-  else if (filter === 'flat') out = out.filter((x) => x.trendScore >= 2 && x.trendScore < 3);
-  else if (filter === 'down') out = out.filter((x) => x.trendScore < 2);
+  if (filter !== 'all') {
+    out = out.filter((x) => matchesTrendStatusFilter(x.trendScore, filter, thresholds));
+  }
   return out;
 }
 
-function groupSummary(rows: TableRow[]) {
-  const upN = rows.filter((x) => x.trendScore >= 3).length;
-  const dnN = rows.filter((x) => x.trendScore < 2).length;
-  const avg = rows.length ? (rows.reduce((s, x) => s + x.trendScore, 0) / rows.length).toFixed(1) : '—';
-  return { upN, dnN, avg };
+function groupSummary(rows: TableRow[], thresholds: TrendScoreTierThresholds) {
+  const { upN, sidewaysN, dnN, avg } = trendStatusSummary(
+    rows.map((x) => x.trendScore),
+    thresholds,
+  );
+  return { upN, sidewaysN, dnN, avg };
+}
+
+function sortByTrendScoreDesc(rows: TableRow[]): TableRow[] {
+  return [...rows].sort((a, b) => b.trendScore - a.trendScore || a.segment.localeCompare(b.segment));
+}
+
+function buildTickerRecordMap(
+  segments: Array<Record<string, unknown>>,
+  sectors: Array<Record<string, unknown>>,
+  megaCaps: Array<Record<string, unknown>>,
+  otherStocks: Array<Record<string, unknown>>,
+): Map<string, Record<string, unknown>> {
+  const map = new Map<string, Record<string, unknown>>();
+  const add = (items: Array<Record<string, unknown>>) => {
+    for (const item of items) {
+      const t = String(item.ticker ?? '').toUpperCase();
+      if (t) map.set(t, item);
+    }
+  };
+  add(segments);
+  add(sectors);
+  add(megaCaps);
+  add(otherStocks);
+  return map;
+}
+
+function resolvePulseFavorites(personal: HubPersonalTicker[], saved: HubPersonalTicker[]): HubPersonalTicker[] {
+  if (saved.length > 0) return saved.slice(0, 10);
+  return personal.slice(0, 10);
 }
 
 export function DashboardPage({
@@ -222,7 +253,34 @@ export function DashboardPage({
   const [query, setQuery] = useState('');
   const [trendFilter, setTrendFilter] = useState<TrendFilter>('all');
   const [ratingLabelRows, setRatingLabelRows] = useState<{ tier: string; label: string; color_hex?: string | null }[]>([]);
-  const { segments, sectors, loading, error, refetch } = useDashboardData(timeframe);
+  const [scoreThresholds, setScoreThresholds] = useState<TrendScoreTierThresholds>({
+    score_strong: DEFAULT_FORMULA_NUMBERS.score_strong,
+    score_mixed_high: DEFAULT_FORMULA_NUMBERS.score_mixed_high,
+    score_mixed_low: DEFAULT_FORMULA_NUMBERS.score_mixed_low,
+    score_weak: DEFAULT_FORMULA_NUMBERS.score_weak,
+  });
+  const [favoritesEditorOpen, setFavoritesEditorOpen] = useState(false);
+  const { prefs, setPrefs } = useMwsHubPreferences();
+  const { segments, sectors, megaCaps, otherStocks, loading, error, refetch } = useDashboardData(timeframe);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchFormulaNumericSettings()
+      .then((partial) => {
+        if (cancelled) return;
+        const merged = mergeFormulaDefaults(partial);
+        setScoreThresholds({
+          score_strong: merged.score_strong,
+          score_mixed_high: merged.score_mixed_high,
+          score_mixed_low: merged.score_mixed_low,
+          score_weak: merged.score_weak,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,16 +329,6 @@ export function DashboardPage({
   const getDisplayName = (ticker: string, dbName: string | null | undefined) =>
     TICKER_TO_DISPLAY_NAME[ticker] || dbName || ticker;
 
-  const sortByOrder = <T extends { ticker: string }>(items: T[], order: string[]): T[] =>
-    [...items].sort((a, b) => {
-      const ia = order.indexOf(a.ticker);
-      const ib = order.indexOf(b.ticker);
-      if (ia !== -1 && ib !== -1) return ia - ib;
-      if (ia !== -1) return -1;
-      if (ib !== -1) return 1;
-      return 0;
-    });
-
   const transformToTableData = (item: Record<string, unknown>, getSegmentName: (item: Record<string, unknown>) => string): TableRow => {
     const isDaily = timeframe === 'D';
     const perf1M = toNumeric(item['1m_percent'] ?? item.daily_1m_percent);
@@ -304,38 +352,79 @@ export function DashboardPage({
 
   const marketSegmentsData: TableRow[] = useMemo(
     () =>
-      sortByOrder(
+      sortByTrendScoreDesc(
         segments.map((s) =>
           transformToTableData(s as unknown as Record<string, unknown>, (it) =>
             getDisplayName(String(it.ticker), it.name as string | undefined),
           ),
         ),
-        SEGMENT_ORDER,
       ),
     [segments, timeframe],
   );
 
   const sectorsData: TableRow[] = useMemo(
     () =>
-      sortByOrder(
-        sectors.map((s) =>
-          transformToTableData(s as unknown as Record<string, unknown>, (it) =>
-            getDisplayName(String(it.ticker), it.sector_name as string | undefined),
+      sortByTrendScoreDesc(
+        sectors
+          .filter((s) => !EXCLUDED_SECTOR_TICKERS.has(String(s.ticker).toUpperCase()))
+          .map((s) =>
+            transformToTableData(s as unknown as Record<string, unknown>, (it) =>
+              getDisplayName(String(it.ticker), it.sector_name as string | undefined),
+            ),
           ),
-        ),
-        SECTOR_ORDER,
       ),
     [sectors, timeframe],
   );
 
-  const filteredSegments = useMemo(
-    () => applyRowFilter(marketSegmentsData, query, trendFilter),
-    [marketSegmentsData, query, trendFilter],
+  const tickerRecordMap = useMemo(
+    () =>
+      buildTickerRecordMap(
+        segments as unknown as Array<Record<string, unknown>>,
+        sectors as unknown as Array<Record<string, unknown>>,
+        megaCaps as unknown as Array<Record<string, unknown>>,
+        otherStocks as unknown as Array<Record<string, unknown>>,
+      ),
+    [segments, sectors, megaCaps, otherStocks],
   );
-  const filteredSectors = useMemo(() => applyRowFilter(sectorsData, query, trendFilter), [sectorsData, query, trendFilter]);
 
-  const segSummary = useMemo(() => groupSummary(marketSegmentsData), [marketSegmentsData]);
-  const secSummary = useMemo(() => groupSummary(sectorsData), [sectorsData]);
+  const activePulseFavorites = useMemo(
+    () => resolvePulseFavorites(prefs.personalTickers, prefs.pulseFavorites ?? []),
+    [prefs.personalTickers, prefs.pulseFavorites],
+  );
+
+  const favoritesData: TableRow[] = useMemo(() => {
+    const rows: TableRow[] = [];
+    for (const fav of activePulseFavorites) {
+      const item = tickerRecordMap.get(fav.ticker.toUpperCase());
+      if (!item) continue;
+      const name =
+        fav.name ||
+        String(item.name ?? item.sector_name ?? item.company_name ?? fav.ticker);
+      rows.push(
+        transformToTableData(item, () => getDisplayName(fav.ticker, name)),
+      );
+    }
+    return sortByTrendScoreDesc(rows);
+  }, [activePulseFavorites, tickerRecordMap, timeframe]);
+
+  const filteredFavorites = useMemo(
+    () => applyRowFilter(favoritesData, query, trendFilter, scoreThresholds),
+    [favoritesData, query, trendFilter, scoreThresholds],
+  );
+
+  const favSummary = useMemo(() => groupSummary(favoritesData, scoreThresholds), [favoritesData, scoreThresholds]);
+
+  const filteredSegments = useMemo(
+    () => applyRowFilter(marketSegmentsData, query, trendFilter, scoreThresholds),
+    [marketSegmentsData, query, trendFilter, scoreThresholds],
+  );
+  const filteredSectors = useMemo(
+    () => applyRowFilter(sectorsData, query, trendFilter, scoreThresholds),
+    [sectorsData, query, trendFilter, scoreThresholds],
+  );
+
+  const segSummary = useMemo(() => groupSummary(marketSegmentsData, scoreThresholds), [marketSegmentsData, scoreThresholds]);
+  const secSummary = useMemo(() => groupSummary(sectorsData, scoreThresholds), [sectorsData, scoreThresholds]);
 
   const subtitleParts = [
     'Performance & trend across market segments and sectors',
@@ -367,20 +456,26 @@ export function DashboardPage({
     titleUpper: string,
     allRows: TableRow[],
     filteredRows: TableRow[],
-    summary: { upN: number; dnN: number; avg: string },
+    summary: { upN: number; sidewaysN: number; dnN: number; avg: string },
+    headerExtra?: ReactNode,
   ) => (
     <div className="w-full overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       <div className="flex flex-col gap-3 border-b border-border bg-muted/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titleUpper}</span>
           <span className="rounded-full border border-border bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground">
             {allRows.length}
           </span>
+          {headerExtra}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground sm:text-sm">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
             <span>{summary.upN} up</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+            <span>{summary.sidewaysN} sideways</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
@@ -496,7 +591,7 @@ export function DashboardPage({
                   timeframe === 'D' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                D
+                Daily
               </button>
               <button
                 type="button"
@@ -506,7 +601,7 @@ export function DashboardPage({
                   timeframe === 'W' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                W
+                Weekly
               </button>
             </div>
             <Button onClick={handleRefresh} disabled={loading} size="sm" variant="outline" className="h-9 gap-2 rounded-lg">
@@ -561,6 +656,77 @@ export function DashboardPage({
 
         {!loading && !error && (
           <div className="flex w-full flex-1 flex-col gap-4 pb-8 sm:gap-5">
+            {favoritesEditorOpen && (
+              <div className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-5">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">Select up to 10 favorites (from Your Tickers)</p>
+                  <button
+                    type="button"
+                    onClick={() => setFavoritesEditorOpen(false)}
+                    className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
+                    aria-label="Close"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                {prefs.personalTickers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Add tickers under <strong>Your Tickers</strong> on the MWS home page first.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {prefs.personalTickers.map((t) => {
+                      const selected = (prefs.pulseFavorites ?? []).some(
+                        (f) => f.ticker.toUpperCase() === t.ticker.toUpperCase(),
+                      );
+                      return (
+                        <button
+                          key={t.ticker}
+                          type="button"
+                          onClick={() => {
+                            setPrefs((p) => {
+                              const current = p.pulseFavorites ?? [];
+                              const exists = current.some((f) => f.ticker.toUpperCase() === t.ticker.toUpperCase());
+                              if (exists) {
+                                return {
+                                  ...p,
+                                  pulseFavorites: current.filter(
+                                    (f) => f.ticker.toUpperCase() !== t.ticker.toUpperCase(),
+                                  ),
+                                };
+                              }
+                              if (current.length >= 10) return p;
+                              return { ...p, pulseFavorites: [...current, t] };
+                            });
+                          }}
+                          className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                            selected
+                              ? 'border-violet-500/40 bg-violet-500/15 text-foreground'
+                              : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {t.ticker}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {renderPulseGroup(
+              'Favorites',
+              favoritesData,
+              filteredFavorites,
+              favSummary,
+              <button
+                type="button"
+                onClick={() => setFavoritesEditorOpen((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                <Star className="h-3 w-3" />
+                Select
+              </button>,
+            )}
             {renderPulseGroup('Market segments', marketSegmentsData, filteredSegments, segSummary)}
             {renderPulseGroup('Sectors', sectorsData, filteredSectors, secSummary)}
           </div>

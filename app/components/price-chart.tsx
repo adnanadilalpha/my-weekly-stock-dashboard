@@ -24,6 +24,25 @@ function calcEma(values: number[], period: number): (number | null)[] {
   return out;
 }
 
+/** Extend EMA line to the first chart bar (client feedback #8). */
+function buildExtendedLineData(
+  bars: PriceBar[],
+  values: (number | null)[],
+): { time: `${number}-${number}-${number}`; value: number }[] {
+  let seed: number | null = null;
+  for (const v of values) {
+    if (v != null) {
+      seed = v;
+      break;
+    }
+  }
+  if (seed == null) return [];
+  return bars.map((b, i) => ({
+    time: b.date as `${number}-${number}-${number}`,
+    value: values[i] ?? seed,
+  }));
+}
+
 interface PriceChartProps {
   bars: PriceBar[];
   interval: 'daily' | 'weekly';
@@ -109,7 +128,7 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
 
     const priceSeries = chart.addSeries(LineSeries, {
       color:              '#6366f1',
-      lineWidth:          interval === 'weekly' ? 2 : 2,
+      lineWidth:          3,
       priceLineVisible:   false,
       lastValueVisible:   true,
       crosshairMarkerVisible: true,
@@ -117,8 +136,8 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
 
     const ema1Series = chart.addSeries(LineSeries, {
       color:              '#f59e0b',
-      lineWidth:          interval === 'weekly' ? 3 : 2,
-      lineStyle:          LineStyle.Solid,
+      lineWidth:          2,
+      lineStyle:          LineStyle.Dashed,
       priceLineVisible:   false,
       lastValueVisible:   true,
       crosshairMarkerVisible: false,
@@ -126,8 +145,8 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
 
     const ema2Series = chart.addSeries(LineSeries, {
       color:              '#3b82f6',
-      lineWidth:          interval === 'weekly' ? 3 : 2,
-      lineStyle:          LineStyle.Solid,
+      lineWidth:          2,
+      lineStyle:          LineStyle.Dashed,
       priceLineVisible:   false,
       lastValueVisible:   true,
       crosshairMarkerVisible: false,
@@ -168,13 +187,8 @@ function PriceChartInner({ bars, interval, emaShort, emaLong, height = 220 }: Pr
     const emaShortVals = calcEma(closes, shortPeriod);
     const emaLongVals  = calcEma(closes, longPeriod);
 
-    const ema1Data = bars
-      .map((b, i) => ({ time: b.date as `${number}-${number}-${number}`, value: emaShortVals[i] }))
-      .filter((d): d is { time: `${number}-${number}-${number}`; value: number } => d.value !== null);
-
-    const ema2Data = bars
-      .map((b, i) => ({ time: b.date as `${number}-${number}-${number}`, value: emaLongVals[i] }))
-      .filter((d): d is { time: `${number}-${number}-${number}`; value: number } => d.value !== null);
+    const ema1Data = buildExtendedLineData(bars, emaShortVals);
+    const ema2Data = buildExtendedLineData(bars, emaLongVals);
 
     priceRef.current.setData(priceData);
     ema1Ref.current.setData(ema1Data);

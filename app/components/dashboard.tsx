@@ -29,6 +29,11 @@ import { getAllTickers, tickerMatchesSearchQuery } from '../../lib/queries/ticke
 import { useMwsHubPreferences } from '@/lib/hooks/useMwsHubPreferences';
 import { fetchHubTickerMetricsMap } from '@/lib/queries/hub-ticker-metrics';
 import type { HubTickerMetric } from '@/lib/queries/hub-ticker-metrics';
+import {
+  PERFORMANCE_TONE_CHIP_CLASS,
+  performanceToneFromPercent,
+  toDisplayPercent,
+} from '@/lib/mws-performance-tone';
 import type { HubSectionKey } from '@/lib/mws-hub-prefs';
 
 export interface IndexPageProps {
@@ -56,7 +61,6 @@ const SEGMENTS = [
 const SECTORS = [
   'Technology',
   'Telecommunication Services',
-  'Semiconductors',
   'Consumer Cyclicals',
   'Financials',
   'Industrials',
@@ -144,7 +148,6 @@ const TICKER_MAP: Record<string, string> = {
   Oil: 'USO',
   Technology: 'XLK',
   'Telecommunication Services': 'XLC',
-  Semiconductors: 'SMH',
   'Consumer Cyclicals': 'XLY',
   Financials: 'XLF',
   Industrials: 'XLI',
@@ -373,15 +376,9 @@ export function IndexPage({
     const ticker = (tickerOverride ?? TICKER_MAP[label] ?? label).toUpperCase();
     const m = metricsMap.get(ticker);
     const m1 = m?.m1 ?? null;
-    const m1Pct = m1 == null || Number.isNaN(m1) ? null : (Math.abs(m1) <= 1 ? m1 * 100 : m1);
-    const chip =
-      m1Pct == null
-        ? 'bg-muted/80 text-muted-foreground'
-        : m1Pct > 1
-          ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
-          : m1Pct < -1
-            ? 'bg-rose-500/15 text-rose-800 dark:text-rose-300'
-            : 'bg-amber-500/15 text-amber-800 dark:text-amber-300';
+    const m1Pct = m1 == null || Number.isNaN(m1) ? null : toDisplayPercent(m1);
+    const tone = m1Pct == null ? 'neutral' : performanceToneFromPercent(m1Pct);
+    const chip = PERFORMANCE_TONE_CHIP_CLASS[tone];
     return (
       <button
         type="button"
@@ -637,12 +634,9 @@ export function IndexPage({
               <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-20 overflow-hidden rounded-xl border border-border bg-card p-1.5 shadow-lg">
                 {searchHits.map((hit, idx) => {
                   const m1 = hit.metric?.m1 ?? null;
-                  const chipCls =
-                    m1 == null || Number.isNaN(m1)
-                      ? 'bg-muted/80 text-muted-foreground'
-                      : m1 >= 0
-                        ? 'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300'
-                        : 'bg-rose-500/15 text-rose-800 dark:text-rose-300';
+                  const m1Pct = m1 == null || Number.isNaN(m1) ? null : toDisplayPercent(m1);
+                  const tone = m1Pct == null ? 'neutral' : performanceToneFromPercent(m1Pct);
+                  const chipCls = PERFORMANCE_TONE_CHIP_CLASS[tone];
                   return (
                     <button
                       key={`${hit.ticker}-${idx}`}

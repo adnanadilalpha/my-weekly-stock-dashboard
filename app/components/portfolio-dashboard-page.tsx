@@ -11,7 +11,22 @@ import {
   GROUP_WEEKLY_MOMENTUM,
   GROUP_ETF,
   isCombinedPerformanceRecapName,
+  type PerformanceRecapRow,
 } from '@/lib/hooks/usePortfolioData';
+import {
+  etfRecapColumns,
+  recapRowDataColumnKeys,
+  recapStrategyDisplayName,
+  weeklyMomentumRecapColumns,
+  type RecapTableColumn,
+} from '@/lib/portfolio/recap-table-columns';
+import {
+  combinedRecapRowFromMomentumSummary,
+  legacyCombinedRecapFieldsFromRecap,
+  momentumRatioToDisplayPct,
+  momentumReturnsDisplayPct,
+  parseMomentumSummaryKpis,
+} from '@/lib/portfolio/momentum-summary-kpis';
 import type { AppMode, PortfolioPage } from '../types';
 
 const NAME_TO_PAGE: Record<string, PortfolioPage> = {
@@ -115,31 +130,33 @@ export function PortfolioDashboardPage({
   const getCol2 = (r: (typeof portfolioRows)[0]) =>
     normalizeCol2(String((r as unknown as Record<string, unknown>).column_2 ?? (r as unknown as Record<string, unknown>).column2 ?? ''));
 
-  const tableColumns: { key: string; header: string }[] = [
-    { key: 'column_2', header: 'Strategy' },
-    { key: 'column_3', header: 'Start' },
-    { key: 'column_4', header: 'Initial Value' },
-    { key: 'column_5', header: 'Cash Invested' },
-    { key: 'column_7', header: 'Portfolio Value' },
-    { key: 'column_8', header: 'Return $' },
-    { key: 'column_9', header: 'Returns' },
-    { key: 'column_10', header: 'Hit Rate' },
-    { key: 'column_11', header: 'Avg Gain' },
-    { key: 'column_12', header: 'Avg Loss' },
-    { key: 'column_13', header: 'Net Avg Return' },
-    { key: 'column_14', header: 'CAGR' },
-    { key: 'column_15', header: 'Hold' },
-  ];
+  const momentumTableColumns = useMemo(() => weeklyMomentumRecapColumns(), []);
+  const etfTableColumns = useMemo(() => etfRecapColumns(), []);
+  const rowDataKeys = useMemo(() => recapRowDataColumnKeys(), []);
 
   const hasRowData = (r: (typeof portfolioRows)[0]) => {
     const row = r as unknown as Record<string, unknown>;
-    return tableColumns.some((col, idx) => {
-      if (idx === 0) return false;
-      const v = getCol(row, col.key);
+    return rowDataKeys.some((key) => {
+      const v = getCol(row, key);
       return v != null && String(v).trim() !== '';
     });
   };
-  const combinedRows = portfolioRows.filter((r) => isCombinedPerformanceRecapName(getCol2(r)) && hasRowData(r));
+  const momentumKpis = useMemo(
+    () => parseMomentumSummaryKpis(momentumSummaryRows),
+    [momentumSummaryRows],
+  );
+
+  const combinedRows = useMemo(() => {
+    if (momentumKpis) {
+      const legacy = legacyCombinedRecapFieldsFromRecap(
+        portfolioRows as unknown as Array<Record<string, unknown>>,
+      );
+      return [
+        combinedRecapRowFromMomentumSummary(momentumKpis, legacy) as unknown as PerformanceRecapRow,
+      ];
+    }
+    return portfolioRows.filter((r) => isCombinedPerformanceRecapName(getCol2(r)) && hasRowData(r));
+  }, [momentumKpis, portfolioRows]);
   const weeklyRows = portfolioRows.filter(
     (r) => weeklyNames.has(getCol2(r)) && !isCombinedPerformanceRecapName(getCol2(r)) && hasRowData(r),
   );
@@ -156,48 +173,25 @@ export function PortfolioDashboardPage({
     if (valid.length === 0) return null;
     return valid.reduce((sum, v) => sum + v, 0) / valid.length;
   };
-  /** Same scaling as combined detail header `formatSummaryValue` for "Returns %" (ratio × 100 → display %). */
-  const getMomentumSummaryReturnsPct = (): number | null => {
-    if (momentumSummaryRows.length === 0) return null;
-    const maxSummaryRows = 6;
-    const candidateRows = momentumSummaryRows.filter(
-      (r) => typeof r.row_index === 'number' && r.row_index >= 1 && r.row_index <= maxSummaryRows,
-    );
-    const isReturnsPctLabel = (raw: string) =>
-      raw
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toLowerCase() === 'returns %';
-    for (const row of candidateRows) {
-      const rec = row as unknown as Record<string, unknown>;
-      for (let i = 1; i <= 37; i++) {
-        const key = `col_${i}`;
-        const cell = String(rec[key] ?? '').trim();
-        if (!isReturnsPctLabel(cell)) continue;
-        const right = rec[`col_${i + 1}`];
-        const belowRow = candidateRows.find((r) => r.row_index === Number(row.row_index) + 1);
-        const below = belowRow ? (belowRow as unknown as Record<string, unknown>)[key] : null;
-        for (const opt of [right, below]) {
-          const n = Number(opt);
-          if (Number.isNaN(n)) continue;
-          return n * 100;
-        }
-      }
-    }
-    return null;
-  };
-  const summaryAvgReturnPct = getMomentumSummaryReturnsPct();
-  const avgReturnPct = summaryAvgReturnPct != null
-    ? summaryAvgReturnPct
-    : kpiSourceRow
-      ? toPercentFromCombinedReturn(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_9'))
-      : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_9'))));
-  const avgCagr = kpiSourceRow
-    ? toPercent(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_14'))
-    : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_14'))));
-  const avgHitRate = kpiSourceRow
-    ? toPercent(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_10'))
-    : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_10'))));
+  /** Weekly Momentum KPIs: NEW SUMMARY tab (`momentum_picks_summary`), not legacy `performance_recap`. */
+  const avgReturnPct =
+    momentumKpis != null
+      ? momentumReturnsDisplayPct(momentumKpis.returnsRatio)
+      : kpiSourceRow
+        ? toPercentFromCombinedReturn(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_9'))
+        : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_9'))));
+  const avgCagr =
+    momentumKpis != null
+      ? momentumRatioToDisplayPct(momentumKpis.cagrRatio)
+      : kpiSourceRow
+        ? toPercent(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_14'))
+        : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_14'))));
+  const avgHitRate =
+    momentumKpis != null
+      ? momentumRatioToDisplayPct(momentumKpis.hitRateRatio)
+      : kpiSourceRow
+        ? toPercent(getCol(kpiSourceRow as unknown as Record<string, unknown>, 'column_10'))
+        : getAverage(kpiFallbackRows.map((r) => toPercent(getCol(r as unknown as Record<string, unknown>, 'column_10'))));
 
   const momentumRowsOrdered = useMemo(
     () => [...combinedRows],
@@ -266,12 +260,15 @@ export function PortfolioDashboardPage({
   const isPositiveHighlightCol = (key: string) =>
     key === 'column_8' || key === 'column_9' || key === 'column_13';
 
-  const renderRow = (row: (typeof portfolioRows)[0]) => {
+  const renderRow = (row: (typeof portfolioRows)[0], columns: RecapTableColumn[]) => {
     const r = row as unknown as Record<string, unknown>;
-    const name = getCol2(row);
-    const page = NAME_TO_PAGE[name];
+    const rawName = getCol2(row);
+    const name = recapStrategyDisplayName(rawName);
+    const page = isCombinedPerformanceRecapName(rawName)
+      ? NAME_TO_PAGE[PORTFOLIO_NAMES.COMBINED_PERFORMANCE]
+      : NAME_TO_PAGE[rawName];
     const navigable = Boolean(page);
-    const sinceLine = formatCell('column_3', getCol(r, 'column_3'), name);
+    const sinceLine = formatCell('column_3', getCol(r, 'column_3'), rawName);
 
     return (
       <tr
@@ -281,9 +278,9 @@ export function PortfolioDashboardPage({
           if (page) onSelectPortfolio(page);
         }}
       >
-        {tableColumns.map((col, idx) => {
+        {columns.map((col, idx) => {
           const raw = idx === 0 ? name : getCol(r, col.key);
-          const display = formatCell(col.key, raw as string | number | null, name);
+          const display = formatCell(col.key, idx === 0 ? getCol(r, col.key) : (raw as string | number | null), rawName);
           const num = typeof raw === 'number' ? raw : Number(raw);
           const isPositive = !Number.isNaN(num) && num > 0 && isPositiveHighlightCol(col.key);
           const isNegative = !Number.isNaN(num) && num < 0 && isPositiveHighlightCol(col.key);
@@ -414,12 +411,14 @@ export function PortfolioDashboardPage({
     title,
     subtitle,
     rows: sectionRows,
+    columns: sectionColumns,
     icon: Icon,
     iconClass,
   }: {
     title: string;
     subtitle: string;
     rows: typeof weeklyRows;
+    columns: RecapTableColumn[];
     icon: LucideIcon;
     iconClass: string;
   }) => (
@@ -439,10 +438,10 @@ export function PortfolioDashboardPage({
         </span>
       </div>
       <div className="w-full min-w-0 overflow-x-auto">
-        <table className="min-w-[920px] w-full border-separate border-spacing-0 text-xs sm:text-sm">
+        <table className="min-w-[720px] w-full border-separate border-spacing-0 text-xs sm:text-sm">
           <thead>
             <tr>
-              {tableColumns.map((col) => (
+              {sectionColumns.map((col) => (
                 <th
                   key={col.key}
                   className="whitespace-nowrap border-b border-border px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-4 sm:py-3.5 sm:text-[10.5px]"
@@ -455,7 +454,7 @@ export function PortfolioDashboardPage({
               </th>
             </tr>
           </thead>
-          <tbody>{sectionRows.map(renderRow)}</tbody>
+          <tbody>{sectionRows.map((row) => renderRow(row, sectionColumns))}</tbody>
         </table>
       </div>
     </section>
@@ -552,6 +551,7 @@ export function PortfolioDashboardPage({
               title={GROUP_WEEKLY_MOMENTUM}
               subtitle="Rotating picks based on momentum signals"
               rows={filteredMomentum}
+              columns={momentumTableColumns}
               icon={Layers}
               iconClass="bg-violet-500/15 text-violet-600 dark:text-violet-400"
             />
@@ -559,6 +559,7 @@ export function PortfolioDashboardPage({
               title={GROUP_ETF}
               subtitle="Macro-oriented ETF sleeves"
               rows={filteredEtf}
+              columns={etfTableColumns}
               icon={PieChart}
               iconClass="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
             />
