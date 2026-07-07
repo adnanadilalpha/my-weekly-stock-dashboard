@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { AuthScreen } from './components/auth-screen';
 import { HubPage } from './components/hub-page';
 import { IndexPage } from './components/index-page';
@@ -11,6 +11,8 @@ import { PortfolioDashboardPage } from './components/portfolio-dashboard-page';
 import { PortfolioDetailPage } from './components/portfolio-detail-page';
 import type { PageView, AppMode, PortfolioPage } from './types';
 import { supabase } from '@/lib/supabase-client';
+import { ActivityProvider, useActivity } from '@/lib/activity/ActivityProvider';
+
 const isDevBypassEnabled =
   (process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS ?? '').toLowerCase().trim() === 'true';
 
@@ -31,11 +33,10 @@ export default function Home() {
       return;
     }
 
-    // Check initial session
     const checkSession = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
-        
+
         if (error) {
           console.error('Error getting session:', error);
           setIsLoading(false);
@@ -44,18 +45,17 @@ export default function Home() {
 
         if (session?.user) {
           setUserEmail(session.user.email || '');
-      setIsAuthenticated(true);
-    }
+          setIsAuthenticated(true);
+        }
       } catch (err) {
         console.error('Error checking session:', err);
       } finally {
-    setIsLoading(false);
+        setIsLoading(false);
       }
     };
 
     checkSession();
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
@@ -65,7 +65,7 @@ export default function Home() {
           setUserEmail('');
           setIsAuthenticated(false);
         }
-      }
+      },
     );
 
     return () => {
@@ -73,14 +73,12 @@ export default function Home() {
     };
   }, []);
 
-  const handleAuthSuccess = (email: string) => {
-    // This will be called after successful authentication
-    // The actual auth state is handled by the onAuthStateChange listener
+  const handleAuthSuccess = useCallback((email: string) => {
     setUserEmail(email);
     setIsAuthenticated(true);
-  };
+  }, []);
 
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     if (isDevBypassEnabled) {
       setUserEmail('dev@local');
       setIsAuthenticated(true);
@@ -100,26 +98,117 @@ export default function Home() {
     } catch (error) {
       console.error('Error signing out:', error);
     }
+  }, []);
+
+  const handleNavigate = useCallback((page: PageView, ticker?: string) => {
+    setCurrentPage(page);
+    if (ticker) setSelectedTicker(ticker);
+  }, []);
+
+  const handleGoToPortfolio = useCallback(() => {
+    setAppMode('portfolio');
+    setPortfolioPage('dashboard');
+  }, []);
+
+  const handleGoToMWS = useCallback(() => {
+    setAppMode('mws');
+    setCurrentPage('index');
+  }, []);
+
+  const handleSelectPortfolio = useCallback((page: PortfolioPage) => {
+    if (page === 'dashboard') setPortfolioPage('dashboard');
+    else setPortfolioPage(page);
+  }, []);
+
+  const activityContext = useMemo(
+    () => ({
+      appMode,
+      page: appMode === 'mws' ? currentPage : appMode === 'portfolio' ? portfolioPage : ('hub' as const),
+      portfolioPage: appMode === 'portfolio' ? portfolioPage : undefined,
+    }),
+    [appMode, currentPage, portfolioPage],
+  );
+
+  const trackingEnabled = isAuthenticated && !isDevBypassEnabled;
+
+  return (
+    <ActivityProvider enabled={trackingEnabled} context={activityContext}>
+      <HomeContent
+        isLoading={isLoading}
+        isAuthenticated={isAuthenticated}
+        userEmail={userEmail}
+        appMode={appMode}
+        currentPage={currentPage}
+        portfolioPage={portfolioPage}
+        selectedTicker={selectedTicker}
+        onAuthSuccess={handleAuthSuccess}
+        onSignOut={handleSignOut}
+        onNavigate={handleNavigate}
+        onGoToPortfolio={handleGoToPortfolio}
+        onGoToMWS={handleGoToMWS}
+        onSelectPortfolio={handleSelectPortfolio}
+        onBackToPortfolioDashboard={() => setPortfolioPage('dashboard')}
+      />
+    </ActivityProvider>
+  );
+}
+
+type HomeContentProps = {
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  userEmail: string;
+  appMode: AppMode;
+  currentPage: PageView;
+  portfolioPage: PortfolioPage;
+  selectedTicker: string;
+  onAuthSuccess: (email: string) => void;
+  onSignOut: () => Promise<void>;
+  onNavigate: (page: PageView, ticker?: string) => void;
+  onGoToPortfolio: () => void;
+  onGoToMWS: () => void;
+  onSelectPortfolio: (page: PortfolioPage) => void;
+  onBackToPortfolioDashboard: () => void;
+};
+
+function HomeContent({
+  isLoading,
+  isAuthenticated,
+  userEmail,
+  appMode,
+  currentPage,
+  portfolioPage,
+  selectedTicker,
+  onAuthSuccess,
+  onSignOut: onSignOutProp,
+  onNavigate: onNavigateProp,
+  onGoToPortfolio: onGoToPortfolioProp,
+  onGoToMWS: onGoToMWSProp,
+  onSelectPortfolio: onSelectPortfolioProp,
+  onBackToPortfolioDashboard,
+}: HomeContentProps) {
+  const activity = useActivity();
+
+  const handleSignOut = async () => {
+    await onSignOutProp();
   };
 
   const handleNavigate = (page: PageView, ticker?: string) => {
-    setCurrentPage(page);
-    if (ticker) setSelectedTicker(ticker);
+    if (page === 'ticker-analysis' && ticker) {
+      activity?.trackEvent({
+        eventType: 'ticker_view',
+        eventName: ticker.toUpperCase(),
+        metadata: { ticker: ticker.toUpperCase(), source: 'navigation' },
+      });
+    }
+    onNavigateProp(page, ticker);
   };
 
   const handleGoToPortfolio = () => {
-    setAppMode('portfolio');
-    setPortfolioPage('dashboard');
+    onGoToPortfolioProp();
   };
 
   const handleGoToMWS = () => {
-    setAppMode('mws');
-    setCurrentPage('index');
-  };
-
-  const handleSelectPortfolio = (page: PortfolioPage) => {
-    if (page === 'dashboard') setPortfolioPage('dashboard');
-    else setPortfolioPage(page);
+    onGoToMWSProp();
   };
 
   if (isLoading) {
@@ -137,7 +226,7 @@ export default function Home() {
   }
 
   if (!isAuthenticated) {
-    return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
+    return <AuthScreen onAuthSuccess={onAuthSuccess} />;
   }
 
   if (appMode === 'hub') {
@@ -158,7 +247,7 @@ export default function Home() {
           onGoToPortfolio={handleGoToPortfolio}
           onGoToMWS={handleGoToMWS}
           onSignOut={handleSignOut}
-          onSelectPortfolio={handleSelectPortfolio}
+          onSelectPortfolio={onSelectPortfolioProp}
         />
       );
     }
@@ -170,7 +259,7 @@ export default function Home() {
         onGoToPortfolio={handleGoToPortfolio}
         onGoToMWS={handleGoToMWS}
         onSignOut={handleSignOut}
-        onBack={() => setPortfolioPage('dashboard')}
+        onBack={onBackToPortfolioDashboard}
       />
     );
   }
@@ -221,4 +310,3 @@ export default function Home() {
     </>
   );
 }
-

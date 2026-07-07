@@ -11,6 +11,7 @@ import { useTickerData } from '../../lib/hooks/useTickerData';
 import { getAllTickers, getTickerData, tickerMatchesSearchQuery } from '../../lib/queries/ticker';
 import { fetchPriceHistory, type PriceBar } from '../../lib/queries/price-history';
 import { fetchHubTickerMetricsMap, type HubTickerMetric } from '../../lib/queries/hub-ticker-metrics';
+import { useActivity } from '@/lib/activity/ActivityProvider';
 import {
   ratingBadgeClassName,
   ratingBadgeInlineStyle,
@@ -170,6 +171,7 @@ function ScoreBars({ score, rating, ratingRows }: { score: number; rating: strin
 export function TickerAnalysisPage({
   userEmail, onSignOut, onNavigate, initialTicker, currentAppMode, onGoToPortfolio, onGoToMWS,
 }: TickerAnalysisPageProps) {
+  const activity = useActivity();
   const [ticker, setTicker] = useState(initialTicker);
   const [chartTf, setChartTf] = useState<'W' | 'D'>('W');
   const [weeklyRange, setWeeklyRange] = useState<WeeklyRange>('1Y');
@@ -703,6 +705,11 @@ export function TickerAnalysisPage({
                           onMouseDown={(e) => {
                             e.preventDefault();
                             setTicker(item.ticker);
+                            activity?.trackEvent({
+                              eventType: 'ticker_view',
+                              eventName: item.ticker.toUpperCase(),
+                              metadata: { ticker: item.ticker.toUpperCase(), source: 'search' },
+                            });
                             setSearchOpen(false);
                             setSearchQ('');
                           }}

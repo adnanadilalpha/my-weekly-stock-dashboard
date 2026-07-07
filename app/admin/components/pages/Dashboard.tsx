@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, ArrowUpRight, TrendingUp, UserCheck, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowUpRight, TrendingUp, Users, type LucideIcon } from 'lucide-react';
+import DashboardActivityTab from './DashboardActivityTab';
 import { useAdmin } from '../../_lib/admin-context';
 import { useLiveAdminRefresh } from '../../_lib/use-live-admin-refresh';
 import {
@@ -202,7 +203,7 @@ export default function Dashboard({ dataActive = true }: DashboardProps) {
         </>
       )}
 
-      {dashTab === 'activity' && <DashboardActivityTab stats={stats} loading={loading} />}
+      {dashTab === 'activity' && <DashboardActivityTab dataActive={dataActive && dashTab === 'activity'} />}
 
       {error && (
         <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive dark:border-destructive/40 dark:bg-destructive/15">
@@ -210,49 +211,6 @@ export default function Dashboard({ dataActive = true }: DashboardProps) {
         </div>
       )}
       {loading && !stats && <div className="text-sm text-muted-foreground">Loading…</div>}
-    </div>
-  );
-}
-
-function DashboardActivityTab({ stats, loading }: { stats: DashboardStats | null; loading: boolean }) {
-  const v = (n: number | undefined) => (loading ? '—' : numberFmt(n ?? 0));
-  return (
-    <div className="flex min-w-0 flex-col gap-6">
-      <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-        These numbers use Supabase Auth <span className="font-medium text-foreground">last_sign_in_at</span> only: we
-        count accounts that authenticated within the window. That updates on sign-in (not every click), so it is a
-        privacy-light proxy for &ldquo;who is active&rdquo; without tracking browsing behavior.
-      </p>
-      <section className="flex flex-col gap-4 sm:flex-row sm:gap-5">
-        <KpiCard
-          className="min-w-0 flex-1 sm:basis-0"
-          icon={UserCheck}
-          label="Signed in (15 min)"
-          value={v(stats?.activeSignIn15m)}
-          delta={loading ? '—' : `${numberFmt(stats?.totalAuthAccounts ?? 0)} auth accounts`}
-          positive
-        />
-        <KpiCard
-          className="min-w-0 flex-1 sm:basis-0"
-          icon={Activity}
-          label="Signed in (24 h)"
-          value={v(stats?.activeSignIn24h)}
-          delta={loading ? '—' : 'Same last_sign_in basis'}
-          positive
-        />
-        <KpiCard
-          className="min-w-0 flex-1 sm:basis-0"
-          icon={Users}
-          label="Auth accounts"
-          value={v(stats?.totalAuthAccounts)}
-          delta={loading ? '—' : `${numberFmt(stats?.totalUsers ?? 0)} on allowlist`}
-          positive
-        />
-      </section>
-      <p className="text-xs text-muted-foreground">
-        Allowlist total is from <span className="font-mono text-foreground">authorized_users</span>. Auth accounts can
-        include users not yet on the allowlist.
-      </p>
     </div>
   );
 }
@@ -280,11 +238,7 @@ function KpiCard({
       ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
       : label === 'New users (7d)'
         ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-        : label === 'Signed in (15 min)' || label === 'Signed in (24 h)'
-          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-          : label === 'Auth accounts'
-            ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-            : 'bg-sky-500/15 text-sky-600 dark:text-sky-400';
+        : 'bg-sky-500/15 text-sky-600 dark:text-sky-400';
   const valueClass =
     valueTone === 'positive'
       ? 'text-emerald-600 dark:text-emerald-400'
