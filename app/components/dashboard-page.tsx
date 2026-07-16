@@ -28,6 +28,7 @@ import {
 } from '@/lib/mws-trend-rating-filters';
 import { useMwsHubPreferences } from '@/lib/hooks/useMwsHubPreferences';
 import type { HubPersonalTicker } from '@/lib/mws-hub-prefs';
+import { getOtherStocksByTickers } from '@/lib/queries/other-stocks';
 
 // Mapping of ticker symbols to display names (matching index-page.tsx)
 const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
@@ -392,10 +393,42 @@ export function DashboardPage({
     [prefs.personalTickers, prefs.pulseFavorites],
   );
 
+  const [favoriteExtras, setFavoriteExtras] = useState<Map<string, Record<string, unknown>>>(() => new Map());
+
+  useEffect(() => {
+    let cancelled = false;
+    const missing = activePulseFavorites
+      .map((f) => f.ticker.toUpperCase())
+      .filter((t) => t && !tickerRecordMap.has(t));
+
+    if (missing.length === 0) {
+      setFavoriteExtras(new Map());
+      return;
+    }
+
+    getOtherStocksByTickers(missing)
+      .then((rows) => {
+        if (cancelled) return;
+        const next = new Map<string, Record<string, unknown>>();
+        for (const row of rows) {
+          next.set(String(row.ticker).toUpperCase(), row as unknown as Record<string, unknown>);
+        }
+        setFavoriteExtras(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFavoriteExtras(new Map());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activePulseFavorites, tickerRecordMap]);
+
   const favoritesData: TableRow[] = useMemo(() => {
     const rows: TableRow[] = [];
     for (const fav of activePulseFavorites) {
-      const item = tickerRecordMap.get(fav.ticker.toUpperCase());
+      const key = fav.ticker.toUpperCase();
+      const item = tickerRecordMap.get(key) ?? favoriteExtras.get(key);
       if (!item) continue;
       const name =
         fav.name ||
@@ -405,7 +438,7 @@ export function DashboardPage({
       );
     }
     return sortByTrendScoreDesc(rows);
-  }, [activePulseFavorites, tickerRecordMap, timeframe]);
+  }, [activePulseFavorites, tickerRecordMap, favoriteExtras, timeframe]);
 
   const filteredFavorites = useMemo(
     () => applyRowFilter(favoritesData, query, trendFilter, scoreThresholds),

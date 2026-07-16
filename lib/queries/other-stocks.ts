@@ -84,19 +84,31 @@ export interface OtherStock {
   updated_at: string;
 }
 
-export async function getAllOtherStocks(timeframe: 'D' | 'W' = 'D'): Promise<OtherStock[]> {
-  const { data, error } = await supabase
-    .from('other_stocks')
-    .select('*')
-    .or(USER_TICKER_ACTIVE_OR)
-    .order('ticker');
+/** PostgREST defaults to max 1000 rows; other_stocks has ~2k so we must page. */
+const POSTGREST_PAGE = 1000;
 
-  if (error) {
-    console.error('Error fetching other stocks:', error);
-    throw error;
+export async function getAllOtherStocks(_timeframe: 'D' | 'W' = 'D'): Promise<OtherStock[]> {
+  const out: OtherStock[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('other_stocks')
+      .select('*')
+      .or(USER_TICKER_ACTIVE_OR)
+      .order('ticker')
+      .range(from, from + POSTGREST_PAGE - 1);
+
+    if (error) {
+      console.error('Error fetching other stocks:', error);
+      throw error;
+    }
+
+    const rows = (data ?? []) as OtherStock[];
+    out.push(...rows);
+    if (rows.length < POSTGREST_PAGE) break;
+    from += POSTGREST_PAGE;
   }
-
-  return data || [];
+  return out;
 }
 
 export async function getOtherStockByTicker(ticker: string): Promise<OtherStock | null> {
@@ -113,4 +125,23 @@ export async function getOtherStockByTicker(ticker: string): Promise<OtherStock 
 
   if (!rowVisibleToEndUser(data)) return null;
   return data;
+}
+
+/** Fetch specific tickers (used for pulse favorites — avoids depending on full-table page load). */
+export async function getOtherStocksByTickers(tickers: string[]): Promise<OtherStock[]> {
+  const unique = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from('other_stocks')
+    .select('*')
+    .in('ticker', unique)
+    .or(USER_TICKER_ACTIVE_OR);
+
+  if (error) {
+    console.error('Error fetching other stocks by tickers:', error);
+    throw error;
+  }
+
+  return ((data ?? []) as OtherStock[]).filter((row) => rowVisibleToEndUser(row));
 }
