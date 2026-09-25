@@ -9,9 +9,12 @@ import { TickerAnalysisPage } from './components/ticker-analysis-page';
 import { DashboardPage } from './components/dashboard-page';
 import { PortfolioDashboardPage } from './components/portfolio-dashboard-page';
 import { PortfolioDetailPage } from './components/portfolio-detail-page';
+import { MyPortfoliosPage } from './components/my-portfolio/my-portfolios-page';
+import { ChatDrawer } from './components/intelligence/chat-drawer';
 import type { PageView, AppMode, PortfolioPage } from './types';
 import { supabase } from '@/lib/supabase-client';
 import { ActivityProvider, useActivity } from '@/lib/activity/ActivityProvider';
+import { featureFlags } from '@/lib/feature-flags';
 
 const isDevBypassEnabled =
   (process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS ?? '').toLowerCase().trim() === 'true';
@@ -24,6 +27,7 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState<PageView>('index');
   const [portfolioPage, setPortfolioPage] = useState<PortfolioPage>('dashboard');
   const [selectedTicker, setSelectedTicker] = useState('SPY');
+  const [myPortfolioId, setMyPortfolioId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isDevBypassEnabled) {
@@ -85,6 +89,7 @@ export default function Home() {
       setAppMode('hub');
       setCurrentPage('index');
       setPortfolioPage('dashboard');
+      setMyPortfolioId(null);
       return;
     }
 
@@ -95,6 +100,7 @@ export default function Home() {
       setAppMode('hub');
       setCurrentPage('index');
       setPortfolioPage('dashboard');
+      setMyPortfolioId(null);
     } catch (error) {
       console.error('Error signing out:', error);
     }
@@ -108,6 +114,17 @@ export default function Home() {
   const handleGoToPortfolio = useCallback(() => {
     setAppMode('portfolio');
     setPortfolioPage('dashboard');
+    setMyPortfolioId(null);
+  }, []);
+
+  const handleGoToMyHoldings = useCallback(() => {
+    if (!featureFlags.myPortfolios) {
+      setAppMode('portfolio');
+      setPortfolioPage('dashboard');
+      return;
+    }
+    setAppMode('my-holdings');
+    setMyPortfolioId(null);
   }, []);
 
   const handleGoToMWS = useCallback(() => {
@@ -116,14 +133,21 @@ export default function Home() {
   }, []);
 
   const handleSelectPortfolio = useCallback((page: PortfolioPage) => {
-    if (page === 'dashboard') setPortfolioPage('dashboard');
-    else setPortfolioPage(page);
+    setPortfolioPage(page);
+    setMyPortfolioId(null);
   }, []);
 
   const activityContext = useMemo(
     () => ({
       appMode,
-      page: appMode === 'mws' ? currentPage : appMode === 'portfolio' ? portfolioPage : ('hub' as const),
+      page:
+        appMode === 'mws'
+          ? currentPage
+          : appMode === 'portfolio'
+            ? portfolioPage
+            : appMode === 'my-holdings'
+              ? ('my-holdings' as const)
+              : ('hub' as const),
       portfolioPage: appMode === 'portfolio' ? portfolioPage : undefined,
     }),
     [appMode, currentPage, portfolioPage],
@@ -141,13 +165,24 @@ export default function Home() {
         currentPage={currentPage}
         portfolioPage={portfolioPage}
         selectedTicker={selectedTicker}
+        myPortfolioId={myPortfolioId}
         onAuthSuccess={handleAuthSuccess}
         onSignOut={handleSignOut}
         onNavigate={handleNavigate}
         onGoToPortfolio={handleGoToPortfolio}
+        onGoToMyHoldings={handleGoToMyHoldings}
         onGoToMWS={handleGoToMWS}
         onSelectPortfolio={handleSelectPortfolio}
-        onBackToPortfolioDashboard={() => setPortfolioPage('dashboard')}
+        onBackToPortfolioDashboard={() => {
+          setPortfolioPage('dashboard');
+          setMyPortfolioId(null);
+        }}
+        onSelectMyPortfolioId={setMyPortfolioId}
+        onSwitchToMwsTicker={(ticker) => {
+          setAppMode('mws');
+          setCurrentPage('ticker-analysis');
+          setSelectedTicker(ticker);
+        }}
       />
     </ActivityProvider>
   );
@@ -161,13 +196,17 @@ type HomeContentProps = {
   currentPage: PageView;
   portfolioPage: PortfolioPage;
   selectedTicker: string;
+  myPortfolioId: string | null;
   onAuthSuccess: (email: string) => void;
   onSignOut: () => Promise<void>;
   onNavigate: (page: PageView, ticker?: string) => void;
   onGoToPortfolio: () => void;
+  onGoToMyHoldings: () => void;
   onGoToMWS: () => void;
   onSelectPortfolio: (page: PortfolioPage) => void;
   onBackToPortfolioDashboard: () => void;
+  onSelectMyPortfolioId: (id: string | null) => void;
+  onSwitchToMwsTicker: (ticker: string) => void;
 };
 
 function HomeContent({
@@ -178,13 +217,17 @@ function HomeContent({
   currentPage,
   portfolioPage,
   selectedTicker,
+  myPortfolioId,
   onAuthSuccess,
   onSignOut: onSignOutProp,
   onNavigate: onNavigateProp,
   onGoToPortfolio: onGoToPortfolioProp,
+  onGoToMyHoldings: onGoToMyHoldingsProp,
   onGoToMWS: onGoToMWSProp,
   onSelectPortfolio: onSelectPortfolioProp,
   onBackToPortfolioDashboard,
+  onSelectMyPortfolioId,
+  onSwitchToMwsTicker,
 }: HomeContentProps) {
   const activity = useActivity();
 
@@ -205,6 +248,10 @@ function HomeContent({
 
   const handleGoToPortfolio = () => {
     onGoToPortfolioProp();
+  };
+
+  const handleGoToMyHoldings = () => {
+    onGoToMyHoldingsProp();
   };
 
   const handleGoToMWS = () => {
@@ -238,29 +285,58 @@ function HomeContent({
     );
   }
 
-  if (appMode === 'portfolio') {
-    if (portfolioPage === 'dashboard') {
-      return (
-        <PortfolioDashboardPage
+  if (appMode === 'my-holdings' && featureFlags.myPortfolios) {
+    return (
+      <>
+        <MyPortfoliosPage
           userEmail={userEmail}
           currentAppMode={appMode}
           onGoToPortfolio={handleGoToPortfolio}
+          onGoToMyHoldings={handleGoToMyHoldings}
           onGoToMWS={handleGoToMWS}
           onSignOut={handleSignOut}
-          onSelectPortfolio={onSelectPortfolioProp}
+          selectedPortfolioId={myPortfolioId}
+          onSelectMyPortfolioId={onSelectMyPortfolioId}
+          onNavigateMws={(page, ticker) => {
+            if (page === 'ticker-analysis' && ticker) onSwitchToMwsTicker(ticker);
+          }}
         />
+        <ChatDrawer contextRef={{ userPortfolioId: myPortfolioId ?? undefined }} />
+      </>
+    );
+  }
+
+  if (appMode === 'portfolio') {
+    if (portfolioPage === 'dashboard') {
+      return (
+        <>
+          <PortfolioDashboardPage
+            userEmail={userEmail}
+            currentAppMode={appMode}
+            onGoToPortfolio={handleGoToPortfolio}
+            onGoToMyHoldings={handleGoToMyHoldings}
+            onGoToMWS={handleGoToMWS}
+            onSignOut={handleSignOut}
+            onSelectPortfolio={onSelectPortfolioProp}
+          />
+          <ChatDrawer contextRef={{ portfolioPage: 'dashboard' }} />
+        </>
       );
     }
     return (
-      <PortfolioDetailPage
-        portfolioPage={portfolioPage}
-        userEmail={userEmail}
-        currentAppMode={appMode}
-        onGoToPortfolio={handleGoToPortfolio}
-        onGoToMWS={handleGoToMWS}
-        onSignOut={handleSignOut}
-        onBack={onBackToPortfolioDashboard}
-      />
+      <>
+        <PortfolioDetailPage
+          portfolioPage={portfolioPage as Exclude<PortfolioPage, 'dashboard'>}
+          userEmail={userEmail}
+          currentAppMode={appMode}
+          onGoToPortfolio={handleGoToPortfolio}
+          onGoToMyHoldings={handleGoToMyHoldings}
+          onGoToMWS={handleGoToMWS}
+          onSignOut={handleSignOut}
+          onBack={onBackToPortfolioDashboard}
+        />
+        <ChatDrawer contextRef={{ portfolioPage }} />
+      </>
     );
   }
 
@@ -273,6 +349,7 @@ function HomeContent({
           onNavigate={handleNavigate}
           currentAppMode={appMode}
           onGoToPortfolio={handleGoToPortfolio}
+          onGoToMyHoldings={handleGoToMyHoldings}
           onGoToMWS={handleGoToMWS}
         />
       )}
@@ -283,6 +360,7 @@ function HomeContent({
           onNavigate={handleNavigate}
           currentAppMode={appMode}
           onGoToPortfolio={handleGoToPortfolio}
+          onGoToMyHoldings={handleGoToMyHoldings}
           onGoToMWS={handleGoToMWS}
         />
       )}
@@ -294,6 +372,7 @@ function HomeContent({
           initialTicker={selectedTicker}
           currentAppMode={appMode}
           onGoToPortfolio={handleGoToPortfolio}
+          onGoToMyHoldings={handleGoToMyHoldings}
           onGoToMWS={handleGoToMWS}
         />
       )}
@@ -304,7 +383,15 @@ function HomeContent({
           onNavigate={handleNavigate}
           currentAppMode={appMode}
           onGoToPortfolio={handleGoToPortfolio}
+          onGoToMyHoldings={handleGoToMyHoldings}
           onGoToMWS={handleGoToMWS}
+        />
+      )}
+      {currentPage !== 'ticker-analysis' && (
+        <ChatDrawer
+          contextRef={{
+            ticker: currentPage === 'dashboard' ? undefined : selectedTicker,
+          }}
         />
       )}
     </>

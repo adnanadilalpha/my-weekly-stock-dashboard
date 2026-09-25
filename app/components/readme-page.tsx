@@ -10,16 +10,18 @@ interface ReadMePageProps {
   onNavigate: (page: PageView) => void;
   currentAppMode: AppMode;
   onGoToPortfolio: () => void;
+  onGoToMyHoldings?: () => void;
   onGoToMWS: () => void;
 }
 
-export function ReadMePage({ userEmail, onSignOut, onNavigate, currentAppMode, onGoToPortfolio, onGoToMWS }: ReadMePageProps) {
+export function ReadMePage({ userEmail, onSignOut, onNavigate, currentAppMode, onGoToPortfolio, onGoToMyHoldings, onGoToMWS }: ReadMePageProps) {
   return (
     <div className="min-h-screen bg-neutral-50">
       <AppHeader
         userEmail={userEmail}
         currentAppMode={currentAppMode}
         onGoToPortfolio={onGoToPortfolio}
+        onGoToMyHoldings={onGoToMyHoldings}
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
         onBack={() => onNavigate('index')}

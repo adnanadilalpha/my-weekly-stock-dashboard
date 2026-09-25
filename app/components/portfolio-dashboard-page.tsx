@@ -28,7 +28,6 @@ import {
   parseMomentumSummaryKpis,
 } from '@/lib/portfolio/momentum-summary-kpis';
 import type { AppMode, PortfolioPage } from '../types';
-
 const NAME_TO_PAGE: Record<string, PortfolioPage> = {
   [PORTFOLIO_NAMES.COMBINED_PERFORMANCE]: 'momentum-combined',
   [PORTFOLIO_NAMES.DOW30]: 'dow30',
@@ -104,6 +103,7 @@ export interface PortfolioDashboardPageProps {
   userEmail: string;
   currentAppMode: AppMode;
   onGoToPortfolio: () => void;
+  onGoToMyHoldings?: () => void;
   onGoToMWS: () => void;
   onSignOut: () => void;
   onSelectPortfolio: (page: PortfolioPage) => void;
@@ -113,6 +113,7 @@ export function PortfolioDashboardPage({
   userEmail,
   currentAppMode,
   onGoToPortfolio,
+  onGoToMyHoldings,
   onGoToMWS,
   onSignOut,
   onSelectPortfolio,
@@ -469,6 +470,7 @@ export function PortfolioDashboardPage({
         userEmail={userEmail}
         currentAppMode={currentAppMode}
         onGoToPortfolio={onGoToPortfolio}
+        onGoToMyHoldings={onGoToMyHoldings}
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
       />

@@ -77,6 +77,9 @@ export interface Sector {
   daily_vs_benchmark_comparison: string | null;
   weekly_vs_spy_comparison: string | null;
   weekly_vs_benchmark_comparison: string | null;
+  /** Decimal % from SMA50 / SMA200 (nullable until edge backfill). */
+  pct_from_sma50: number | null;
+  pct_from_sma200: number | null;
   last_updated: string | null;
   created_at: string;
   updated_at: string;

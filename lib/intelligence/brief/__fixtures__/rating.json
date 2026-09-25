@@ -1,0 +1,130 @@
+{
+  "composerId": "rating",
+  "version": "1.0.0",
+  "cases": [
+    {
+      "input": {
+        "ticker": "AAPL",
+        "daily_trend_score": 4.2,
+        "daily_rating": "Strong Uptrend",
+        "daily_outlook": "Extended",
+        "daily_trend_description": "Momentum signals are fully aligned to the upside, with price trading above both EMAs. Price action is healthy, confirming trend strength with limited signs of exhaustion."
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "rating",
+        "title": "AAPL · Strong Uptrend",
+        "body": "Momentum signals are fully aligned to the upside, with price trading above both EMAs. Price action is healthy, confirming trend strength with limited signs of exhaustion.",
+        "bullets": [
+          "Strong Uptrend",
+          "Extended",
+          "Trend Score 4.20"
+        ],
+        "sourceFields": [
+          "daily_trend_description",
+          "daily_rating",
+          "daily_outlook",
+          "daily_trend_score"
+        ]
+      }
+    },
+    {
+      "input": {
+        "ticker": "XLU",
+        "daily_trend_score": 1.2,
+        "daily_rating": "Downtrend",
+        "daily_outlook": "Warming",
+        "daily_trend_description": "XLU remains in a Downtrend with a Warming outlook on the daily timeframe."
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "rating",
+        "title": "XLU · Downtrend",
+        "body": "XLU remains in a Downtrend with a Warming outlook on the daily timeframe.",
+        "bullets": [
+          "Downtrend",
+          "Warming",
+          "Trend Score 1.20"
+        ],
+        "sourceFields": [
+          "daily_trend_description",
+          "daily_rating",
+          "daily_outlook",
+          "daily_trend_score"
+        ]
+      }
+    },
+    {
+      "input": {
+        "ticker": "ZZZ"
+      },
+      "output": {
+        "version": "1.0.0",
+        "composerId": "rating",
+        "title": "ZZZ: Trend",
+        "body": "MWS data for this explanation is not available yet.",
+        "bullets": [
+          "Required fields are missing or null in the current MWS row."
+        ],
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "sourceFields": [
+          "daily_trend_score",
+          "daily_rating",
+          "daily_outlook",
+          "daily_trend_description"
+        ]
+      }
+    },
+    {
+      "input": {
+        "ticker": "SPY",
+        "timeframe": "weekly",
+        "weekly_trend_score": 3.5,
+        "weekly_rating": "Uptrend",
+        "weekly_outlook": "Stable",
+        "weekly_trend_description": "Continuation is the base case as long as price holds above the 9-week EMA."
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "rating",
+        "title": "SPY · Uptrend",
+        "body": "Continuation is the base case as long as price holds above the 9-week EMA.",
+        "bullets": [
+          "Uptrend",
+          "Stable",
+          "Trend Score 3.50"
+        ],
+        "sourceFields": [
+          "weekly_trend_description",
+          "weekly_rating",
+          "weekly_outlook",
+          "weekly_trend_score"
+        ]
+      }
+    },
+    {
+      "input": {
+        "ticker": "QQQ",
+        "daily_trend_score": 2.1,
+        "daily_trend_description": "QQQ shows mixed EMA alignment on the daily timeframe."
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "rating",
+        "title": "QQQ · Trend",
+        "body": "QQQ shows mixed EMA alignment on the daily timeframe.",
+        "bullets": [
+          "Trend Score 2.10"
+        ],
+        "sourceFields": [
+          "daily_trend_description",
+          "daily_trend_score"
+        ]
+      }
+    }
+  ]
+}

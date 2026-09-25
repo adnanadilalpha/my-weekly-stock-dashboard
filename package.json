@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "brief:fixtures": "tsx lib/intelligence/brief/scripts/generate-fixtures.ts",
+    "brief:verify": "tsx lib/intelligence/brief/scripts/verify-fixtures.ts"
   },
   "dependencies": {
     "@popperjs/core": "2.11.8",

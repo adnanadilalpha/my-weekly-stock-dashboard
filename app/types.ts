@@ -1,9 +1,9 @@
 export type PageView = 'index' | 'readme' | 'ticker-analysis' | 'dashboard';
 
-/** After login: hub choice, then either MWS or Portfolio area */
-export type AppMode = 'hub' | 'mws' | 'portfolio';
+/** After login: hub choice, then MWS, MWS Portfolio books, or personal holdings */
+export type AppMode = 'hub' | 'mws' | 'portfolio' | 'my-holdings';
 
-/** Portfolio detail pages (client-requested 5 only for now) */
+/** MWS Portfolio detail pages (client-requested 5 only for now) */
 export type PortfolioPage =
   | 'dashboard'
   | 'momentum-combined'
@@ -12,4 +12,3 @@ export type PortfolioPage =
   | 'nasdaq100'
   | 'macro-etf'
   | 'macro-3x';
-

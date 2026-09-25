@@ -8,11 +8,12 @@ export type ActivityEventType =
   | 'ticker_view'
   | 'search'
   | 'filter'
-  | 'sign_out';
+  | 'sign_out'
+  | 'feature_use';
 
 export type ActivityContext = {
   appMode: AppMode;
-  page?: PageView | PortfolioPage | 'hub';
+  page?: PageView | PortfolioPage | 'hub' | 'my-holdings';
   portfolioPage?: PortfolioPage;
 };
 

@@ -10,6 +10,8 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { decryptApiKey, hexToBytes } from './crypto.ts';
 import {
   ema,
+  sma,
+  pctFromSma,
   pctReturn,
   distanceFrom52wHigh,
   ratingLabel,
@@ -1655,6 +1657,12 @@ function buildUpdatePatch(
   if (result.history.volume != null) {
     patch.volume = result.history.volume;
   }
+
+  // Relative strength vs SMA 50 / SMA 200 (additive; does not affect Trend Score).
+  const sma50 = sma(daily, 50);
+  const sma200 = sma(daily, 200);
+  patch.pct_from_sma50 = pctFromSma(now, sma50);
+  patch.pct_from_sma200 = pctFromSma(now, sma200);
 
   return patch;
 }

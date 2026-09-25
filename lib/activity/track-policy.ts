@@ -7,6 +7,7 @@ const SIGNIFICANT_PAGE_VIEWS = new Set([
   'readme',
   'ticker-analysis',
   'dashboard',
+  'my-holdings',
   'momentum-combined',
   'dow30',
   'large-caps',
@@ -15,7 +16,7 @@ const SIGNIFICANT_PAGE_VIEWS = new Set([
   'macro-3x',
 ]);
 
-const TRACKED_EVENT_TYPES = new Set<ActivityEventType>(['page_view', 'ticker_view']);
+const TRACKED_EVENT_TYPES = new Set<ActivityEventType>(['page_view', 'ticker_view', 'feature_use']);
 
 export function shouldTrackEvent(event: ActivityEventPayload): boolean {
   if (!TRACKED_EVENT_TYPES.has(event.eventType)) return false;

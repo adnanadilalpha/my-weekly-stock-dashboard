@@ -34,6 +34,11 @@ import {
   performanceToneFromRawValue,
   toDisplayPercent,
 } from '@/lib/mws-performance-tone';
+import { composeOverviewBrief } from '@/lib/intelligence/brief';
+import { BriefCard } from './intelligence/brief-card';
+import { RelativeStrengthButton } from './charts/relative-strength-dialog';
+import { featureFlags } from '@/lib/feature-flags';
+import { ChatDrawer } from './intelligence/chat-drawer';
 
 const PriceChart = dynamic(() => import('./price-chart').then((m) => ({ default: m.PriceChart })), {
   ssr: false,
@@ -47,6 +52,7 @@ interface TickerAnalysisPageProps {
   initialTicker: string;
   currentAppMode: AppMode;
   onGoToPortfolio: () => void;
+  onGoToMyHoldings?: () => void;
   onGoToMWS: () => void;
 }
 
@@ -91,7 +97,6 @@ const TICKER_NAMES: Record<string, string> = {
   'BA': 'The Boeing Company', 'UNH': 'UnitedHealth Group Incorporated', 'SHOP': 'Shopify Inc.',
 };
 
-// ─── Misc helpers ───────────────────────────────────────────────────────────
 function extractBenchmarkTicker(text: string | null | undefined): string | null {
   if (!text) return null;
   const m = text.match(/^\$?([^:]+):/);
@@ -169,7 +174,7 @@ function ScoreBars({ score, rating, ratingRows }: { score: number; rating: strin
 
 // ─── Main component ─────────────────────────────────────────────────────────
 export function TickerAnalysisPage({
-  userEmail, onSignOut, onNavigate, initialTicker, currentAppMode, onGoToPortfolio, onGoToMWS,
+  userEmail, onSignOut, onNavigate, initialTicker, currentAppMode, onGoToPortfolio, onGoToMyHoldings, onGoToMWS,
 }: TickerAnalysisPageProps) {
   const activity = useActivity();
   const [ticker, setTicker] = useState(initialTicker);
@@ -493,11 +498,46 @@ export function TickerAnalysisPage({
   const performanceSummaryText = data?.perfSummary ?? 'N/A';
   const performanceDescriptionText = data?.perfDescription ?? '';
 
+  const topSummaryBrief = useMemo(() => {
+    if (!data || !supabaseData || !featureFlags.brief) return null;
+    return composeOverviewBrief({
+      ticker,
+      timeframe: chartTf === 'W' ? 'weekly' : 'daily',
+      daily_trend_score: data.daily.score,
+      daily_rating: data.daily.rating,
+      daily_outlook: data.daily.outlook,
+      daily_trend_description:
+        chartTf === 'D' ? activeTrendDescription || data.daily.description : data.daily.description,
+      weekly_trend_score: data.weekly.score,
+      weekly_rating: data.weekly.rating,
+      weekly_outlook: data.weekly.outlook,
+      weekly_trend_description:
+        chartTf === 'W' ? activeTrendDescription || data.weekly.description : data.weekly.description,
+      performance_strength: String(
+        (supabaseData as unknown as Record<string, unknown>).performance_strength ??
+          supabaseData.daily_performance_strength ??
+          '',
+      ) || null,
+      distance_to_highs: String(
+        (supabaseData as unknown as Record<string, unknown>).distance_to_highs ??
+          supabaseData.daily_distance_to_highs ??
+          '',
+      ) || null,
+      daily_performance_summary: String(supabaseData.daily_performance_summary ?? '') || null,
+      daily_performance_description: String(supabaseData.daily_performance_description ?? '') || null,
+      '1m_percent': data.perf1M,
+      '3m_percent': data.perf3M,
+      daily_vs_spy_comparison: data.vsSpyComparison !== 'N/A' ? data.vsSpyComparison : null,
+      daily_vs_benchmark_comparison:
+        data.vsBenchmarkComparison !== 'N/A' ? data.vsBenchmarkComparison : null,
+    });
+  }, [activeTrendDescription, chartTf, data, supabaseData, ticker]);
+
   // ─── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader userEmail={userEmail} currentAppMode={currentAppMode} onGoToPortfolio={onGoToPortfolio} onGoToMWS={onGoToMWS} onSignOut={onSignOut} onBack={() => onNavigate('index')} backLabel="Back to MWS" />
+        <AppHeader userEmail={userEmail} currentAppMode={currentAppMode} onGoToPortfolio={onGoToPortfolio} onGoToMyHoldings={onGoToMyHoldings} onGoToMWS={onGoToMWS} onSignOut={onSignOut} onBack={() => onNavigate('index')} backLabel="Back to MWS" />
         <div className="flex flex-1 items-center justify-center">
           <div className="flex flex-col items-center gap-3 text-center">
             <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -511,7 +551,7 @@ export function TickerAnalysisPage({
   if (error || !data) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
-        <AppHeader userEmail={userEmail} currentAppMode={currentAppMode} onGoToPortfolio={onGoToPortfolio} onGoToMWS={onGoToMWS} onSignOut={onSignOut} onBack={() => onNavigate('index')} backLabel="Back to MWS" />
+        <AppHeader userEmail={userEmail} currentAppMode={currentAppMode} onGoToPortfolio={onGoToPortfolio} onGoToMyHoldings={onGoToMyHoldings} onGoToMWS={onGoToMWS} onSignOut={onSignOut} onBack={() => onNavigate('index')} backLabel="Back to MWS" />
         <main className="mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-6">
             <div className="mb-2 flex items-center gap-2 text-sm text-destructive sm:text-base">
@@ -621,8 +661,11 @@ export function TickerAnalysisPage({
         userEmail={userEmail}
         currentAppMode={currentAppMode}
         onGoToPortfolio={onGoToPortfolio}
+        onGoToMyHoldings={onGoToMyHoldings}
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
+        onNavigateMws={onNavigate}
+        currentMwsPage="ticker-analysis"
       />
 
       <main className="w-full flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
@@ -673,8 +716,12 @@ export function TickerAnalysisPage({
               </div>
             </div>
 
-            {/* Right: ticker search + refresh */}
-            <div className="flex shrink-0 items-center gap-2">
+            {/* Right: ticker search + relative strength + refresh */}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <RelativeStrengthButton
+                initialTickers={ticker ? [ticker] : []}
+                onSelectTicker={(t) => setTicker(t)}
+              />
               {/* Custom search dropdown */}
               <div ref={searchRef} className="relative">
                 <div className="flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-xs shadow-sm sm:px-3 sm:text-sm">
@@ -747,6 +794,17 @@ export function TickerAnalysisPage({
               </button>
             </div>
           </div>
+
+          {topSummaryBrief &&
+            !topSummaryBrief.body.startsWith('Not enough MWS fields') && (
+            <div className="mb-5">
+              <BriefCard
+                variant="quickRead"
+                compact
+                brief={topSummaryBrief}
+              />
+            </div>
+          )}
 
           {/* ── 2-column grid ── */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[2fr_1fr]">
@@ -1008,6 +1066,7 @@ export function TickerAnalysisPage({
           </div>
         </div>
       </main>
+      <ChatDrawer contextRef={{ ticker }} />
     </div>
   );
 }

@@ -6,6 +6,7 @@ const PAGE_LABELS: Record<string, string> = {
   readme: 'Read Me',
   'ticker-analysis': 'Ticker Analysis',
   dashboard: 'Momentum Pulse',
+  'my-holdings': 'My Holdings',
   'momentum-combined': 'Combined Momentum',
   dow30: 'Dow 30',
   'large-caps': 'US Large Caps',
@@ -17,7 +18,8 @@ const PAGE_LABELS: Record<string, string> = {
 const MODE_LABELS: Record<AppMode, string> = {
   hub: 'Hub',
   mws: 'MWS Dashboard',
-  portfolio: 'Portfolio',
+  portfolio: 'MWS Portfolio',
+  'my-holdings': 'My Holdings',
 };
 
 export function activityPageLabel(page: string | undefined): string {
@@ -39,6 +41,7 @@ export function activityLocationLabel(
     if (!currentPage || currentPage === 'dashboard') return 'Portfolio · Dashboard';
     return `Portfolio · ${activityPageLabel(currentPage)}`;
   }
+  if (appMode === 'my-holdings') return 'My Holdings';
   if (appMode === 'mws') {
     return `MWS · ${activityPageLabel(currentPage ?? 'index')}`;
   }
@@ -47,11 +50,12 @@ export function activityLocationLabel(
 
 export function resolveActivityPage(ctx: {
   appMode: AppMode;
-  page?: PageView | PortfolioPage | 'hub';
+  page?: PageView | PortfolioPage | 'hub' | 'my-holdings';
   portfolioPage?: PortfolioPage;
 }): string {
   if (ctx.appMode === 'hub') return 'hub';
   if (ctx.appMode === 'portfolio') return ctx.portfolioPage ?? 'dashboard';
+  if (ctx.appMode === 'my-holdings') return 'my-holdings';
   return ctx.page ?? 'index';
 }
 

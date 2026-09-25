@@ -522,6 +522,7 @@ export interface PortfolioDetailPageProps {
   userEmail: string;
   currentAppMode: AppMode;
   onGoToPortfolio: () => void;
+  onGoToMyHoldings?: () => void;
   onGoToMWS: () => void;
   onSignOut: () => void;
   onBack: () => void;
@@ -555,6 +556,7 @@ export function PortfolioDetailPage({
   userEmail,
   currentAppMode,
   onGoToPortfolio,
+  onGoToMyHoldings,
   onGoToMWS,
   onSignOut,
   onBack,
@@ -885,6 +887,7 @@ export function PortfolioDetailPage({
         userEmail={userEmail}
         currentAppMode={currentAppMode}
         onGoToPortfolio={onGoToPortfolio}
+        onGoToMyHoldings={onGoToMyHoldings}
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
       />

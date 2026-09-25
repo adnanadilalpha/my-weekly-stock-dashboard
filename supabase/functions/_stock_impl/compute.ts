@@ -50,6 +50,26 @@ export function ema(values: number[], period: number): number | null {
   return prev;
 }
 
+/** Simple moving average of the last `period` closes (oldest → newest). */
+export function sma(values: number[], period: number): number | null {
+  if (!Array.isArray(values) || values.length < period || period < 1) return null;
+  let sum = 0;
+  for (let i = values.length - period; i < values.length; i++) {
+    const v = values[i];
+    if (!Number.isFinite(v)) return null;
+    sum += v;
+  }
+  return sum / period;
+}
+
+/** Decimal distance of price from SMA: (price - sma) / sma. */
+export function pctFromSma(price: number, smaValue: number | null): number | null {
+  if (smaValue === null || !Number.isFinite(price) || !Number.isFinite(smaValue) || smaValue === 0) {
+    return null;
+  }
+  return (price - smaValue) / smaValue;
+}
+
 function componentScore3(value: number | null, bull: number, bear: number): number {
   // Map to 0,1,2,3 scale (bearish = 0, neutral = 1.5, bullish = 3) so that
   // SUMPRODUCT / 3 * 5 produces 0..5.

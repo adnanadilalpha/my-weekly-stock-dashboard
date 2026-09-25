@@ -23,6 +23,7 @@ import { Button } from './ui/button';
 import { TickerIcon } from './ui/ticker-icon';
 import { AppHeader } from './app-header';
 import { MwsHubCustomizeDialog, type CuratedHubRow } from './mws-hub-customize-dialog';
+import { mergeUniversePickerRows } from '@/lib/mws-universe-picker-rows';
 import type { PageView } from '../types';
 import type { AppMode } from '../types';
 import { getAllTickers, tickerMatchesSearchQuery } from '../../lib/queries/ticker';
@@ -42,6 +43,7 @@ export interface IndexPageProps {
   onNavigate: (page: PageView, ticker?: string) => void;
   currentAppMode: AppMode;
   onGoToPortfolio: () => void;
+  onGoToMyHoldings?: () => void;
   onGoToMWS: () => void;
 }
 
@@ -239,6 +241,7 @@ export function IndexPage({
   onNavigate,
   currentAppMode,
   onGoToPortfolio,
+  onGoToMyHoldings,
   onGoToMWS,
 }: IndexPageProps) {
   const { prefs, setPrefs, resetPrefs, loadError, saveError, flushSave } = useMwsHubPreferences();
@@ -287,30 +290,11 @@ export function IndexPage({
   }, [dbTickers]);
 
   // Picker list for customization modal: curated names + full DB ticker universe
-  // (includes other_stocks), deduped by ticker.
-  const customizePickerRows = useMemo<CuratedHubRow[]>(() => {
-    const byTicker = new Map<string, CuratedHubRow>();
-
-    for (const row of CURATED_HUB_ROWS) {
-      const t = row.ticker.toUpperCase();
-      if (!t) continue;
-      byTicker.set(t, { name: row.name, ticker: t });
-    }
-
-    for (const raw of dbTickers) {
-      const t = String(raw).trim().toUpperCase();
-      if (!t) continue;
-      if (byTicker.has(t)) continue;
-      const metricName = metricsMap.get(t)?.name?.trim();
-      byTicker.set(t, { name: metricName || t, ticker: t });
-    }
-
-    return Array.from(byTicker.values()).sort((a, b) => {
-      const byName = a.name.localeCompare(b.name);
-      if (byName !== 0) return byName;
-      return a.ticker.localeCompare(b.ticker);
-    });
-  }, [dbTickers, metricsMap]);
+  // (includes other_stocks), deduped by ticker — shared with My Holdings picker.
+  const customizePickerRows = useMemo<CuratedHubRow[]>(
+    () => mergeUniversePickerRows(dbTickers, metricsMap, CURATED_HUB_ROWS),
+    [dbTickers, metricsMap],
+  );
 
   const searchHits = useMemo(() => {
     const q = searchQuery.trim();
@@ -556,6 +540,7 @@ export function IndexPage({
         userEmail={userEmail}
         currentAppMode={currentAppMode}
         onGoToPortfolio={onGoToPortfolio}
+        onGoToMyHoldings={onGoToMyHoldings}
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
       />

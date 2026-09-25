@@ -94,25 +94,47 @@ export async function getTickerData(ticker: string): Promise<TickerResult> {
   return { data: null, type: null };
 }
 
+export type UniverseTickerBuckets = {
+  segments: string[];
+  sectors: string[];
+  megaCaps: string[];
+  other: string[];
+};
+
+function sortedUnique(tickers: string[]): string[] {
+  return [...new Set(tickers.map((t) => t.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
+/**
+ * Active MWS universe split by table bucket (for My Holdings picker).
+ */
+export async function getUniverseTickersByBucket(): Promise<UniverseTickerBuckets> {
+  const [segments, sectors, megaCaps, other] = await Promise.all([
+    selectAllTickersFromTable('market_segments'),
+    selectAllTickersFromTable('sectors'),
+    selectAllTickersFromTable('mega_caps'),
+    selectAllTickersFromTable('other_stocks'),
+  ]);
+  return {
+    segments: sortedUnique(segments),
+    sectors: sortedUnique(sectors),
+    megaCaps: sortedUnique(megaCaps),
+    other: sortedUnique(other),
+  };
+}
+
 /**
  * Get all available tickers from all tables
  */
 export async function getAllTickers(): Promise<string[]> {
-  const [segmentsTickers, sectorsTickers, megaCapsTickers, otherStocksTickers] =
-    await Promise.all([
-      selectAllTickersFromTable('market_segments'),
-      selectAllTickersFromTable('sectors'),
-      selectAllTickersFromTable('mega_caps'),
-      selectAllTickersFromTable('other_stocks'),
-    ]);
-
-  const allTickers = [
-    ...segmentsTickers,
-    ...sectorsTickers,
-    ...megaCapsTickers,
-    ...otherStocksTickers,
-  ];
-
-  return [...new Set(allTickers)].sort();
+  const buckets = await getUniverseTickersByBucket();
+  return sortedUnique([
+    ...buckets.segments,
+    ...buckets.sectors,
+    ...buckets.megaCaps,
+    ...buckets.other,
+  ]);
 }
 

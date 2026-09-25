@@ -29,6 +29,7 @@ import {
 import { useMwsHubPreferences } from '@/lib/hooks/useMwsHubPreferences';
 import type { HubPersonalTicker } from '@/lib/mws-hub-prefs';
 import { getOtherStocksByTickers } from '@/lib/queries/other-stocks';
+import { RelativeStrengthButton } from './charts/relative-strength-dialog';
 
 // Mapping of ticker symbols to display names (matching index-page.tsx)
 const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
@@ -77,6 +78,7 @@ interface DashboardPageProps {
   onNavigate: (page: PageView, ticker?: string) => void;
   currentAppMode: AppMode;
   onGoToPortfolio: () => void;
+  onGoToMyHoldings?: () => void;
   onGoToMWS: () => void;
 }
 
@@ -248,6 +250,7 @@ export function DashboardPage({
   onNavigate,
   currentAppMode,
   onGoToPortfolio,
+  onGoToMyHoldings,
   onGoToMWS,
 }: DashboardPageProps) {
   const [timeframe, setTimeframe] = useState<'D' | 'W'>('D');
@@ -599,10 +602,13 @@ export function DashboardPage({
         userEmail={userEmail}
         currentAppMode={currentAppMode}
         onGoToPortfolio={onGoToPortfolio}
+        onGoToMyHoldings={onGoToMyHoldings}
         onGoToMWS={onGoToMWS}
         onSignOut={onSignOut}
         onBack={() => onNavigate('index')}
         backLabel="Back to MWS"
+        onNavigateMws={onNavigate}
+        currentMwsPage="dashboard"
       />
 
       <main className="flex w-full flex-1 flex-col px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
@@ -613,6 +619,9 @@ export function DashboardPage({
               MWS&apos;s Momentum Pulse Check
             </h1>
             <p className="mt-1 text-xs text-muted-foreground sm:text-sm">{subtitleParts.join(' · ')}</p>
+            <div className="mt-2">
+              <RelativeStrengthButton size="sm" variant="ghost" className="h-auto px-0 text-xs font-medium text-neutral-700 hover:bg-transparent hover:underline sm:text-sm" />
+            </div>
           </div>
           <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <div className="inline-flex rounded-xl border border-border bg-muted/60 p-1">

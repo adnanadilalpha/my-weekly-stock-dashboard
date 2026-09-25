@@ -1,0 +1,117 @@
+{
+  "composerId": "portfolio_holding",
+  "version": "1.0.0",
+  "cases": [
+    {
+      "input": {
+        "ticker": "AAPL",
+        "daily_rating": "Uptrend",
+        "daily_outlook": "Stable",
+        "daily_trend_score": 3.1,
+        "performance_strength": "Mixed",
+        "daily_trend_description": "AAPL remains in an Uptrend with a Stable outlook.",
+        "daily_performance_description": "AAPL performance is Mixed versus benchmarks.",
+        "in_mws_coverage": true
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "portfolio_holding",
+        "title": "AAPL · Mixed · Uptrend",
+        "body": "AAPL performance is Mixed versus benchmarks.\n\nAAPL remains in an Uptrend with a Stable outlook.",
+        "bullets": [
+          "Uptrend",
+          "Stable",
+          "Mixed"
+        ],
+        "sourceFields": [
+          "daily_performance_description",
+          "daily_trend_description",
+          "daily_rating",
+          "daily_outlook",
+          "performance_strength"
+        ]
+      }
+    },
+    {
+      "input": {
+        "ticker": "FOO",
+        "in_mws_coverage": false
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "portfolio_holding",
+        "title": "FOO · Not in MWS",
+        "body": "This ticker is not in the MWS universe, so packaged MWS narratives are not available.",
+        "bullets": [],
+        "sourceFields": []
+      }
+    },
+    {
+      "input": {
+        "ticker": "MSFT",
+        "daily_rating": "Strong Uptrend",
+        "daily_performance_summary": "Strong performer | Leading vs benchmarks",
+        "in_mws_coverage": true
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "portfolio_holding",
+        "title": "MSFT · Strong Uptrend",
+        "body": "Strong performer | Leading vs benchmarks",
+        "bullets": [
+          "Strong Uptrend"
+        ],
+        "sourceFields": [
+          "daily_performance_summary",
+          "daily_rating"
+        ]
+      }
+    },
+    {
+      "input": {
+        "ticker": "IBM",
+        "in_mws_coverage": true
+      },
+      "output": {
+        "version": "1.0.0",
+        "composerId": "portfolio_holding",
+        "title": "IBM · MWS",
+        "body": "MWS data for this explanation is not available yet.",
+        "bullets": [
+          "Required fields are missing or null in the current MWS row."
+        ],
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "sourceFields": [
+          "daily_trend_description",
+          "daily_performance_description",
+          "daily_performance_summary"
+        ]
+      }
+    },
+    {
+      "input": {
+        "ticker": "AMD",
+        "performance_strength": "Strong",
+        "daily_performance_description": "AMD shows Strong performance strength.",
+        "in_mws_coverage": true
+      },
+      "output": {
+        "version": "1.0.0",
+        "disclaimer": "MWS Brief explains stored MWS state only. It does not give trading advice.",
+        "composerId": "portfolio_holding",
+        "title": "AMD · Strong",
+        "body": "AMD shows Strong performance strength.",
+        "bullets": [
+          "Strong"
+        ],
+        "sourceFields": [
+          "daily_performance_description",
+          "performance_strength"
+        ]
+      }
+    }
+  ]
+}
