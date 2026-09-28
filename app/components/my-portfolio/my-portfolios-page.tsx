@@ -37,7 +37,6 @@ import { RelativeStrengthButton } from '../charts/relative-strength-dialog';
 import type { AppMode, PageView } from '../../types';
 import { AlertTriangle, Briefcase, Layers, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useActivity } from '@/lib/activity/ActivityProvider';
-import { featureFlags } from '@/lib/feature-flags';
 
 type Props = {
   userEmail: string;
@@ -609,9 +608,7 @@ function MyPortfolioDetail({
               </div>
             </div>
 
-            {featureFlags.brief && (
-              <BriefCard brief={bookBrief} variant="quickRead" compact defaultOpen />
-            )}
+            <BriefCard brief={bookBrief} variant="quickRead" compact defaultOpen />
 
             {totals.attention.length > 0 && (
               <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 px-4 py-3.5">

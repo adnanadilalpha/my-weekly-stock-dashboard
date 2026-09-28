@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import type { MwsBriefOutput } from '@/lib/intelligence/brief';
-import { featureFlags } from '@/lib/feature-flags';
 import { useActivity } from '@/lib/activity/ActivityProvider';
 
 function paragraphs(body: string): string[] {
@@ -30,7 +29,7 @@ export function BriefCard({
   const [open, setOpen] = useState(defaultOpen);
   const activity = useActivity();
 
-  if (!featureFlags.brief || !brief) return null;
+  if (!brief) return null;
 
   const paras = paragraphs(brief.body);
 

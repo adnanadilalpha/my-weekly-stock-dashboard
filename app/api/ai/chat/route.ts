@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { featureFlags } from '@/lib/feature-flags';
 import {
   buildChatMessages,
   buildRefusal,
@@ -27,16 +26,6 @@ export const runtime = 'nodejs';
  * }
  */
 export async function POST(request: Request) {
-  if (!featureFlags.aiChat) {
-    return NextResponse.json(
-      {
-        error: 'ai_chat_disabled',
-        message: 'MWS Chat is disabled. Use on-device Brief explanations, or enable NEXT_PUBLIC_FEATURE_AI_CHAT.',
-      },
-      { status: 503 },
-    );
-  }
-
   const auth = await createUserClientFromAuthHeader(request.headers.get('authorization'));
   if (!auth) {
     return NextResponse.json({ error: 'unauthorized', message: 'Valid Bearer JWT required' }, { status: 401 });

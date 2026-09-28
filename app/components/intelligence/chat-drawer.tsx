@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Send, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { featureFlags } from '@/lib/feature-flags';
 import { supabase } from '@/lib/supabase-client';
 import { useActivity } from '@/lib/activity/ActivityProvider';
 import type { ChatContextRef } from '@/lib/intelligence/chat/context';
@@ -167,8 +166,6 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
     },
     [activity, busy, contextRef, sessionId],
   );
-
-  if (!featureFlags.aiChat) return null;
 
   return (
     <>

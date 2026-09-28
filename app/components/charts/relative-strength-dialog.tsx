@@ -17,7 +17,6 @@ import { loadUniversePickerRows } from '@/lib/mws-universe-picker-rows';
 import type { RelativeStrengthPoint } from '@/lib/relative-strength';
 import { QUADRANT_COLORS } from '@/lib/relative-strength';
 import { useActivity } from '@/lib/activity/ActivityProvider';
-import { featureFlags } from '@/lib/feature-flags';
 import type { MwsPickerTickerRow } from '../mws-ticker-pick-grid';
 import { cn } from '../ui/utils';
 
@@ -410,8 +409,6 @@ export function RelativeStrengthButton({
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
-
-  if (!featureFlags.relativeStrength) return null;
 
   return (
     <>

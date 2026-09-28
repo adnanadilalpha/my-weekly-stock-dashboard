@@ -37,7 +37,6 @@ import {
 import { composeOverviewBrief } from '@/lib/intelligence/brief';
 import { BriefCard } from './intelligence/brief-card';
 import { RelativeStrengthButton } from './charts/relative-strength-dialog';
-import { featureFlags } from '@/lib/feature-flags';
 import { ChatDrawer } from './intelligence/chat-drawer';
 
 const PriceChart = dynamic(() => import('./price-chart').then((m) => ({ default: m.PriceChart })), {
@@ -499,7 +498,7 @@ export function TickerAnalysisPage({
   const performanceDescriptionText = data?.perfDescription ?? '';
 
   const topSummaryBrief = useMemo(() => {
-    if (!data || !supabaseData || !featureFlags.brief) return null;
+    if (!data || !supabaseData) return null;
     return composeOverviewBrief({
       ticker,
       timeframe: chartTf === 'W' ? 'weekly' : 'daily',

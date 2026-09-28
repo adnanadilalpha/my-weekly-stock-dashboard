@@ -14,7 +14,6 @@ import { ChatDrawer } from './components/intelligence/chat-drawer';
 import type { PageView, AppMode, PortfolioPage } from './types';
 import { supabase } from '@/lib/supabase-client';
 import { ActivityProvider, useActivity } from '@/lib/activity/ActivityProvider';
-import { featureFlags } from '@/lib/feature-flags';
 
 const isDevBypassEnabled =
   (process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS ?? '').toLowerCase().trim() === 'true';
@@ -118,11 +117,6 @@ export default function Home() {
   }, []);
 
   const handleGoToMyHoldings = useCallback(() => {
-    if (!featureFlags.myPortfolios) {
-      setAppMode('portfolio');
-      setPortfolioPage('dashboard');
-      return;
-    }
     setAppMode('my-holdings');
     setMyPortfolioId(null);
   }, []);
@@ -285,7 +279,7 @@ function HomeContent({
     );
   }
 
-  if (appMode === 'my-holdings' && featureFlags.myPortfolios) {
+  if (appMode === 'my-holdings') {
     return (
       <>
         <MyPortfoliosPage

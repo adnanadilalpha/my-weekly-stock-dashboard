@@ -3,7 +3,6 @@
 import { LogOut, LayoutDashboard, PieChart, Briefcase } from 'lucide-react';
 import { Button } from './ui/button';
 import type { AppMode, PageView } from '../types';
-import { featureFlags } from '@/lib/feature-flags';
 
 export interface AppHeaderProps {
   userEmail: string;
@@ -29,7 +28,7 @@ export function AppHeader({
   onBack,
   backLabel = 'Back',
 }: AppHeaderProps) {
-  const showMyHoldings = featureFlags.myPortfolios && !!onGoToMyHoldings;
+  const showMyHoldings = !!onGoToMyHoldings;
 
   return (
     <header className="sticky top-0 z-20 border-b border-border/70 bg-background/90 backdrop-blur">
