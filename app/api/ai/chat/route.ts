@@ -3,9 +3,10 @@ import { featureFlags } from '@/lib/feature-flags';
 import {
   buildChatMessages,
   buildRefusal,
-  callModalChat,
+  callChatModel,
   checkRateLimit,
   createUserClientFromAuthHeader,
+  isChatModelConfigured,
   loadMwsDataBlock,
   looksLikeAdviceRequest,
   type ChatContextRef,
@@ -63,7 +64,8 @@ export async function POST(request: Request) {
   }
 
   const contextRef: ChatContextRef = body.contextRef ?? {};
-  const mwsData = await loadMwsDataBlock(auth.client, contextRef);
+  // User's own portfolio + MWS ticker snapshots + tickers named in the question.
+  const mwsData = await loadMwsDataBlock(auth.client, contextRef, message, auth.user.id);
 
   let assistantText: string;
   if (looksLikeAdviceRequest(message)) {
@@ -72,13 +74,13 @@ export async function POST(request: Request) {
     );
   } else {
     const messages = buildChatMessages(mwsData, message);
-    const result = await callModalChat(messages);
+    const result = await callChatModel(messages);
     if (!result.ok) {
-      // Graceful fallback when Modal is cold/unconfigured
+      // Never surface provider/quota details to the user — keep a calm fallback.
+      console.error('[chat] all providers failed', result.provider, result.status, result.error);
       assistantText =
-        `Chat model is temporarily unavailable (${result.error}). ` +
-        `Use MWS Brief on the page for deterministic explanations of Rating, Performance, and relative-strength quadrants.`;
-      if (!process.env.MODAL_CHAT_URL) {
+        'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Relative Strength explanations.';
+      if (!isChatModelConfigured()) {
         return NextResponse.json(
           {
             error: 'chat_unavailable',
@@ -88,6 +90,7 @@ export async function POST(request: Request) {
           { status: 503 },
         );
       }
+      // Still return 200 with a helpful reply so the UI feels continuous.
     } else {
       assistantText = result.text;
     }

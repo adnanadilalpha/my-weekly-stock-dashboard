@@ -49,11 +49,22 @@ export type PerformanceBriefInput = {
   daily_vs_sector_comparison?: string | null;
 };
 
-export type QuadrantId = 'STRONG' | 'PULLBACK' | 'WEAK' | 'RECOVERY' | 'UNKNOWN';
+export type QuadrantId =
+  | 'SYNCED_UPTREND'
+  | 'PULLBACK'
+  | 'BROKEN_TREND'
+  | 'TURNING'
+  | 'UNKNOWN';
 
 export type QuadrantBriefInput = {
   ticker?: string | null;
+  /** Preferred: decimal distance from 21-day EMA (X). */
+  pct_from_21d_ema?: number | null;
+  /** Preferred: decimal distance from 30-week EMA (Y). */
+  pct_from_30w_ema?: number | null;
+  /** @deprecated Legacy SMA axes — still accepted by quadrant composer. */
   pct_from_sma50?: number | null;
+  /** @deprecated Legacy SMA axes — still accepted by quadrant composer. */
   pct_from_sma200?: number | null;
 };
 

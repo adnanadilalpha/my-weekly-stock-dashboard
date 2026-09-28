@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase-client';
-import { getAppEnv } from '@/lib/supabase-env';
 import { whoAmIAction, type AdminWhoAmI } from '../_actions/session';
 
 type Status = 'loading' | 'anon' | 'not-admin' | 'admin' | 'error';

@@ -24,7 +24,10 @@ export const featureFlags = {
     false,
   ),
   myPortfolios: parse(process.env.NEXT_PUBLIC_FEATURE_MY_PORTFOLIOS, false),
-  /** Cloud chat — also requires MODAL_CHAT_URL server-side. */
+  /**
+   * Cloud chat — also requires a server-side model backend:
+   * GOOGLE_STUDIO_AI_API_KEY (testing) and/or MODAL_CHAT_URL (own model).
+   */
   aiChat: parse(process.env.NEXT_PUBLIC_FEATURE_AI_CHAT, false),
 } as const;
 

@@ -9,26 +9,17 @@ My Weekly Stock dashboard app.
 - Create local env file: `cp .env.example .env.local`
 - Start dev server: `npm run dev`
 
-## Supabase environment switching (safe by default)
+## Supabase
 
-This project supports explicit data targets via `APP_ENV`:
+This app uses a **single production Supabase project**.
 
-- `APP_ENV=dev` -> uses `*_DEV` Supabase credentials
-- `APP_ENV=prod` -> uses `*_PROD` Supabase credentials
-- `NEXT_PUBLIC_APP_ENV` should match `APP_ENV` for client-side behavior
+Required env (see `.env.example`):
 
-Safety guard:
+- `NEXT_PUBLIC_SUPABASE_URL_PROD`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY_PROD`
+- `SUPABASE_SERVICE_ROLE_KEY_PROD` (server only)
 
-- Production Supabase is blocked outside production runtime unless you explicitly set `ALLOW_PROD_FROM_LOCAL=true`.
+Unsuffixed names (`NEXT_PUBLIC_SUPABASE_URL`, etc.) are also accepted.
 
-Recommended local setup:
+Auth uses normal magic-link / session login against that project.
 
-- Keep `APP_ENV=dev`
-- Keep `NEXT_PUBLIC_APP_ENV=dev`
-- Use only `*_DEV` keys for daily development
-- Set `APP_ENV=prod` only for intentional production verification
-
-Auth behavior:
-
-- In `dev`, login screen is bypassed automatically for faster local testing.
-- In `prod`, normal magic-link authentication is required.

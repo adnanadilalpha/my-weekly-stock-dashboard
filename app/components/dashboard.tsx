@@ -36,6 +36,7 @@ import {
   toDisplayPercent,
 } from '@/lib/mws-performance-tone';
 import type { HubSectionKey } from '@/lib/mws-hub-prefs';
+import { RelativeStrengthButton } from './charts/relative-strength-dialog';
 
 export interface IndexPageProps {
   userEmail: string;
@@ -342,6 +343,31 @@ export function IndexPage({
     });
   }, [prefs.order, prefs.hidden, prefs.personalTickers]);
 
+  /** Tickers currently shown on the hub — seed Relative Strength with these. */
+  const relativeStrengthTickers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    const push = (raw: string) => {
+      const t = raw.trim().toUpperCase();
+      if (!t || seen.has(t)) return;
+      seen.add(t);
+      out.push(t);
+    };
+
+    for (const key of visibleOrder) {
+      if (key === 'personal') {
+        for (const row of prefs.personalTickers) push(row.ticker);
+      } else if (key === 'segments') {
+        for (const name of SEGMENTS) push(TICKER_MAP[name] ?? name);
+      } else if (key === 'sectors') {
+        for (const name of SECTORS) push(TICKER_MAP[name] ?? name);
+      } else if (key === 'large') {
+        for (const name of largePreview) push(TICKER_MAP[name] ?? name);
+      }
+    }
+    return out;
+  }, [visibleOrder, prefs.personalTickers, largePreview]);
+
   const handleCustomizeOpenChange = useCallback(
     async (open: boolean) => {
       if (!open) await flushSave();
@@ -561,6 +587,13 @@ export function IndexPage({
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <RelativeStrengthButton
+                size="sm"
+                variant="outline"
+                className="h-9 gap-2 rounded-lg border-border bg-card"
+                initialTickers={relativeStrengthTickers}
+                onSelectTicker={(t) => onNavigate('ticker-analysis', t)}
+              />
               <Button
                 type="button"
                 variant="outline"

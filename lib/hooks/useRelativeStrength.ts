@@ -6,8 +6,8 @@ import { fetchPriceHistory } from '@/lib/queries/price-history';
 
 type RsRow = {
   ticker: string;
-  pct_from_sma50: number | null;
-  pct_from_sma200: number | null;
+  daily_price_vs_21ema: number | null;
+  weekly_price_vs_30ema: number | null;
   daily_rating: string | null;
   daily_current_price: number | null;
   sector_name?: string | null;
@@ -15,47 +15,66 @@ type RsRow = {
   sector_etf?: string | null;
 };
 
-function sma(values: number[], period: number): number | null {
-  if (values.length < period) return null;
-  let sum = 0;
-  for (let i = values.length - period; i < values.length; i++) sum += values[i];
-  return sum / period;
+const RS_SELECT =
+  'ticker, daily_price_vs_21ema, weekly_price_vs_30ema, daily_rating, daily_current_price';
+
+/** Standard EMA (oldest → newest closes), matching edge compute. */
+function ema(values: number[], period: number): number | null {
+  if (values.length < period || period < 1) return null;
+  const k = 2 / (period + 1);
+  let prev = 0;
+  for (let i = 0; i < period; i++) prev += values[i];
+  prev /= period;
+  for (let i = period; i < values.length; i++) {
+    prev = values[i] * k + prev * (1 - k);
+  }
+  return prev;
 }
 
-/** When edge has not backfilled SMA %, compute from price_history. */
-async function fillMissingSma(points: RelativeStrengthPoint[]): Promise<RelativeStrengthPoint[]> {
+function pctFrom(price: number, ref: number | null): number | null {
+  if (ref == null || !Number.isFinite(price) || !Number.isFinite(ref) || ref === 0) return null;
+  return (price - ref) / ref;
+}
+
+/** When edge fields are missing, compute from price_history. */
+async function fillMissingEma(points: RelativeStrengthPoint[]): Promise<RelativeStrengthPoint[]> {
   return Promise.all(
     points.map(async (p) => {
-      if (
-        p.pctFromSma50 != null &&
-        p.pctFromSma200 != null &&
-        Number.isFinite(p.pctFromSma50) &&
-        Number.isFinite(p.pctFromSma200)
-      ) {
-        return p;
-      }
+      const need21 = p.pctFrom21DayEma == null || !Number.isFinite(p.pctFrom21DayEma);
+      const need30 = p.pctFrom30WeekEma == null || !Number.isFinite(p.pctFrom30WeekEma);
+      if (!need21 && !need30) return p;
+
       try {
-        const bars = await fetchPriceHistory(p.ticker, 'daily', 220);
-        const closes = bars.map((b) => b.close).filter((n) => Number.isFinite(n));
-        if (closes.length < 50) return p;
-        const price = closes[closes.length - 1];
-        const s50 = sma(closes, 50);
-        const s200 = closes.length >= 200 ? sma(closes, 200) : null;
+        let pct21 = p.pctFrom21DayEma;
+        let pct30 = p.pctFrom30WeekEma;
+        let price = p.dailyCurrentPrice;
+
+        if (need21) {
+          const bars = await fetchPriceHistory(p.ticker, 'daily', 80);
+          const closes = bars.map((b) => b.close).filter((n) => Number.isFinite(n));
+          if (closes.length >= 21) {
+            price = price ?? closes[closes.length - 1];
+            const e21 = ema(closes, 21);
+            pct21 = pctFrom(closes[closes.length - 1], e21);
+          }
+        }
+
+        if (need30) {
+          const bars = await fetchPriceHistory(p.ticker, 'weekly', 40);
+          const closes = bars.map((b) => b.close).filter((n) => Number.isFinite(n));
+          if (closes.length >= 30) {
+            const last = closes[closes.length - 1];
+            price = price ?? last;
+            const e30 = ema(closes, 30);
+            pct30 = pctFrom(last, e30);
+          }
+        }
+
         return {
           ...p,
-          pctFromSma50:
-            p.pctFromSma50 != null
-              ? p.pctFromSma50
-              : s50 && s50 !== 0
-                ? (price - s50) / s50
-                : null,
-          pctFromSma200:
-            p.pctFromSma200 != null
-              ? p.pctFromSma200
-              : s200 && s200 !== 0
-                ? (price - s200) / s200
-                : null,
-          dailyCurrentPrice: p.dailyCurrentPrice ?? price,
+          pctFrom21DayEma: pct21,
+          pctFrom30WeekEma: pct30,
+          dailyCurrentPrice: price,
         };
       } catch {
         return p;
@@ -68,8 +87,8 @@ function mapRow(row: RsRow, highlight = false): RelativeStrengthPoint {
   return {
     ticker: row.ticker,
     label: row.sector_name ?? row.company_name ?? row.ticker,
-    pctFromSma50: row.pct_from_sma50,
-    pctFromSma200: row.pct_from_sma200,
+    pctFrom21DayEma: row.daily_price_vs_21ema,
+    pctFrom30WeekEma: row.weekly_price_vs_30ema,
     dailyRating: row.daily_rating,
     dailyCurrentPrice: row.daily_current_price,
     highlight,
@@ -79,11 +98,11 @@ function mapRow(row: RsRow, highlight = false): RelativeStrengthPoint {
 export async function fetchSectorRelativeStrength(): Promise<RelativeStrengthPoint[]> {
   const { data, error } = await supabase
     .from('sectors')
-    .select('ticker, pct_from_sma50, pct_from_sma200, daily_rating, daily_current_price, sector_name')
+    .select(`${RS_SELECT}, sector_name`)
     .or(USER_TICKER_ACTIVE_OR)
     .order('ticker');
   if (error) throw error;
-  return fillMissingSma((data ?? []).map((r) => mapRow(r as RsRow)));
+  return fillMissingEma((data ?? []).map((r) => mapRow(r as RsRow)));
 }
 
 export async function fetchPeerRelativeStrength(
@@ -94,17 +113,17 @@ export async function fetchPeerRelativeStrength(
   const [peersRes, sectorRes, megaRes] = await Promise.all([
     supabase
       .from('other_stocks')
-      .select('ticker, pct_from_sma50, pct_from_sma200, daily_rating, daily_current_price, company_name, sector_etf')
+      .select(`${RS_SELECT}, company_name, sector_etf`)
       .or(USER_TICKER_ACTIVE_OR)
       .eq('sector_etf', etf),
     supabase
       .from('sectors')
-      .select('ticker, pct_from_sma50, pct_from_sma200, daily_rating, daily_current_price, sector_name')
+      .select(`${RS_SELECT}, sector_name`)
       .eq('ticker', etf)
       .maybeSingle(),
     supabase
       .from('mega_caps')
-      .select('ticker, pct_from_sma50, pct_from_sma200, daily_rating, daily_current_price, company_name, sector_etf')
+      .select(`${RS_SELECT}, company_name, sector_etf`)
       .or(USER_TICKER_ACTIVE_OR)
       .eq('sector_etf', etf),
   ]);
@@ -120,40 +139,33 @@ export async function fetchPeerRelativeStrength(
     const row = r as RsRow;
     points.push(mapRow(row, row.ticker.toUpperCase() === highlightTicker?.toUpperCase()));
   }
-  return fillMissingSma(points);
+  return fillMissingEma(points);
 }
 
 export async function fetchTickersRelativeStrength(tickers: string[]): Promise<RelativeStrengthPoint[]> {
   const uniq = [...new Set(tickers.map((t) => t.toUpperCase()).filter(Boolean))];
   if (uniq.length === 0) return [];
 
-  const tables = ['sectors', 'mega_caps', 'other_stocks', 'market_segments'] as const;
-  const results: RelativeStrengthPoint[] = [];
+  const tables = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
+  const byTicker = new Map<string, RelativeStrengthPoint>();
 
   for (const table of tables) {
-    const { data, error } = await supabase
-      .from(table)
-      .select('ticker, pct_from_sma50, pct_from_sma200, daily_rating, daily_current_price')
-      .in('ticker', uniq);
+    const { data, error } = await supabase.from(table).select(RS_SELECT).in('ticker', uniq);
     if (error) throw error;
     for (const r of data ?? []) {
-      results.push(mapRow(r as RsRow));
+      const mapped = mapRow(r as RsRow);
+      const key = mapped.ticker.toUpperCase();
+      // First table in lookup order wins (market_segments → …)
+      if (!byTicker.has(key)) byTicker.set(key, mapped);
     }
   }
 
-  // Deduplicate by ticker (first table wins — mirrors getTickerData order for segments first if we reverse)
-  const seen = new Set<string>();
   const ordered: RelativeStrengthPoint[] = [];
-  // Prefer market_segments → sectors → mega → other: rebuild
-  const byTicker = new Map(results.map((p) => [p.ticker.toUpperCase(), p]));
   for (const t of uniq) {
     const p = byTicker.get(t);
-    if (p && !seen.has(t)) {
-      seen.add(t);
-      ordered.push(p);
-    }
+    if (p) ordered.push(p);
   }
-  return fillMissingSma(ordered);
+  return fillMissingEma(ordered);
 }
 
 export function useSectorRelativeStrength() {

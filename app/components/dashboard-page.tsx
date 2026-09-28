@@ -459,6 +459,19 @@ export function DashboardPage({
     [sectorsData, query, trendFilter, scoreThresholds],
   );
 
+  /** Tickers currently visible on Momentum Pulse — seed Relative Strength with these. */
+  const relativeStrengthTickers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const row of [...filteredFavorites, ...filteredSegments, ...filteredSectors]) {
+      const t = row.ticker.trim().toUpperCase();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+    }
+    return out;
+  }, [filteredFavorites, filteredSegments, filteredSectors]);
+
   const segSummary = useMemo(() => groupSummary(marketSegmentsData, scoreThresholds), [marketSegmentsData, scoreThresholds]);
   const secSummary = useMemo(() => groupSummary(sectorsData, scoreThresholds), [sectorsData, scoreThresholds]);
 
@@ -620,7 +633,13 @@ export function DashboardPage({
             </h1>
             <p className="mt-1 text-xs text-muted-foreground sm:text-sm">{subtitleParts.join(' · ')}</p>
             <div className="mt-2">
-              <RelativeStrengthButton size="sm" variant="ghost" className="h-auto px-0 text-xs font-medium text-neutral-700 hover:bg-transparent hover:underline sm:text-sm" />
+              <RelativeStrengthButton
+                size="sm"
+                variant="ghost"
+                className="h-auto px-0 text-xs font-medium text-neutral-700 hover:bg-transparent hover:underline sm:text-sm"
+                initialTickers={relativeStrengthTickers}
+                onSelectTicker={(t) => onNavigate('ticker-analysis', t)}
+              />
             </div>
           </div>
           <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">

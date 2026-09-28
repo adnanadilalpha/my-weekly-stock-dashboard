@@ -88,10 +88,10 @@ const byComposer = {
     },
   ].map((c) => ({ ...c, output: composePerformanceBrief(c.input) })),
   quadrant: [
-    { input: { ticker: 'XLK', pct_from_sma50: 0.05, pct_from_sma200: 0.2 } },
-    { input: { ticker: 'XLY', pct_from_sma50: -0.03, pct_from_sma200: 0.08 } },
-    { input: { ticker: 'XLU', pct_from_sma50: -0.03, pct_from_sma200: -0.03 } },
-    { input: { ticker: 'XLC', pct_from_sma50: 0.01, pct_from_sma200: -0.03 } },
+    { input: { ticker: 'XLK', pct_from_21d_ema: 0.05, pct_from_30w_ema: 0.2 } },
+    { input: { ticker: 'XLY', pct_from_21d_ema: -0.03, pct_from_30w_ema: 0.08 } },
+    { input: { ticker: 'XLU', pct_from_21d_ema: -0.03, pct_from_30w_ema: -0.03 } },
+    { input: { ticker: 'XLC', pct_from_21d_ema: 0.01, pct_from_30w_ema: -0.03 } },
     { input: { ticker: 'NEW' } },
   ].map((c) => ({ ...c, output: composeQuadrantBrief(c.input) })),
   portfolio_holding: [

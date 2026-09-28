@@ -440,7 +440,7 @@ export async function runTickerDataCollectionAction(
         ? cfg.preferred_provider.trim().toLowerCase()
         : 'finnhub';
 
-    const edgeSecret = process.env.EDGE_FN_SECRET ?? process.env.EDGE_FN_SECRET_DEV ?? process.env.EDGE_FN_SECRET_PROD;
+    const edgeSecret = process.env.EDGE_FN_SECRET;
     if (!edgeSecret) {
       return err('EDGE_FN_SECRET is not configured in server env.', 'config');
     }
@@ -593,7 +593,7 @@ export async function runImportCandidatesAction(
         ? cfg.preferred_provider.trim().toLowerCase()
         : 'finnhub';
 
-    const edgeSecret = process.env.EDGE_FN_SECRET ?? process.env.EDGE_FN_SECRET_DEV ?? process.env.EDGE_FN_SECRET_PROD;
+    const edgeSecret = process.env.EDGE_FN_SECRET;
     if (!edgeSecret) {
       return err('EDGE_FN_SECRET is not configured in server env.', 'config');
     }
@@ -717,7 +717,7 @@ export async function runManualTickerUpdateAction(
         ? cfg.preferred_provider.trim().toLowerCase()
         : 'finnhub';
 
-    const edgeSecret = process.env.EDGE_FN_SECRET ?? process.env.EDGE_FN_SECRET_DEV ?? process.env.EDGE_FN_SECRET_PROD;
+    const edgeSecret = process.env.EDGE_FN_SECRET;
     if (!edgeSecret) return err('EDGE_FN_SECRET is not configured in server env.', 'config');
 
     const { data: startedLog, error: startedLogError } = await admin

@@ -1,30 +1,25 @@
 """
-MWS Chat — Modal stub for Gemma 4B (QLoRA).
+MWS Chat — Modal OpenAI-compatible endpoint (DeepSeek-V4.1-Flash).
 
-Deploy when the fine-tuned artifact is ready:
+The live server is deployed separately. Next.js calls it via the `openai` SDK:
 
-  modal deploy modal/mws_chat_app.py
+  baseURL = MODAL_CHAT_BASE_URL
+            (default https://adnanadilalpha--ep-mws-ai-server.us-west.modal.direct/v1)
+  apiKey  = MODAL_PROXY_TOKEN_ID.MODAL_PROXY_TOKEN_SECRET
+  model   = MODAL_CHAT_MODEL (default deepseek-ai/DeepSeek-V4.1-Flash)
 
-Env on Modal: MODEL_VOLUME / HF token as needed.
-The Next.js platform API calls MODAL_CHAT_URL with OpenAI-compatible JSON:
-
-  POST { "messages": [...], "stream": false }
-  → { "choices": [{ "message": { "content": "..." } }] }
-
-Until the real model is wired, keep NEXT_PUBLIC_FEATURE_AI_CHAT=false
-and/or omit MODAL_CHAT_URL so the API returns a Brief fallback.
+`/api/ai/chat` builds messages with the same SYSTEM_PROMPT + MWS DATA block used
+for Google Studio (`buildChatMessages` in lib/intelligence/chat/context.ts), then
+dispatches to Modal when MWS_CHAT_PROVIDER=modal or proxy tokens are configured.
 """
 
 from __future__ import annotations
-
-# Placeholder — replace with Modal + vLLM / transformers serving of Gemma 4B LoRA.
-# Intentionally not importing modal at module level so local lint does not require it.
 
 APP_DOC = __doc__
 
 
 def openai_compatible_reply(messages: list[dict]) -> dict:
-    """Dev stub used only if you run a local mock server."""
+    """Dev stub — production traffic hits the Modal DeepSeek endpoint above."""
     last_user = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
     return {
         "choices": [
@@ -32,9 +27,9 @@ def openai_compatible_reply(messages: list[dict]) -> dict:
                 "message": {
                     "role": "assistant",
                     "content": (
-                        "MWS Chat stub: fine-tuned Gemma 4B is not deployed yet. "
+                        "MWS Chat stub (local only). "
                         f"Received question length={len(last_user)}. "
-                        "Use MWS Brief for deterministic explanations."
+                        "Configure MODAL_PROXY_TOKEN_ID/SECRET against the live Modal server."
                     ),
                 }
             }
