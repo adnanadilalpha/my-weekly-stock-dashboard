@@ -5,7 +5,9 @@ export const metadata: Metadata = {
   title: "My Weekly Stock",
   description: "My Weekly Stock Dashboard",
   icons: {
-    icon: "/favicon.ico",
+    icon: [{ url: "/mws-mark.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/mws-mark.svg", type: "image/svg+xml" }],
+    shortcut: "/mws-mark.svg",
   },
 };
 
@@ -26,4 +28,3 @@ export default function RootLayout({
     </html>
   );
 }
-

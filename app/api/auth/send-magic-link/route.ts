@@ -227,13 +227,13 @@ export async function POST(request: Request) {
           
           <!-- Header with Gradient -->
           <tr>
-            <td style="background: linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%); padding: 48px 40px 40px; text-align: center;">
+            <td style="background: #0a0a0a; padding: 40px 40px 36px; text-align: center;">
               <!-- Icon Container -->
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: -1px; line-height: 1.2;">My Weekly Stock</h1>
-                    <p style="margin: 8px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 16px; font-weight: 400;">Your Stock Market Dashboard</p>
+                    <img src="${appUrl.replace(/\/$/, '')}/logo-on-light.svg" alt="My Weekly Stock" width="220" height="55" style="display: block; margin: 0 auto 12px; max-width: 220px; height: auto; border: 0; background: #ffffff; padding: 10px 14px; border-radius: 10px;" />
+                    <p style="margin: 0; color: rgba(255, 255, 255, 0.75); font-size: 15px; font-weight: 400;">Your Stock Market Dashboard</p>
                   </td>
                 </tr>
               </table>

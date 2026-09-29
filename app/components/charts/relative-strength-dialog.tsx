@@ -180,11 +180,10 @@ export function RelativeStrengthDialog({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
               <DialogTitle className="text-[17px] font-semibold tracking-tight text-neutral-900">
-                Relative Strength
+                Quadrant Analysis
               </DialogTitle>
               <DialogDescription className="text-[13px] leading-relaxed text-neutral-500">
-                Mid- to long-term view: distance from the 21-day EMA (short-term) and 30-week EMA
-                (long-term).
+                21-day & 30-week EMA — where price sits vs short- and long-term trend.
               </DialogDescription>
             </div>
             <button
@@ -369,7 +368,7 @@ export function RelativeStrengthDialog({
             {selected.length === 0 ? (
               <div className="flex flex-1 items-center justify-center rounded-2xl border border-dashed border-neutral-200 bg-neutral-50/50 px-6 text-center">
                 <p className="max-w-xs text-sm leading-relaxed text-neutral-500">
-                  Add tickers on the left to plot Relative Strength.
+                  Add tickers on the left to plot Quadrant Analysis.
                 </p>
               </div>
             ) : loadingChart ? (
@@ -381,7 +380,7 @@ export function RelativeStrengthDialog({
                 <RelativeStrengthScatter
                   points={points}
                   fill
-                  showBrief={false}
+                  showBrief
                   onSelectTicker={onSelectTicker}
                 />
               </div>
@@ -399,7 +398,7 @@ export function RelativeStrengthButton({
   className,
   size = 'sm',
   variant = 'outline',
-  label = 'Relative Strength',
+  label = 'Quadrant Analysis',
 }: {
   initialTickers?: string[];
   onSelectTicker?: (ticker: string) => void;

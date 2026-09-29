@@ -313,7 +313,7 @@ export function RelativeStrengthScatter({
     <div className={cn('flex min-h-0 flex-col', fill ? 'h-full gap-1.5' : 'gap-2.5')}>
       {showTitle && (
         <h3 className="shrink-0 text-sm font-semibold tracking-tight text-foreground">
-          Relative Strength
+          Quadrant Analysis
         </h3>
       )}
 
@@ -380,7 +380,7 @@ export function RelativeStrengthScatter({
           preserveAspectRatio="none"
           className="absolute inset-0 block h-full w-full"
           role="img"
-          aria-label="Relative Strength scatter: percent from 21-day EMA vs 30-week EMA. Scroll to zoom, drag to pan."
+          aria-label="Quadrant Analysis scatter: percent from 21-day EMA vs 30-week EMA. Scroll to zoom, drag to pan."
         >
           {yHi > 0 && xLo < 0 && (
             <rect
@@ -711,7 +711,7 @@ export function RelativeStrengthScatter({
 
       {chartPoints.length === 0 && (
         <p className="shrink-0 text-sm text-neutral-500">
-          Relative Strength needs 21-day and 30-week EMA distance for the selected tickers.
+          Quadrant Analysis needs 21-day and 30-week EMA distance for the selected tickers.
         </p>
       )}
 

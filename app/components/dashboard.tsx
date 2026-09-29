@@ -37,6 +37,7 @@ import {
 } from '@/lib/mws-performance-tone';
 import type { HubSectionKey } from '@/lib/mws-hub-prefs';
 import { RelativeStrengthButton } from './charts/relative-strength-dialog';
+import { QuadrantScreenerButton } from './charts/quadrant-screener-dialog';
 
 export interface IndexPageProps {
   userEmail: string;
@@ -343,7 +344,7 @@ export function IndexPage({
     });
   }, [prefs.order, prefs.hidden, prefs.personalTickers]);
 
-  /** Tickers currently shown on the hub — seed Relative Strength with these. */
+  /** Tickers currently shown on the hub — seed Quadrant Analysis with these. */
   const relativeStrengthTickers = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -592,6 +593,12 @@ export function IndexPage({
                 variant="outline"
                 className="h-9 gap-2 rounded-lg border-border bg-card"
                 initialTickers={relativeStrengthTickers}
+                onSelectTicker={(t) => onNavigate('ticker-analysis', t)}
+              />
+              <QuadrantScreenerButton
+                size="sm"
+                variant="outline"
+                className="h-9 gap-2 rounded-lg border-border bg-card"
                 onSelectTicker={(t) => onNavigate('ticker-analysis', t)}
               />
               <Button

@@ -168,6 +168,27 @@ export async function fetchTickersRelativeStrength(tickers: string[]): Promise<R
   return fillMissingEma(ordered);
 }
 
+/** Full MWS universe for Quadrant Screener (active tickers only). */
+export async function fetchUniverseRelativeStrength(): Promise<RelativeStrengthPoint[]> {
+  const tables = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
+  const byTicker = new Map<string, RelativeStrengthPoint>();
+
+  for (const table of tables) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(RS_SELECT)
+      .or(USER_TICKER_ACTIVE_OR);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      const mapped = mapRow(r as RsRow);
+      const key = mapped.ticker.toUpperCase();
+      if (!byTicker.has(key)) byTicker.set(key, mapped);
+    }
+  }
+
+  return fillMissingEma([...byTicker.values()].sort((a, b) => a.ticker.localeCompare(b.ticker)));
+}
+
 export function useSectorRelativeStrength() {
   const [points, setPoints] = useState<RelativeStrengthPoint[]>([]);
   const [loading, setLoading] = useState(true);

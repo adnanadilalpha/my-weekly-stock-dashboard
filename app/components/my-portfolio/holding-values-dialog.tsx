@@ -10,13 +10,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
-import type { HoldingPerformancePatch, UserPortfolioHolding } from '@/lib/queries/user-portfolio';
+import {
+  deriveCashInvested,
+  type HoldingPerformancePatch,
+  type UserPortfolioHolding,
+} from '@/lib/queries/user-portfolio';
 
 type DraftRow = {
   id: string;
   ticker: string;
   start_date: string;
-  cash_invested: string;
+  shares: string;
+  avg_entry: string;
 };
 
 function toDraft(h: UserPortfolioHolding): DraftRow {
@@ -24,7 +29,8 @@ function toDraft(h: UserPortfolioHolding): DraftRow {
     id: h.id,
     ticker: h.ticker,
     start_date: h.start_date ? String(h.start_date).slice(0, 10) : '',
-    cash_invested: h.cash_invested == null ? '' : String(h.cash_invested),
+    shares: h.shares == null ? '' : String(h.shares),
+    avg_entry: h.cost_basis == null ? '' : String(h.cost_basis),
   };
 }
 
@@ -36,10 +42,15 @@ function parseOptionalNumber(raw: string): number | null {
 }
 
 function draftToPatch(d: DraftRow): { id: string } & HoldingPerformancePatch {
+  const shares = parseOptionalNumber(d.shares);
+  const cost_basis = parseOptionalNumber(d.avg_entry);
+  const cash_invested = deriveCashInvested(shares, cost_basis);
   return {
     id: d.id,
     start_date: d.start_date.trim() || null,
-    cash_invested: parseOptionalNumber(d.cash_invested),
+    shares,
+    cost_basis,
+    cash_invested,
   };
 }
 
@@ -59,8 +70,8 @@ export function HoldingValuesDialog({
   holdings,
   onSave,
   busy = false,
-  title = 'Add values',
-  description = 'Enter Start date and Cash Invested. Since-start return is calculated from MWS prices when the ticker is covered — Hit Rate and similar stats are not tracked here.',
+  title = 'Edit holdings',
+  description = 'Enter Start date, shares, and average entry cost. Cash invested is shares × avg entry. Your return uses MWS prices from Start when the ticker is covered.',
 }: Props) {
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
 
@@ -86,39 +97,72 @@ export function HoldingValuesDialog({
             <p className="text-sm text-muted-foreground">No tickers to edit.</p>
           ) : (
             <div className="space-y-4">
-              {drafts.map((d) => (
-                <div key={d.id} className="rounded-xl border border-border bg-card p-4">
-                  <div className="mb-3 font-mono text-sm font-semibold text-foreground">{d.ticker}</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block space-y-1">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Start
-                      </span>
-                      <input
-                        type="date"
-                        className="h-9 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
-                        value={d.start_date}
-                        disabled={busy}
-                        onChange={(e) => setField(d.id, 'start_date', e.target.value)}
-                      />
-                    </label>
-                    <label className="block space-y-1">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Cash Invested
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        className="h-9 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
-                        placeholder="10000"
-                        value={d.cash_invested}
-                        disabled={busy}
-                        onChange={(e) => setField(d.id, 'cash_invested', e.target.value)}
-                      />
-                    </label>
+              {drafts.map((d) => {
+                const shares = parseOptionalNumber(d.shares);
+                const avg = parseOptionalNumber(d.avg_entry);
+                const cash = deriveCashInvested(shares, avg);
+                return (
+                  <div key={d.id} className="rounded-xl border border-border bg-card p-4">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div className="font-mono text-sm font-semibold text-foreground">{d.ticker}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Cash{' '}
+                        <span className="font-mono text-foreground">
+                          {cash == null
+                            ? '—'
+                            : new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                                maximumFractionDigits: 0,
+                              }).format(cash)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Start
+                        </span>
+                        <input
+                          type="date"
+                          className="h-9 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
+                          value={d.start_date}
+                          disabled={busy}
+                          onChange={(e) => setField(d.id, 'start_date', e.target.value)}
+                        />
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Shares
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="h-9 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="100"
+                          value={d.shares}
+                          disabled={busy}
+                          onChange={(e) => setField(d.id, 'shares', e.target.value)}
+                        />
+                      </label>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Avg entry
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="h-9 w-full rounded-lg border border-border bg-background px-2.5 font-mono text-sm outline-none focus:ring-2 focus:ring-ring"
+                          placeholder="185.50"
+                          value={d.avg_entry}
+                          disabled={busy}
+                          onChange={(e) => setField(d.id, 'avg_entry', e.target.value)}
+                        />
+                      </label>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

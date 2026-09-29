@@ -20,7 +20,7 @@ type Props = {
   searchPlaceholder?: string;
   hint?: string;
   emptyLabel?: string;
-  /** Narrow single-column list for side panels (Relative Strength dialog). */
+  /** Narrow single-column list for side panels (Quadrant Analysis dialog). */
   compact?: boolean;
 };
 

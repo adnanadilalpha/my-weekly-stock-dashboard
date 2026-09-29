@@ -381,13 +381,7 @@ function HomeContent({
           onGoToMWS={handleGoToMWS}
         />
       )}
-      {currentPage !== 'ticker-analysis' && (
-        <ChatDrawer
-          contextRef={{
-            ticker: currentPage === 'dashboard' ? undefined : selectedTicker,
-          }}
-        />
-      )}
+      {currentPage !== 'ticker-analysis' && <ChatDrawer />}
     </>
   );
 }

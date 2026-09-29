@@ -1,6 +1,7 @@
 'use client';
 
 import { LayoutDashboard, PieChart } from 'lucide-react';
+import { MwsLogo } from './brand/mws-logo';
 
 export interface HubPageProps {
   onGoToPortfolio: () => void;
@@ -11,13 +12,11 @@ export function HubPage({ onGoToPortfolio, onGoToMWS }: HubPageProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/50 flex flex-col items-center justify-center px-4 py-8">
       <div className="w-full max-w-4xl space-y-6">
-        <div className="text-center mb-8">
-          <h1 className="text-xl sm:text-2xl font-semibold text-neutral-900">
-            My Weekly Stock
-          </h1>
-          <p className="text-sm text-neutral-600 mt-1">
-            Choose where to go
-          </p>
+        <div className="mb-8 text-center">
+          <div className="mb-4 flex justify-center">
+            <MwsLogo variant="wordmark" className="h-12 w-auto max-w-[280px] sm:h-14" />
+          </div>
+          <p className="mt-1 text-sm text-neutral-600">Choose where to go</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

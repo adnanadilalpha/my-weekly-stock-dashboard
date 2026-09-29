@@ -2,6 +2,7 @@
 
 import { LogOut, LayoutDashboard, PieChart, Briefcase } from 'lucide-react';
 import { Button } from './ui/button';
+import { MwsLogo } from './brand/mws-logo';
 import type { AppMode, PageView } from '../types';
 
 export interface AppHeaderProps {
@@ -33,7 +34,11 @@ export function AppHeader({
   return (
     <header className="sticky top-0 z-20 border-b border-border/70 bg-background/90 backdrop-blur">
       <div className="w-full px-4 py-3 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-4 sm:gap-6">
+        <div className="flex items-center gap-3 sm:gap-5">
+          <div className="flex shrink-0 items-center" title="My Weekly Stock">
+            <MwsLogo variant="mark" className="h-8 w-8 rounded-lg" />
+          </div>
+
           <nav className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/60 p-1">
             <button
               type="button"

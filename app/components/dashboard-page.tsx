@@ -30,6 +30,7 @@ import { useMwsHubPreferences } from '@/lib/hooks/useMwsHubPreferences';
 import type { HubPersonalTicker } from '@/lib/mws-hub-prefs';
 import { getOtherStocksByTickers } from '@/lib/queries/other-stocks';
 import { RelativeStrengthButton } from './charts/relative-strength-dialog';
+import { QuadrantScreenerButton } from './charts/quadrant-screener-dialog';
 
 // Mapping of ticker symbols to display names (matching index-page.tsx)
 const TICKER_TO_DISPLAY_NAME: Record<string, string> = {
@@ -459,7 +460,7 @@ export function DashboardPage({
     [sectorsData, query, trendFilter, scoreThresholds],
   );
 
-  /** Tickers currently visible on Momentum Pulse — seed Relative Strength with these. */
+  /** Tickers currently visible on Momentum Pulse — seed Quadrant Analysis with these. */
   const relativeStrengthTickers = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -632,12 +633,18 @@ export function DashboardPage({
               MWS&apos;s Momentum Pulse Check
             </h1>
             <p className="mt-1 text-xs text-muted-foreground sm:text-sm">{subtitleParts.join(' · ')}</p>
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-3">
               <RelativeStrengthButton
                 size="sm"
                 variant="ghost"
                 className="h-auto px-0 text-xs font-medium text-neutral-700 hover:bg-transparent hover:underline sm:text-sm"
                 initialTickers={relativeStrengthTickers}
+                onSelectTicker={(t) => onNavigate('ticker-analysis', t)}
+              />
+              <QuadrantScreenerButton
+                size="sm"
+                variant="ghost"
+                className="h-auto px-0 text-xs font-medium text-neutral-700 hover:bg-transparent hover:underline sm:text-sm"
                 onSelectTicker={(t) => onNavigate('ticker-analysis', t)}
               />
             </div>

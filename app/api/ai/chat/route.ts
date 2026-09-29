@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       // Never surface provider/quota details to the user — keep a calm fallback.
       console.error('[chat] all providers failed', result.provider, result.status, result.error);
       assistantText =
-        'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Relative Strength explanations.';
+        'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
       if (!isChatModelConfigured()) {
         return NextResponse.json(
           {

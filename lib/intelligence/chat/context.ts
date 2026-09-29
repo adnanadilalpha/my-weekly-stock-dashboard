@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseConfig } from '@/lib/supabase-env';
+import { quadrantFromPct } from '@/lib/intelligence/brief/composers/quadrant';
+import type { QuadrantId } from '@/lib/intelligence/brief/types';
 
 export type ChatContextRef = {
   ticker?: string;
@@ -24,6 +26,7 @@ MWS DATA RULES
 - Daily and Weekly are concurrent timeframe analyses from the same update — not “previous vs current” and not calendar day/week P&L.
 - Performance strength ≠ Rating. 1M and 3M are different lookbacks, never sequential stages.
 - Outlook qualifies state within a Rating band; it does not replace Rating.
+- Quadrant Analysis is first-class: when quadrant_position is present on a ticker, lead with that label (Synced Uptrend / Pullback / Turning / Broken Trend) and the EMA relationship. Use daily_price_vs_21ema (X) and weekly_price_vs_30ema (Y) only as supporting distances — do not invent a different framework.
 
 ANSWERING “TODAY” / “THIS WEEK” / “LAST WEEK”
 - MWS does not store calendar “today %”, “week-to-date %”, or prior-week Rating history.
@@ -124,6 +127,7 @@ const TICKER_SELECT =
   'performance_strength, distance_to_highs, ' +
   'daily_performance_summary, daily_performance_description, ' +
   '"1m_percent", "3m_percent", vs_1y_high, ' +
+  'daily_price_vs_21ema, weekly_price_vs_30ema, ' +
   'daily_vs_spy_comparison, daily_vs_benchmark_comparison, ' +
   'weekly_vs_spy_comparison, weekly_vs_benchmark_comparison';
 
@@ -146,6 +150,8 @@ const TICKER_OUTPUT_KEYS = [
   'vs_1y_high',
   'daily_performance_summary',
   'daily_performance_description',
+  'daily_price_vs_21ema',
+  'weekly_price_vs_30ema',
   'daily_vs_spy_comparison',
   'daily_vs_benchmark_comparison',
   'weekly_vs_spy_comparison',
@@ -278,12 +284,27 @@ function formatField(key: string, value: unknown): string | null {
     key === '1m_percent' ||
     key === '3m_percent' ||
     key === 'vs_1y_high' ||
+    key === 'daily_price_vs_21ema' ||
+    key === 'weekly_price_vs_30ema' ||
     key.endsWith('_percent')
   ) {
     const pct = formatPct(typeof value === 'number' ? value : Number(value));
     if (pct) return `  ${key}: ${pct} (raw=${value})`;
   }
   return `  ${key}: ${value}`;
+}
+
+const QUADRANT_POSITION_LABEL: Record<Exclude<QuadrantId, 'UNKNOWN'>, string> = {
+  SYNCED_UPTREND: 'Synced Uptrend — above 21-day & 30-week EMA',
+  PULLBACK: 'Pullback — above 30-week EMA, below 21-day EMA',
+  BROKEN_TREND: 'Broken Trend — below 21-day & 30-week EMA',
+  TURNING: 'Turning — below 30-week EMA, above 21-day EMA',
+};
+
+function asFiniteNumber(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 export async function createUserClientFromAuthHeader(authHeader: string | null) {
@@ -395,6 +416,13 @@ function appendTickerBlock(
   data: Record<string, unknown>,
 ) {
   lines.push(`TICKER ${ticker} (from ${table}):`);
+  const pct21 = asFiniteNumber(data.daily_price_vs_21ema);
+  const pct30 = asFiniteNumber(data.weekly_price_vs_30ema);
+  const q = quadrantFromPct(pct21, pct30);
+  if (q !== 'UNKNOWN') {
+    lines.push(`  quadrant_id: ${q}`);
+    lines.push(`  quadrant_position: ${QUADRANT_POSITION_LABEL[q]}`);
+  }
   for (const key of TICKER_OUTPUT_KEYS) {
     const line = formatField(key, data[key]);
     if (line) lines.push(line);
@@ -425,6 +453,9 @@ export async function loadMwsDataBlock(
     returns_pct: number | null;
     notes: string | null;
     display_name: string | null;
+    status: string | null;
+    exit_date: string | null;
+    exit_price: number | null;
   };
 
   // ---- User portfolio (this user only): 1 portfolio + 1 holdings query ----
@@ -449,38 +480,46 @@ export async function loadMwsDataBlock(
       const { data: holdings } = await adminOrUserClient
         .from('user_portfolio_holdings')
         .select(
-          'ticker, shares, cost_basis, cash_invested, start_date, returns_pct, notes, display_name',
+          'ticker, shares, cost_basis, cash_invested, start_date, returns_pct, notes, display_name, status, exit_date, exit_price',
         )
         .eq('portfolio_id', p.id)
         .order('sort_order');
 
       const rows = (holdings ?? []) as HoldingRow[];
       if (rows.length) {
-        const cashTotal = rows.reduce((s, h) => s + (Number(h.cash_invested) || 0), 0);
-        const hasCash = rows.some((h) => h.cash_invested != null);
+        const openRows = rows.filter((h) => (h.status ?? 'open') !== 'closed');
+        const cashTotal = openRows.reduce((s, h) => s + (Number(h.cash_invested) || 0), 0);
+        const hasCash = openRows.some((h) => h.cash_invested != null);
         lines.push(
           `USER PORTFOLIO "${p.name}" (id=${p.id}, currency=${p.base_currency ?? 'USD'}):`,
         );
-        if (hasCash) lines.push(`  book_cash_invested: ${cashTotal}`);
+        if (hasCash) lines.push(`  book_cash_invested (open only): ${cashTotal}`);
 
         for (const h of rows) {
           const ticker = String(h.ticker ?? '').toUpperCase();
           if (!ticker) continue;
-          holdingTickers.push(ticker);
+          const status = h.status === 'closed' ? 'closed' : 'open';
+          if (status === 'open') holdingTickers.push(ticker);
           const cash = h.cash_invested != null ? Number(h.cash_invested) : null;
           const weight =
-            hasCash && cash != null && cashTotal > 0
+            status === 'open' && hasCash && cash != null && cashTotal > 0
               ? `${((cash / cashTotal) * 100).toFixed(1)}%`
               : 'n/a';
           lines.push(
             `  ${[
               ticker,
+              `status=${status}`,
               `cash_invested=${cash ?? 'n/a'}`,
               `weight=${weight}`,
               `start_date=${h.start_date ?? 'n/a'}`,
               `shares=${h.shares ?? 'n/a'}`,
-              `cost_basis=${h.cost_basis ?? 'n/a'}`,
-            ].join(' | ')}`,
+              `avg_entry=${h.cost_basis ?? 'n/a'}`,
+              status === 'closed'
+                ? `exit_date=${h.exit_date ?? 'n/a'} exit_price=${h.exit_price ?? 'n/a'}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' | ')}`,
           );
         }
       }
@@ -489,15 +528,16 @@ export async function loadMwsDataBlock(
     const { data: holdings } = await adminOrUserClient
       .from('user_portfolio_holdings')
       .select(
-        'ticker, shares, cost_basis, cash_invested, start_date, returns_pct, notes, display_name',
+        'ticker, shares, cost_basis, cash_invested, start_date, returns_pct, notes, display_name, status, exit_date, exit_price',
       )
       .eq('portfolio_id', context.userPortfolioId)
       .order('sort_order');
     for (const h of (holdings ?? []) as HoldingRow[]) {
       const ticker = String(h.ticker ?? '').toUpperCase();
-      if (ticker) holdingTickers.push(ticker);
+      const status = h.status === 'closed' ? 'closed' : 'open';
+      if (ticker && status === 'open') holdingTickers.push(ticker);
       lines.push(
-        `  ${ticker || '?'} cash_invested=${h.cash_invested ?? 'n/a'} shares=${h.shares ?? 'n/a'}`,
+        `  ${ticker || '?'} status=${status} cash_invested=${h.cash_invested ?? 'n/a'} shares=${h.shares ?? 'n/a'} avg_entry=${h.cost_basis ?? 'n/a'}`,
       );
     }
   }
@@ -560,6 +600,7 @@ export async function loadMwsDataBlock(
     'NOTES:',
     '  - Daily_* and Weekly_* are concurrent MWS timeframe analyses (EMA momentum), not calendar day/week returns.',
     '  - No prior-week Rating archive; only current Daily + Weekly snapshots.',
+    '  - quadrant_position is the MWS Quadrant Analysis snapshot (21-day vs 30-week EMA). Prefer it when explaining trend state.',
     '  - User portfolio is THIS authenticated user only. MWS ticker blocks come from the same universe tables as the web app.',
     loaded.length
       ? `  - Loaded MWS snapshots for: ${loaded.join(', ')}`

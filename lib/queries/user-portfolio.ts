@@ -1,5 +1,7 @@
 import { supabase } from '@/lib/supabase-client';
 
+export type HoldingStatus = 'open' | 'closed';
+
 export type UserPortfolio = {
   id: string;
   user_id: string;
@@ -15,11 +17,14 @@ export type UserPortfolioHolding = {
   portfolio_id: string;
   ticker: string;
   display_name: string | null;
+  /** Number of shares. */
   shares: number | null;
+  /** Average entry cost per share. */
   cost_basis: number | null;
   notes: string | null;
   sort_order: number;
   start_date: string | null;
+  /** Derived or legacy cash invested (shares × avg when both set). */
   cash_invested: number | null;
   returns_pct: number | null;
   hit_rate: number | null;
@@ -28,6 +33,11 @@ export type UserPortfolioHolding = {
   net_avg_return: number | null;
   cagr: number | null;
   holding_days: number | null;
+  status: HoldingStatus;
+  closed_at: string | null;
+  exit_date: string | null;
+  exit_price: number | null;
+  exit_notes: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -35,6 +45,8 @@ export type UserPortfolioHolding = {
 export type HoldingPerformancePatch = {
   start_date?: string | null;
   cash_invested?: number | null;
+  shares?: number | null;
+  cost_basis?: number | null;
   returns_pct?: number | null;
   hit_rate?: number | null;
   avg_gain?: number | null;
@@ -56,6 +68,8 @@ export type MwsOverlay = {
   daily_performance_strength: string | null;
   pct_from_sma50: number | null;
   pct_from_sma200: number | null;
+  daily_price_vs_21ema: number | null;
+  weekly_price_vs_30ema: number | null;
   daily_current_price: number | null;
   '1m_percent': number | null;
   '3m_percent': number | null;
@@ -86,6 +100,8 @@ function emptyOverlay(ticker: string): MwsOverlay {
     daily_performance_strength: null,
     pct_from_sma50: null,
     pct_from_sma200: null,
+    daily_price_vs_21ema: null,
+    weekly_price_vs_30ema: null,
     daily_current_price: null,
     '1m_percent': null,
     '3m_percent': null,
@@ -106,6 +122,41 @@ function daysBetween(startIso: string, end = new Date()): number | null {
   const ms = end.getTime() - start.getTime();
   if (ms < 0) return 0;
   return Math.floor(ms / 86_400_000);
+}
+
+/** cash_invested = shares × avg entry when both present. */
+export function deriveCashInvested(
+  shares: number | null | undefined,
+  avgEntry: number | null | undefined,
+): number | null {
+  if (
+    shares == null ||
+    avgEntry == null ||
+    !Number.isFinite(shares) ||
+    !Number.isFinite(avgEntry) ||
+    shares <= 0 ||
+    avgEntry < 0
+  ) {
+    return null;
+  }
+  return shares * avgEntry;
+}
+
+/** Realized return vs avg entry when closed. */
+export function computeRealizedReturn(
+  avgEntry: number | null | undefined,
+  exitPrice: number | null | undefined,
+): number | null {
+  if (
+    avgEntry == null ||
+    exitPrice == null ||
+    !Number.isFinite(avgEntry) ||
+    !Number.isFinite(exitPrice) ||
+    avgEntry === 0
+  ) {
+    return null;
+  }
+  return exitPrice / avgEntry - 1;
 }
 
 export function computeSinceStartReturn(
@@ -190,6 +241,21 @@ export function cashWeightedReturn(
   };
 }
 
+function normalizeHolding(row: Record<string, unknown>): UserPortfolioHolding {
+  const status = row.status === 'closed' ? 'closed' : 'open';
+  return {
+    ...(row as unknown as UserPortfolioHolding),
+    status,
+    closed_at: (row.closed_at as string | null) ?? null,
+    exit_date: (row.exit_date as string | null) ?? null,
+    exit_price: asNumber(row.exit_price),
+    exit_notes: (row.exit_notes as string | null) ?? null,
+    shares: asNumber(row.shares),
+    cost_basis: asNumber(row.cost_basis),
+    cash_invested: asNumber(row.cash_invested),
+  };
+}
+
 export async function listUserPortfolios(): Promise<UserPortfolio[]> {
   const { data, error } = await supabase
     .from('user_portfolios')
@@ -227,15 +293,23 @@ export async function deleteUserPortfolio(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function listHoldings(portfolioId: string): Promise<UserPortfolioHolding[]> {
-  const { data, error } = await supabase
+export async function listHoldings(
+  portfolioId: string,
+  opts?: { status?: HoldingStatus | 'all' },
+): Promise<UserPortfolioHolding[]> {
+  const status = opts?.status ?? 'all';
+  let q = supabase
     .from('user_portfolio_holdings')
     .select('*')
     .eq('portfolio_id', portfolioId)
     .order('sort_order', { ascending: true })
     .order('ticker', { ascending: true });
+  if (status === 'open' || status === 'closed') {
+    q = q.eq('status', status);
+  }
+  const { data, error } = await q;
   if (error) throw error;
-  return (data ?? []) as UserPortfolioHolding[];
+  return (data ?? []).map((r) => normalizeHolding(r as Record<string, unknown>));
 }
 
 export async function addHolding(input: {
@@ -246,52 +320,58 @@ export async function addHolding(input: {
   cost_basis?: number | null;
   notes?: string;
 }): Promise<UserPortfolioHolding> {
+  const shares = input.shares ?? null;
+  const cost_basis = input.cost_basis ?? null;
   const { data, error } = await supabase
     .from('user_portfolio_holdings')
     .insert({
       portfolio_id: input.portfolio_id,
       ticker: input.ticker.trim().toUpperCase(),
       display_name: input.display_name?.trim() || null,
-      shares: input.shares ?? null,
-      cost_basis: input.cost_basis ?? null,
+      shares,
+      cost_basis,
+      cash_invested: deriveCashInvested(shares, cost_basis),
       notes: input.notes?.trim() || null,
+      status: 'open',
     })
     .select('*')
     .single();
   if (error) throw error;
-  return data as UserPortfolioHolding;
+  return normalizeHolding(data as Record<string, unknown>);
 }
 
-/** Insert many holdings; skips tickers already held (case-insensitive). */
+/** Insert many holdings; skips tickers that already have an open row. */
 export async function addHoldingsBatch(
   portfolioId: string,
   tickers: string[],
 ): Promise<UserPortfolioHolding[]> {
-  const wanted = [
-    ...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean)),
-  ];
+  const wanted = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
   if (wanted.length === 0) return [];
 
-  const existing = await listHoldings(portfolioId);
-  const held = new Set(existing.map((h) => h.ticker.toUpperCase()));
-  const toInsert = wanted.filter((t) => !held.has(t));
+  const existing = await listHoldings(portfolioId, { status: 'all' });
+  const openHeld = new Set(
+    existing.filter((h) => h.status === 'open').map((h) => h.ticker.toUpperCase()),
+  );
+  const toInsert = wanted.filter((t) => !openHeld.has(t));
   if (toInsert.length === 0) return [];
 
+  const openCount = existing.filter((h) => h.status === 'open').length;
   const { data, error } = await supabase
     .from('user_portfolio_holdings')
     .insert(
       toInsert.map((ticker, i) => ({
         portfolio_id: portfolioId,
         ticker,
-        sort_order: existing.length + i,
+        sort_order: openCount + i,
+        status: 'open',
       })),
     )
     .select('*');
   if (error) throw error;
-  return (data ?? []) as UserPortfolioHolding[];
+  return (data ?? []).map((r) => normalizeHolding(r as Record<string, unknown>));
 }
 
-/** Lightweight counts for list cards (holding totals only). */
+/** Lightweight counts for list cards (open holdings only). */
 export async function countHoldingsByPortfolio(
   portfolioIds: string[],
 ): Promise<Map<string, number>> {
@@ -301,10 +381,11 @@ export async function countHoldingsByPortfolio(
 
   const { data, error } = await supabase
     .from('user_portfolio_holdings')
-    .select('portfolio_id')
+    .select('portfolio_id, status')
     .in('portfolio_id', portfolioIds);
   if (error) throw error;
   for (const row of data ?? []) {
+    if (row.status != null && row.status !== 'open') continue;
     const id = String(row.portfolio_id);
     map.set(id, (map.get(id) ?? 0) + 1);
   }
@@ -315,17 +396,34 @@ export async function updateHoldingPerformance(
   holdingId: string,
   patch: HoldingPerformancePatch,
 ): Promise<UserPortfolioHolding> {
+  const payload: Record<string, unknown> = {
+    ...patch,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Keep cash_invested in sync when shares / avg entry change.
+  if ('shares' in patch || 'cost_basis' in patch) {
+    const shares = patch.shares;
+    const cost = patch.cost_basis;
+    const derived = deriveCashInvested(shares ?? null, cost ?? null);
+    if (derived != null) {
+      payload.cash_invested = derived;
+    } else if (patch.cash_invested !== undefined) {
+      payload.cash_invested = patch.cash_invested;
+    } else if (shares != null || cost != null) {
+      // Cleared one side — only override cash if both sides provided as nulls intentionally.
+      if (shares === null && cost === null) payload.cash_invested = null;
+    }
+  }
+
   const { data, error } = await supabase
     .from('user_portfolio_holdings')
-    .update({
-      ...patch,
-      updated_at: new Date().toISOString(),
-    })
+    .update(payload)
     .eq('id', holdingId)
     .select('*')
     .single();
   if (error) throw error;
-  return data as UserPortfolioHolding;
+  return normalizeHolding(data as Record<string, unknown>);
 }
 
 /** Batch-update performance fields for several holdings. */
@@ -336,6 +434,29 @@ export async function updateHoldingsPerformanceBatch(
     const { id, ...patch } = row;
     await updateHoldingPerformance(id, patch);
   }
+}
+
+/** Soft-close a holding into the past-positions archive. */
+export async function closeHolding(
+  holdingId: string,
+  input: { exit_date?: string | null; exit_price?: number | null; exit_notes?: string | null },
+): Promise<UserPortfolioHolding> {
+  const exitDate = input.exit_date?.trim() || new Date().toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from('user_portfolio_holdings')
+    .update({
+      status: 'closed',
+      closed_at: new Date().toISOString(),
+      exit_date: exitDate,
+      exit_price: input.exit_price ?? null,
+      exit_notes: input.exit_notes?.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', holdingId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return normalizeHolding(data as Record<string, unknown>);
 }
 
 export async function removeHolding(id: string): Promise<void> {
@@ -350,7 +471,7 @@ export async function fetchMwsOverlays(tickers: string[]): Promise<Map<string, M
   if (uniq.length === 0) return map;
 
   const select =
-    'ticker, daily_rating, daily_outlook, daily_trend_score, daily_trend_description, daily_performance_description, daily_performance_summary, performance_strength, daily_performance_strength, pct_from_sma50, pct_from_sma200, daily_current_price, "1m_percent", daily_1m_percent, "3m_percent", daily_3m_percent, vs_1y_high, daily_vs_1y_high';
+    'ticker, daily_rating, daily_outlook, daily_trend_score, daily_trend_description, daily_performance_description, daily_performance_summary, performance_strength, daily_performance_strength, pct_from_sma50, pct_from_sma200, daily_price_vs_21ema, weekly_price_vs_30ema, daily_current_price, "1m_percent", daily_1m_percent, "3m_percent", daily_3m_percent, vs_1y_high, daily_vs_1y_high';
   const tables = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
 
   for (const table of tables) {
@@ -358,7 +479,6 @@ export async function fetchMwsOverlays(tickers: string[]): Promise<Map<string, M
     if (error) throw error;
     for (const row of data ?? []) {
       const t = String(row.ticker).toUpperCase();
-      // Later tables overwrite earlier — market_segments first, other_stocks last (fine for coverage).
       map.set(t, {
         ticker: t,
         daily_rating: row.daily_rating ?? null,
@@ -371,6 +491,8 @@ export async function fetchMwsOverlays(tickers: string[]): Promise<Map<string, M
         daily_performance_strength: row.daily_performance_strength ?? null,
         pct_from_sma50: asNumber(row.pct_from_sma50),
         pct_from_sma200: asNumber(row.pct_from_sma200),
+        daily_price_vs_21ema: asNumber(row.daily_price_vs_21ema),
+        weekly_price_vs_30ema: asNumber(row.weekly_price_vs_30ema),
         daily_current_price: asNumber(row.daily_current_price),
         '1m_percent': asNumber(row['1m_percent'] ?? row.daily_1m_percent),
         '3m_percent': asNumber(row['3m_percent'] ?? row.daily_3m_percent),

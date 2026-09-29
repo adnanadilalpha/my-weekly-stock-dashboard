@@ -12,10 +12,10 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { AdminPageKey } from '../AdminPanel';
-import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { getUnreadAdminNotificationCountAction } from '../../_actions/notifications';
 import { useAdmin } from '../../_lib/admin-context';
+import { MwsLogo } from '@/app/components/brand/mws-logo';
 
 interface AdminSidebarProps {
   currentPage: AdminPageKey;
@@ -84,9 +84,7 @@ export default function AdminSidebar({
       >
         {/* Header with logo */}
         <div className="flex h-16 shrink-0 items-center gap-3 border-b border-white/10 px-4 md:px-6">
-          <div className="rounded-lg bg-white p-1">
-            <Image src="/logo.png" alt="My Weekly Stock" width={24} height={24} className="h-6 w-6 object-contain" />
-          </div>
+          <MwsLogo variant="mark" onLight={false} className="h-8 w-8 rounded-lg" />
           <span className="text-base font-semibold text-white">MWS Admin</span>
         </div>
 

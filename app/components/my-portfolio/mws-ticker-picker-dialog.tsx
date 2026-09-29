@@ -212,7 +212,7 @@ export function MwsTickerPickerDialog({
           {customOpen ? (
             <div className="mt-3 shrink-0 space-y-2 rounded-lg border border-dashed border-border bg-muted/20 p-3">
               <p className="text-xs text-muted-foreground">
-                Outside MWS — no Rating, Outlook, or relative-strength tracking.
+                Outside MWS — no Rating, Outlook, or Quadrant Analysis tracking.
               </p>
               <div className="flex gap-2">
                 <input

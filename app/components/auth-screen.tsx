@@ -1,13 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 import { Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
+import { MwsLogo } from './brand/mws-logo';
 
 interface AuthScreenProps {
   onAuthSuccess: (email: string) => void;
@@ -81,15 +81,9 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
       <div className="w-full max-w-md">
         <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
           <CardHeader className="space-y-2 sm:space-y-3 text-center pb-4 sm:pb-6">
-            <div className="flex justify-center mb-2">
-              <div className="p-2 sm:p-3 rounded-2xl bg-white shadow-lg">
-                <Image 
-                  src="/logo.png" 
-                  alt="Logo" 
-                  width={48} 
-                  height={48}
-                  className="object-contain w-10 h-10 sm:w-12 sm:h-12"
-                />
+            <div className="mb-2 flex justify-center">
+              <div className="rounded-2xl bg-white p-3 shadow-lg sm:p-4">
+                <MwsLogo variant="wordmark" className="h-10 w-auto max-w-[220px] sm:h-12" />
               </div>
             </div>
             <CardTitle className="text-xl sm:text-2xl font-bold text-slate-900">

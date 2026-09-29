@@ -47,6 +47,11 @@ export type PerformanceBriefInput = {
   daily_vs_spy_comparison?: string | null;
   daily_vs_benchmark_comparison?: string | null;
   daily_vs_sector_comparison?: string | null;
+  /** EMA distances for quadrant snapshot in overview brief. */
+  pct_from_21d_ema?: number | null;
+  pct_from_30w_ema?: number | null;
+  daily_price_vs_21ema?: number | null;
+  weekly_price_vs_30ema?: number | null;
 };
 
 export type QuadrantId =

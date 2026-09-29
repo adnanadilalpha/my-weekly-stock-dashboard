@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { MwsBriefOutput } from '@/lib/intelligence/brief';
 import { useActivity } from '@/lib/activity/ActivityProvider';
+import { MwsLogo } from '@/app/components/brand/mws-logo';
 
 function paragraphs(body: string): string[] {
   return body
@@ -37,7 +38,7 @@ export function BriefCard({
     return (
       <div className="rounded-xl border border-neutral-200/80 bg-neutral-50/90 px-3.5 py-3 text-left sm:px-4 sm:py-3.5">
         <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-          <Sparkles className="h-3 w-3" />
+          <MwsLogo variant="mark" className="h-3.5 w-3.5 rounded-sm" alt="" />
           Quick read
         </div>
         <p className={`leading-relaxed text-neutral-800 ${compact ? 'text-xs sm:text-[13px]' : 'text-sm'}`}>
@@ -64,7 +65,7 @@ export function BriefCard({
           }
         }}
       >
-        <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-neutral-500" />
+        <MwsLogo variant="mark" className="h-4 w-4 flex-shrink-0 rounded-sm" alt="" />
         <span className="min-w-0 flex-1">
           <span className="block truncate">{brief.title}</span>
           <span className="block text-[11px] font-normal text-neutral-400">{label}</span>

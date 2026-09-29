@@ -34,7 +34,7 @@ import {
   performanceToneFromRawValue,
   toDisplayPercent,
 } from '@/lib/mws-performance-tone';
-import { composeOverviewBrief } from '@/lib/intelligence/brief';
+import { composeOverviewBrief, composeQuadrantBrief } from '@/lib/intelligence/brief';
 import { BriefCard } from './intelligence/brief-card';
 import { RelativeStrengthButton } from './charts/relative-strength-dialog';
 import { ChatDrawer } from './intelligence/chat-drawer';
@@ -499,6 +499,16 @@ export function TickerAnalysisPage({
 
   const topSummaryBrief = useMemo(() => {
     if (!data || !supabaseData) return null;
+    const pct21 = (() => {
+      const v = (supabaseData as unknown as Record<string, unknown>).daily_price_vs_21ema;
+      const n = v == null ? NaN : Number(v);
+      return Number.isFinite(n) ? n : null;
+    })();
+    const pct30 = (() => {
+      const v = (supabaseData as unknown as Record<string, unknown>).weekly_price_vs_30ema;
+      const n = v == null ? NaN : Number(v);
+      return Number.isFinite(n) ? n : null;
+    })();
     return composeOverviewBrief({
       ticker,
       timeframe: chartTf === 'W' ? 'weekly' : 'daily',
@@ -529,8 +539,30 @@ export function TickerAnalysisPage({
       daily_vs_spy_comparison: data.vsSpyComparison !== 'N/A' ? data.vsSpyComparison : null,
       daily_vs_benchmark_comparison:
         data.vsBenchmarkComparison !== 'N/A' ? data.vsBenchmarkComparison : null,
+      daily_price_vs_21ema: pct21,
+      weekly_price_vs_30ema: pct30,
     });
   }, [activeTrendDescription, chartTf, data, supabaseData, ticker]);
+
+  const quadrantInsightBrief = useMemo(() => {
+    if (!supabaseData) return null;
+    const pct21 = (() => {
+      const v = (supabaseData as unknown as Record<string, unknown>).daily_price_vs_21ema;
+      const n = v == null ? NaN : Number(v);
+      return Number.isFinite(n) ? n : null;
+    })();
+    const pct30 = (() => {
+      const v = (supabaseData as unknown as Record<string, unknown>).weekly_price_vs_30ema;
+      const n = v == null ? NaN : Number(v);
+      return Number.isFinite(n) ? n : null;
+    })();
+    if (pct21 == null || pct30 == null) return null;
+    return composeQuadrantBrief({
+      ticker,
+      pct_from_21d_ema: pct21,
+      pct_from_30w_ema: pct30,
+    });
+  }, [supabaseData, ticker]);
 
   // ─── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
@@ -715,7 +747,7 @@ export function TickerAnalysisPage({
               </div>
             </div>
 
-            {/* Right: ticker search + relative strength + refresh */}
+            {/* Right: ticker search + quadrant analysis + refresh */}
             <div className="flex shrink-0 flex-wrap items-center gap-2">
               <RelativeStrengthButton
                 initialTickers={ticker ? [ticker] : []}
@@ -796,12 +828,21 @@ export function TickerAnalysisPage({
 
           {topSummaryBrief &&
             !topSummaryBrief.body.startsWith('Not enough MWS fields') && (
-            <div className="mb-5">
+            <div className="mb-5 space-y-2.5">
               <BriefCard
                 variant="quickRead"
                 compact
                 brief={topSummaryBrief}
               />
+              {quadrantInsightBrief &&
+                !quadrantInsightBrief.body.toLowerCase().includes('not enough') && (
+                  <BriefCard
+                    compact
+                    defaultOpen
+                    label="Quadrant Analysis"
+                    brief={quadrantInsightBrief}
+                  />
+                )}
             </div>
           )}
 
