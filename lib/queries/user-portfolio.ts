@@ -312,6 +312,23 @@ export async function listHoldings(
   return (data ?? []).map((r) => normalizeHolding(r as Record<string, unknown>));
 }
 
+/** Open holdings across all of the user's portfolios (deduped tickers). */
+export async function listAllOpenHoldingTickers(): Promise<string[]> {
+  const portfolios = await listUserPortfolios();
+  if (portfolios.length === 0) return [];
+  const batches = await Promise.all(
+    portfolios.map((p) => listHoldings(p.id, { status: 'open' })),
+  );
+  const out = new Set<string>();
+  for (const holdings of batches) {
+    for (const h of holdings) {
+      const t = h.ticker.trim().toUpperCase();
+      if (t) out.add(t);
+    }
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
 export async function addHolding(input: {
   portfolio_id: string;
   ticker: string;

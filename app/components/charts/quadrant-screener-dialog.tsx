@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Filter, Search } from 'lucide-react';
+import { Filter, Search, X } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -16,6 +16,12 @@ import type { RelativeStrengthPoint } from '@/lib/relative-strength';
 import { QUADRANT_COLORS, QUADRANT_COPY, toChartPoints } from '@/lib/relative-strength';
 import type { QuadrantId } from '@/lib/intelligence/brief';
 import { useActivity } from '@/lib/activity/ActivityProvider';
+import {
+  MARKET_CAP_LABELS,
+  SCREENER_INDEX_LABELS,
+  type MarketCapBucket,
+  type ScreenerIndexId,
+} from '@/lib/screening/types';
 import { cn } from '../ui/utils';
 
 type FilterId = 'ALL' | Exclude<QuadrantId, 'UNKNOWN'>;
@@ -28,12 +34,57 @@ const FILTERS: { id: FilterId; label: string }[] = [
   { id: 'BROKEN_TREND', label: 'Broken Trend' },
 ];
 
+const MARKET_CAP_OPTIONS: { id: 'ALL' | MarketCapBucket; label: string }[] = [
+  { id: 'ALL', label: 'All sizes' },
+  { id: 'large', label: MARKET_CAP_LABELS.large },
+  { id: 'mid_small', label: MARKET_CAP_LABELS.mid_small },
+  { id: 'sector_etf', label: MARKET_CAP_LABELS.sector_etf },
+  { id: 'segment', label: MARKET_CAP_LABELS.segment },
+];
+
+const INDEX_OPTIONS: { id: 'ALL' | ScreenerIndexId; label: string }[] = [
+  { id: 'ALL', label: 'Any index' },
+  { id: 'sp500', label: SCREENER_INDEX_LABELS.sp500 },
+  { id: 'nasdaq100', label: SCREENER_INDEX_LABELS.nasdaq100 },
+];
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectTicker?: (ticker: string) => void;
   initialFilter?: FilterId;
 };
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { id: string; label: string }[];
+}) {
+  return (
+    <label className="flex min-w-0 flex-col gap-1">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 max-w-full rounded-lg border border-neutral-200 bg-white px-2.5 text-[12px] text-neutral-800 outline-none focus:ring-2 focus:ring-neutral-300"
+      >
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 export function QuadrantScreenerDialog({
   open,
@@ -47,11 +98,19 @@ export function QuadrantScreenerDialog({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterId>(initialFilter);
   const [search, setSearch] = useState('');
+  const [sector, setSector] = useState('ALL');
+  const [industry, setIndustry] = useState('ALL');
+  const [marketCap, setMarketCap] = useState<'ALL' | MarketCapBucket>('ALL');
+  const [indexFilter, setIndexFilter] = useState<'ALL' | ScreenerIndexId>('ALL');
 
   useEffect(() => {
     if (!open) return;
     setFilter(initialFilter);
     setSearch('');
+    setSector('ALL');
+    setIndustry('ALL');
+    setMarketCap('ALL');
+    setIndexFilter('ALL');
     activity?.trackEvent({
       eventType: 'feature_use',
       eventName: 'quadrant_screener_open',
@@ -77,14 +136,51 @@ export function QuadrantScreenerDialog({
 
   const charted = useMemo(() => toChartPoints(points), [points]);
 
+  const sectorOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of charted) {
+      const s = p.screener?.sector?.trim();
+      if (s) set.add(s);
+    }
+    return [
+      { id: 'ALL', label: 'All sectors' },
+      ...[...set].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, label: s })),
+    ];
+  }, [charted]);
+
+  const industryOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of charted) {
+      if (sector !== 'ALL' && p.screener?.sector !== sector) continue;
+      const ind = p.screener?.industry?.trim();
+      if (ind) set.add(ind);
+    }
+    return [
+      { id: 'ALL', label: 'All industries' },
+      ...[...set].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, label: s })),
+    ];
+  }, [charted, sector]);
+
+  useEffect(() => {
+    if (industry !== 'ALL' && !industryOptions.some((o) => o.id === industry)) {
+      setIndustry('ALL');
+    }
+  }, [industry, industryOptions]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toUpperCase();
     return charted.filter((p) => {
       if (filter !== 'ALL' && p.quadrant !== filter) return false;
       if (q && !p.ticker.includes(q) && !(p.label ?? '').toUpperCase().includes(q)) return false;
+      const meta = p.screener;
+      if (sector !== 'ALL' && meta?.sector !== sector) return false;
+      if (industry !== 'ALL' && meta?.industry !== industry) return false;
+      if (marketCap !== 'ALL' && meta?.marketCap !== marketCap) return false;
+      if (indexFilter === 'sp500' && !meta?.inSp500) return false;
+      if (indexFilter === 'nasdaq100' && !meta?.inNasdaq100) return false;
       return true;
     });
-  }, [charted, filter, search]);
+  }, [charted, filter, search, sector, industry, marketCap, indexFilter]);
 
   const filteredPoints: RelativeStrengthPoint[] = useMemo(
     () =>
@@ -96,23 +192,43 @@ export function QuadrantScreenerDialog({
         dailyRating: p.dailyRating,
         dailyCurrentPrice: p.dailyCurrentPrice,
         highlight: p.highlight,
+        screener: p.screener,
       })),
     [filtered],
   );
 
   const counts = useMemo(() => {
+    const base = charted.filter((p) => {
+      const meta = p.screener;
+      if (sector !== 'ALL' && meta?.sector !== sector) return false;
+      if (industry !== 'ALL' && meta?.industry !== industry) return false;
+      if (marketCap !== 'ALL' && meta?.marketCap !== marketCap) return false;
+      if (indexFilter === 'sp500' && !meta?.inSp500) return false;
+      if (indexFilter === 'nasdaq100' && !meta?.inNasdaq100) return false;
+      return true;
+    });
     const c: Record<FilterId, number> = {
-      ALL: charted.length,
+      ALL: base.length,
       SYNCED_UPTREND: 0,
       PULLBACK: 0,
       TURNING: 0,
       BROKEN_TREND: 0,
     };
-    for (const p of charted) {
+    for (const p of base) {
       if (p.quadrant !== 'UNKNOWN') c[p.quadrant] += 1;
     }
     return c;
-  }, [charted]);
+  }, [charted, sector, industry, marketCap, indexFilter]);
+
+  const advancedActive =
+    sector !== 'ALL' || industry !== 'ALL' || marketCap !== 'ALL' || indexFilter !== 'ALL';
+
+  const clearAdvanced = useCallback(() => {
+    setSector('ALL');
+    setIndustry('ALL');
+    setMarketCap('ALL');
+    setIndexFilter('ALL');
+  }, []);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -122,20 +238,59 @@ export function QuadrantScreenerDialog({
             Quadrant Screener
           </DialogTitle>
           <DialogDescription className="text-[13px] leading-relaxed text-neutral-500">
-            Filter the MWS universe by 21-day & 30-week EMA quadrant position.
+            Filter the MWS universe by quadrant, sector, industry, market cap, and index membership.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-neutral-100 px-4 py-3 sm:px-5">
-          <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search ticker…"
-              className="h-9 w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-neutral-300"
-            />
+        <div className="shrink-0 space-y-3 border-b border-neutral-100 px-4 py-3 sm:px-5">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="relative min-w-[10rem] flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search ticker…"
+                className="h-9 w-full rounded-lg border border-neutral-200 bg-white pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-neutral-300"
+              />
+            </div>
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+              <FilterSelect
+                label="Sector"
+                value={sector}
+                onChange={setSector}
+                options={sectorOptions}
+              />
+              <FilterSelect
+                label="Industry"
+                value={industry}
+                onChange={setIndustry}
+                options={industryOptions}
+              />
+              <FilterSelect
+                label="Market cap"
+                value={marketCap}
+                onChange={(v) => setMarketCap(v as 'ALL' | MarketCapBucket)}
+                options={MARKET_CAP_OPTIONS}
+              />
+              <FilterSelect
+                label="Index"
+                value={indexFilter}
+                onChange={(v) => setIndexFilter(v as 'ALL' | ScreenerIndexId)}
+                options={INDEX_OPTIONS}
+              />
+            </div>
+            {advancedActive && (
+              <button
+                type="button"
+                onClick={clearAdvanced}
+                className="inline-flex h-9 items-center gap-1 rounded-lg border border-neutral-200 bg-white px-2.5 text-[12px] font-medium text-neutral-600 hover:bg-neutral-50"
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear filters
+              </button>
+            )}
           </div>
+
           <div className="flex flex-wrap gap-1.5">
             {FILTERS.map((f) => {
               const active = filter === f.id;

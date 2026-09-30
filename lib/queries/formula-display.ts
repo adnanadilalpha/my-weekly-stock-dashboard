@@ -37,8 +37,8 @@ export const DEFAULT_FORMULA_NUMBERS: Record<FormulaNumericKey, number> = {
   score_mixed_high: 2.7,
   score_mixed_low: 1.6,
   score_weak: 0.9,
-  /** Typical pipeline value when `extended_threshold` not readable client-side. */
-  extended_threshold: 4.2,
+  /** Price-vs-short-EMA fraction for Extended outlook (0.05 = 5%). */
+  extended_threshold: 0.05,
 };
 
 export async function fetchFormulaRatingLabels(): Promise<FormulaRatingLabelRow[]> {
@@ -116,24 +116,15 @@ export function mergeFormulaDefaults(
   partial: Partial<Record<FormulaNumericKey, number>>,
 ): Record<FormulaNumericKey, number> {
   const merged = { ...DEFAULT_FORMULA_NUMBERS, ...partial };
-  // Outlook ladder must stay ordered; bad rows would make almost every score "Extended".
-  if (
-    !Number.isFinite(merged.extended_threshold) ||
-    !Number.isFinite(merged.score_weak) ||
-    merged.extended_threshold <= merged.score_weak
-  ) {
+  // `extended_threshold` is a price-vs-EMA fraction (e.g. 0.05 = +5%), not a trend-score cutoff.
+  if (!Number.isFinite(merged.extended_threshold) || merged.extended_threshold <= 0) {
     merged.extended_threshold = DEFAULT_FORMULA_NUMBERS.extended_threshold;
-    merged.score_weak = DEFAULT_FORMULA_NUMBERS.score_weak;
+  } else if (merged.extended_threshold > 1) {
+    // Legacy misconfig treated this as a score (≥ ~4). Clamp to the price-fraction default.
+    merged.extended_threshold = DEFAULT_FORMULA_NUMBERS.extended_threshold;
   }
-  // Extended must sit above the neutral band ceiling or sideways scores (≈ score_mixed_high) read as Extended.
-  if (
-    Number.isFinite(merged.score_mixed_high) &&
-    merged.extended_threshold <= merged.score_mixed_high
-  ) {
-    merged.extended_threshold = Math.max(
-      DEFAULT_FORMULA_NUMBERS.extended_threshold,
-      merged.score_mixed_high + 0.05,
-    );
+  if (!Number.isFinite(merged.score_weak) || merged.score_weak < 0) {
+    merged.score_weak = DEFAULT_FORMULA_NUMBERS.score_weak;
   }
   return merged;
 }

@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase-client';
 import { USER_TICKER_ACTIVE_OR } from '@/lib/queries/user-ticker-visibility';
 import type { RelativeStrengthPoint } from '@/lib/relative-strength';
 import { fetchPriceHistory } from '@/lib/queries/price-history';
+import { buildScreenerMeta, type UniverseSourceTable } from '@/lib/screening/build-meta';
 
 type RsRow = {
   ticker: string;
@@ -12,7 +13,9 @@ type RsRow = {
   daily_current_price: number | null;
   sector_name?: string | null;
   company_name?: string | null;
+  name?: string | null;
   sector_etf?: string | null;
+  industry?: string | null;
 };
 
 const RS_SELECT =
@@ -83,16 +86,29 @@ async function fillMissingEma(points: RelativeStrengthPoint[]): Promise<Relative
   );
 }
 
-function mapRow(row: RsRow, highlight = false): RelativeStrengthPoint {
-  return {
+function mapRow(
+  row: RsRow,
+  highlight = false,
+  sourceTable?: UniverseSourceTable,
+): RelativeStrengthPoint {
+  const point: RelativeStrengthPoint = {
     ticker: row.ticker,
-    label: row.sector_name ?? row.company_name ?? row.ticker,
+    label: row.sector_name ?? row.company_name ?? row.name ?? row.ticker,
     pctFrom21DayEma: row.daily_price_vs_21ema,
     pctFrom30WeekEma: row.weekly_price_vs_30ema,
     dailyRating: row.daily_rating,
     dailyCurrentPrice: row.daily_current_price,
     highlight,
   };
+  if (sourceTable) {
+    point.screener = buildScreenerMeta({
+      ticker: row.ticker,
+      sourceTable,
+      sectorEtf: row.sector_etf ?? (sourceTable === 'sectors' ? row.ticker : null),
+      industry: row.industry ?? null,
+    });
+  }
+  return point;
 }
 
 export async function fetchSectorRelativeStrength(): Promise<RelativeStrengthPoint[]> {
@@ -170,21 +186,31 @@ export async function fetchTickersRelativeStrength(tickers: string[]): Promise<R
 
 /** Full MWS universe for Quadrant Screener (active tickers only). */
 export async function fetchUniverseRelativeStrength(): Promise<RelativeStrengthPoint[]> {
-  const tables = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
   const byTicker = new Map<string, RelativeStrengthPoint>();
 
-  for (const table of tables) {
-    const { data, error } = await supabase
-      .from(table)
-      .select(RS_SELECT)
-      .or(USER_TICKER_ACTIVE_OR);
-    if (error) throw error;
-    for (const r of data ?? []) {
-      const mapped = mapRow(r as RsRow);
+  const ingest = (rows: unknown[], table: UniverseSourceTable) => {
+    for (const r of rows) {
+      const mapped = mapRow(r as RsRow, false, table);
       const key = mapped.ticker.toUpperCase();
       if (!byTicker.has(key)) byTicker.set(key, mapped);
     }
+  };
+
+  const [segments, sectors, mega, other] = await Promise.all([
+    supabase.from('market_segments').select(`${RS_SELECT}, name`).or(USER_TICKER_ACTIVE_OR),
+    supabase.from('sectors').select(`${RS_SELECT}, sector_name`).or(USER_TICKER_ACTIVE_OR),
+    supabase.from('mega_caps').select(`${RS_SELECT}, company_name, sector_etf`).or(USER_TICKER_ACTIVE_OR),
+    supabase.from('other_stocks').select(`${RS_SELECT}, company_name, sector_etf`).or(USER_TICKER_ACTIVE_OR),
+  ]);
+
+  for (const res of [segments, sectors, mega, other]) {
+    if (res.error) throw res.error;
   }
+
+  ingest(segments.data ?? [], 'market_segments');
+  ingest(sectors.data ?? [], 'sectors');
+  ingest(mega.data ?? [], 'mega_caps');
+  ingest(other.data ?? [], 'other_stocks');
 
   return fillMissingEma([...byTicker.values()].sort((a, b) => a.ticker.localeCompare(b.ticker)));
 }

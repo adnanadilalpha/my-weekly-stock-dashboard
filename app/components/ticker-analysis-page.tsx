@@ -16,6 +16,7 @@ import {
   ratingBadgeClassName,
   ratingBadgeInlineStyle,
   ratingTierFromTrendScore,
+  resolveRatingTier,
   trendOutlookAriaLabel,
   trendOutlookDotClass,
   TREND_OUTLOOK_PILL_CLASS,
@@ -478,21 +479,34 @@ export function TickerAnalysisPage({
     return map;
   }, [trendTemplateRows]);
 
-  const activeRatingTier = useMemo(
-    () => ratingTierFromScore(chartTf === 'W' ? data?.weekly?.score : data?.daily?.score),
-    [chartTf, data?.daily?.score, data?.weekly?.score, ratingTierFromScore]
-  );
-  const activeRatingLabel = useMemo(() => ratingLabelFromTier(activeRatingTier), [activeRatingTier, ratingLabelFromTier]);
+  const trendForTf = chartTf === 'W' ? data?.weekly : data?.daily;
+
+  // Prefer stored DB rating (what the pipeline wrote) over re-deriving from score,
+  // so admin threshold tweaks don't silently desync the badge from daily_rating / weekly_rating.
+  const activeRatingTier = useMemo(() => {
+    if (!trendForTf) return null;
+    return (
+      resolveRatingTier(trendForTf.rating, ratingLabelRows) ??
+      ratingTierFromScore(trendForTf.score)
+    );
+  }, [trendForTf, ratingLabelRows, ratingTierFromScore]);
+  const activeRatingLabel = useMemo(() => {
+    if (trendForTf?.rating && trendForTf.rating !== 'N/A') return trendForTf.rating;
+    return ratingLabelFromTier(activeRatingTier);
+  }, [trendForTf?.rating, activeRatingTier, ratingLabelFromTier]);
   const activeTrendDescription = useMemo(() => {
-    const active = chartTf === 'W' ? data?.weekly : data?.daily;
-    if (!active || !activeRatingTier || !active.templateOutlookKey) return active?.description ?? '';
+    if (!trendForTf || !activeRatingTier || !trendForTf.templateOutlookKey) {
+      return trendForTf?.description ?? '';
+    }
     const timeframe = chartTf === 'W' ? 'Weekly' : 'Daily';
     return (
-      trendTemplateDescriptionMap.get(`${activeRatingTier}|${active.templateOutlookKey}|${timeframe}`) ??
-      active.description ??
+      trendTemplateDescriptionMap.get(
+        `${activeRatingTier}|${trendForTf.templateOutlookKey}|${timeframe}`,
+      ) ??
+      trendForTf.description ??
       ''
     );
-  }, [activeRatingTier, chartTf, data?.daily, data?.weekly, trendTemplateDescriptionMap]);
+  }, [activeRatingTier, trendForTf, chartTf, trendTemplateDescriptionMap]);
 
   const performanceSummaryText = data?.perfSummary ?? 'N/A';
   const performanceDescriptionText = data?.perfDescription ?? '';

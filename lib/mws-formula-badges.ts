@@ -1,5 +1,4 @@
 import type { CSSProperties } from 'react';
-import { DEFAULT_FORMULA_NUMBERS } from './queries/formula-display';
 /**
  * Rating badge styles aligned with admin `FormulaManager` LEGEND + dark-mode contrast.
  * Trend outlook tier is encoded only on the dot (`trendOutlookDotClass`); pill shell is neutral.
@@ -69,18 +68,20 @@ export function ratingTierFromTrendScore(
 }
 
 /**
- * Same ladder as edge `trendOutlook` in `supabase/functions/_stock_impl/mod.ts`
- * (trend score vs `extended_threshold` and `score_weak` from formula settings).
- * Invalid thresholds (e.g. extended ≤ weak) are ignored so misconfigured DB values do not mark every ticker Extended.
+ * Legacy score-only outlook ladder (Extended / Stable / Weak).
+ * Prefer stored `daily_outlook` / `weekly_outlook` from the pipeline — those use EMA inputs.
+ * `extended_threshold` here is treated as a **score** cutoff for this helper only (not the
+ * price-fraction setting used by edge `trendOutlook`).
  */
 export function outlookTierFromTrendScore(score: number, t: TrendThresholdInfo): TrendOutlookKind {
   const n = Number(score);
   if (!Number.isFinite(n)) return 'Weak';
+  // Score-ladder defaults when callers pass the price-fraction extended_threshold (≤ 1).
   let ext = t.extended_threshold;
   let weak = t.score_weak;
-  if (!Number.isFinite(ext) || !Number.isFinite(weak) || ext <= weak) {
-    ext = DEFAULT_FORMULA_NUMBERS.extended_threshold;
-    weak = DEFAULT_FORMULA_NUMBERS.score_weak;
+  if (!Number.isFinite(ext) || !Number.isFinite(weak) || ext <= 1 || ext <= weak) {
+    ext = 4.2;
+    weak = Number.isFinite(weak) && weak > 0 ? weak : 0.9;
   }
   if (n >= ext) return 'Extended';
   if (n >= weak) return 'Stable';
@@ -231,5 +232,9 @@ export function trendOutlookDotClass(outlook: string): string {
 
 export function trendOutlookAriaLabel(outlook: string, score: number, t: TrendThresholdInfo): string {
   const o = outlook.trim() || 'unknown';
-  return `Trend signal ${o}. Trend score ${score.toFixed(2)} out of 5. Base ladder: weak below ${t.score_weak}; stable from ${t.score_weak} to below ${t.extended_threshold}; extended at or above ${t.extended_threshold}. Weak base maps to Cooling, Softening, or Reversing by rating tier per Formula Manager trend templates.`;
+  const extPct =
+    Number.isFinite(t.extended_threshold) && t.extended_threshold > 0 && t.extended_threshold <= 1
+      ? `${(t.extended_threshold * 100).toFixed(0)}%`
+      : '5%';
+  return `Trend outlook ${o}. Trend score ${score.toFixed(2)} out of 5. Extended when price stretches beyond ${extPct} of the short EMA; Cooling/Warming/Reversing follow short/long EMA position in up/down bands; Softening/Firming use Price vs long EMA ±1.5% in Sideways.`;
 }

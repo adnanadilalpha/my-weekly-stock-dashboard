@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import {
   buildChatMessages,
   buildRefusal,
-  callChatModel,
   checkRateLimit,
   createUserClientFromAuthHeader,
   isChatModelConfigured,
@@ -10,6 +9,12 @@ import {
   looksLikeAdviceRequest,
   type ChatContextRef,
 } from '@/lib/intelligence/chat/context';
+import { callChatModelWithTools } from '@/lib/intelligence/chat/tool-loop';
+import {
+  inferWidgetsFromQuestion,
+  mergeWidgets,
+  type ChatWidget,
+} from '@/lib/intelligence/chat/tools';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +29,8 @@ export const runtime = 'nodejs';
  *   stream?: boolean,  // SSE when true
  *   contextRef?: { ticker?, sector?, portfolioPage?, userPortfolioId? }
  * }
+ *
+ * Response includes optional `widgets` (price_chart / quadrant) for inline UI.
  */
 export async function POST(request: Request) {
   const auth = await createUserClientFromAuthHeader(request.headers.get('authorization'));
@@ -53,19 +60,19 @@ export async function POST(request: Request) {
   }
 
   const contextRef: ChatContextRef = body.contextRef ?? {};
-  // User's own portfolio + MWS ticker snapshots + tickers named in the question.
   const mwsData = await loadMwsDataBlock(auth.client, contextRef, message, auth.user.id);
 
   let assistantText: string;
+  let widgets: ChatWidget[] = [];
+
   if (looksLikeAdviceRequest(message)) {
     assistantText = buildRefusal(
       'Available context was loaded from MWS DATA for explanation only.',
     );
   } else {
     const messages = buildChatMessages(mwsData, message);
-    const result = await callChatModel(messages);
+    const result = await callChatModelWithTools(messages);
     if (!result.ok) {
-      // Never surface provider/quota details to the user — keep a calm fallback.
       console.error('[chat] all providers failed', result.provider, result.status, result.error);
       assistantText =
         'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
@@ -79,13 +86,12 @@ export async function POST(request: Request) {
           { status: 503 },
         );
       }
-      // Still return 200 with a helpful reply so the UI feels continuous.
     } else {
       assistantText = result.text;
+      widgets = mergeWidgets(result.widgets ?? [], inferWidgetsFromQuestion(message));
     }
   }
 
-  // Persist session + messages (owner RLS via user JWT client)
   let sessionId = body.sessionId ?? null;
   try {
     if (!sessionId) {
@@ -108,7 +114,7 @@ export async function POST(request: Request) {
         .eq('user_id', auth.user.id);
     }
 
-    await auth.client.from('ai_chat_messages').insert([
+    const rows: Record<string, unknown>[] = [
       {
         session_id: sessionId,
         user_id: auth.user.id,
@@ -121,7 +127,9 @@ export async function POST(request: Request) {
         role: 'assistant',
         content: assistantText,
       },
-    ]);
+    ];
+    const { error: insertErr } = await auth.client.from('ai_chat_messages').insert(rows);
+    if (insertErr) throw insertErr;
   } catch (e) {
     console.error('chat persist error', e);
   }
@@ -133,7 +141,11 @@ export async function POST(request: Request) {
         controller.enqueue(
           encoder.encode(`event: session\ndata: ${JSON.stringify({ sessionId })}\n\n`),
         );
-        // Chunk assistant text for SSE clients
+        if (widgets.length > 0) {
+          controller.enqueue(
+            encoder.encode(`event: widgets\ndata: ${JSON.stringify({ widgets })}\n\n`),
+          );
+        }
         const chunkSize = 48;
         for (let i = 0; i < assistantText.length; i += chunkSize) {
           const chunk = assistantText.slice(i, i + chunkSize);
@@ -142,7 +154,9 @@ export async function POST(request: Request) {
           );
         }
         controller.enqueue(
-          encoder.encode(`event: done\ndata: ${JSON.stringify({ sessionId, content: assistantText })}\n\n`),
+          encoder.encode(
+            `event: done\ndata: ${JSON.stringify({ sessionId, content: assistantText, widgets })}\n\n`,
+          ),
         );
         controller.close();
       },
@@ -160,6 +174,7 @@ export async function POST(request: Request) {
     sessionId,
     role: 'assistant',
     content: assistantText,
+    widgets,
     contextRef,
   });
 }

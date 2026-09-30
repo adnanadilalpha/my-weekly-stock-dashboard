@@ -1,5 +1,7 @@
 import { quadrantFromPct, type QuadrantId } from '@/lib/intelligence/brief';
 
+import type { ScreenerMeta } from '@/lib/screening/types';
+
 export type RelativeStrengthPoint = {
   ticker: string;
   label?: string;
@@ -10,6 +12,8 @@ export type RelativeStrengthPoint = {
   dailyRating?: string | null;
   dailyCurrentPrice?: number | null;
   highlight?: boolean;
+  /** Present on Quadrant Screener universe loads. */
+  screener?: ScreenerMeta;
 };
 
 export type RelativeStrengthChartPoint = RelativeStrengthPoint & {

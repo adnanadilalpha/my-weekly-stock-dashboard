@@ -167,3 +167,69 @@ export function ratingOutlook(score: number, p: FormulaParams): 'Bullish' | 'Neu
   if (score >= p.score_weak) return 'Neutral';
   return 'Bearish';
 }
+
+export type TrendOutlookLabel =
+  | 'Extended'
+  | 'Stable'
+  | 'Cooling'
+  | 'Reversing'
+  | 'Firming'
+  | 'Softening'
+  | 'Warming';
+
+/**
+ * Outlook sub-label within a Rating band (client sheet 27.04.2026).
+ *
+ * Uptrend (score > mixed_high):
+ *   Extended | Reversing | Cooling | Stable  — from price vs short/long EMA
+ * Sideways (mixed_low < score ≤ mixed_high):
+ *   Softening if Price vs long EMA < -1.5%
+ *   Firming   if Price vs long EMA > +1.5%
+ *   else Stable
+ *   (Sheet text says "9 vs 30 EMA"; Softening/Firming templates + IWM client case
+ *    require price-vs-long. EMA-cross alone marks most Sideways as Firming because
+ *    cross is also 30% of the trend score.)
+ * Downtrend (score ≤ mixed_low):
+ *   Extended | Reversing | Warming | Stable
+ *
+ * `extended_threshold` is a price-vs-short-EMA fraction (0.05 = 5%).
+ */
+export function trendOutlook(
+  score: number,
+  inputs: {
+    priceVsShortEma: number | null;
+    priceVsLongEma: number | null;
+    /** Kept for call-site compatibility; Sideways outlook does not use EMA cross. */
+    emaCross?: number | null;
+  },
+  p: Pick<FormulaParams, 'score_mixed_high' | 'score_mixed_low' | 'extended_threshold'>,
+): TrendOutlookLabel {
+  const pvs = inputs.priceVsShortEma;
+  const pvl = inputs.priceVsLongEma;
+  const uptrendFloor = p.score_mixed_high;
+  const sidewaysFloor = p.score_mixed_low;
+  const ext =
+    Number.isFinite(p.extended_threshold) && p.extended_threshold > 0 && p.extended_threshold <= 1
+      ? p.extended_threshold
+      : 0.05;
+  const sidewaysBand = 0.015; // ±1.5% Price vs long EMA
+
+  if (score > uptrendFloor) {
+    if (pvs !== null && pvs > ext) return 'Extended';
+    if (pvl !== null && pvl < 0) return 'Reversing';
+    if (pvs !== null && pvs < 0) return 'Cooling';
+    return 'Stable';
+  }
+
+  if (score > sidewaysFloor) {
+    if (pvl !== null && pvl < -sidewaysBand) return 'Softening';
+    if (pvl !== null && pvl > sidewaysBand) return 'Firming';
+    return 'Stable';
+  }
+
+  if (pvs !== null && pvs < -ext) return 'Extended';
+  if (pvl !== null && pvl > 0) return 'Reversing';
+  if (pvs !== null && pvs > 0) return 'Warming';
+  return 'Stable';
+}
+

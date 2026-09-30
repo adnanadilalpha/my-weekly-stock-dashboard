@@ -17,6 +17,7 @@ import {
   ratingLabel,
   trendComponentScore,
   trendSignalIcon,
+  trendOutlook,
   type FormulaParams,
   type RatingLabelMap,
 } from './compute.ts';
@@ -1496,10 +1497,12 @@ function buildUpdatePatch(
 
   const dailyEmaCross  = emaCross(dailyEmaShort, dailyEmaLong);
   const weeklyEmaCross = emaCross(weeklyEmaShort, weeklyEmaLong);
-  const dailySlope9Pct = emaSlopePct(daily, params.ema_daily_short);
-  const dailySlope21Pct = emaSlopePct(daily, params.ema_daily_long);
-  const weeklySlope9Pct = emaSlopePct(weekly, params.ema_weekly_short);
-  const weeklySlope30Pct = emaSlopePct(weekly, params.ema_weekly_long);
+  // Client sheet (27.04.2026): slope = EMA_now / EMA_5_bars_ago - 1
+  // Daily = 5 trading days; weekly = 5 weeks.
+  const dailySlope9Pct = emaSlopePct(daily, params.ema_daily_short, 5);
+  const dailySlope21Pct = emaSlopePct(daily, params.ema_daily_long, 5);
+  const weeklySlope9Pct = emaSlopePct(weekly, params.ema_weekly_short, 5);
+  const weeklySlope30Pct = emaSlopePct(weekly, params.ema_weekly_long, 5);
 
   const dailyScore = trendScoreFromSignals(
     {
@@ -1755,43 +1758,6 @@ function emaSlope(
   if (delta >  0.0001) return 'Rising';
   if (delta < -0.0001) return 'Falling';
   return 'Flat';
-}
-
-function trendOutlook(
-  score: number,
-  inputs: {
-    priceVsShortEma: number | null;
-    priceVsLongEma: number | null;
-    emaCross: number | null;
-  },
-  p: Pick<FormulaParams, 'score_mixed_high' | 'score_mixed_low'>,
-): 'Extended' | 'Stable' | 'Cooling' | 'Reversing' | 'Firming' | 'Softening' | 'Warming' {
-  const pvs = inputs.priceVsShortEma;
-  const pvl = inputs.priceVsLongEma;
-  const cross = inputs.emaCross;
-  const uptrendFloor = p.score_mixed_high;
-  const sidewaysFloor = p.score_mixed_low;
-  // Client formula sheet (27.04.2026):
-  // Uptrend bands (> score_mixed_high): IF(pvs > 5%, Extended, IF(pvl < 0, Reversing, IF(pvs < 0, Cooling, Stable)))
-  if (score > uptrendFloor) {
-    if (pvs !== null && pvs > 0.05) return 'Extended';
-    if (pvl !== null && pvl < 0) return 'Reversing';
-    if (pvs !== null && pvs < 0) return 'Cooling';
-    return 'Stable';
-  }
-
-  // Sideways band (> score_mixed_low and <= score_mixed_high): IF(cross <= -1.5%, Softening, IF(cross >= 1.5%, Firming, Stable))
-  if (score > sidewaysFloor) {
-    if (cross !== null && cross <= -0.015) return 'Softening';
-    if (cross !== null && cross >= 0.015) return 'Firming';
-    return 'Stable';
-  }
-
-  // Downtrend bands (<= score_mixed_low): IF(pvs < -5%, Extended, IF(pvl > 0, Reversing, IF(pvs > 0, Warming, Stable)))
-  if (pvs !== null && pvs < -0.05) return 'Extended';
-  if (pvl !== null && pvl > 0) return 'Reversing';
-  if (pvs !== null && pvs > 0) return 'Warming';
-  return 'Stable';
 }
 
 function rollingHighLow(

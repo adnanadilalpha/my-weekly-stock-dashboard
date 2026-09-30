@@ -7,13 +7,14 @@ import {
   BookOpen,
   GitCompare,
   LineChart,
-  Loader2,
   type LucideIcon,
+  Loader2,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '@/lib/supabase-client';
 import { useActivity } from '@/lib/activity/ActivityProvider';
 import type { ChatContextRef } from '@/lib/intelligence/chat/context';
+import type { ChatWidget } from '@/lib/intelligence/chat/tools';
 import {
   Dialog,
   DialogContent,
@@ -23,17 +24,20 @@ import {
 } from '@/app/components/ui/dialog';
 import { cn } from '@/app/components/ui/utils';
 import { MwsLogo } from '@/app/components/brand/mws-logo';
+import { ChatWidgetStack } from './chat-widgets';
 
-type ChatBubble = { role: 'user' | 'assistant'; content: string };
+type ChatBubble = {
+  role: 'user' | 'assistant';
+  content: string;
+  widgets?: ChatWidget[];
+};
 
 type QuickAction = {
   id: string;
   label: string;
   hint: string;
   icon: LucideIcon;
-  /** Auto-send this question. */
   prompt?: string;
-  /** Prefill the composer (user finishes / sends). */
   draft?: string;
 };
 
@@ -42,25 +46,25 @@ function quickActions(ref?: ChatContextRef): QuickAction[] {
   if (t) {
     return [
       {
-        id: 'summarize',
-        label: 'Summarize',
-        hint: `Current MWS state for ${t}`,
-        icon: BarChart3,
-        prompt: `Summarize the current MWS state for ${t}`,
+        id: 'chart',
+        label: 'Show chart',
+        hint: `${t} price + EMAs`,
+        icon: LineChart,
+        prompt: `Show me the chart of ${t} and explain how the EMAs work`,
+      },
+      {
+        id: 'quadrant',
+        label: 'Quadrant',
+        hint: 'Plot + explain position',
+        icon: GitCompare,
+        prompt: `Show a Quadrant Analysis for ${t} and explain what it means`,
       },
       {
         id: 'rating',
         label: 'Rating & outlook',
         hint: 'Daily vs Weekly read',
-        icon: LineChart,
+        icon: BarChart3,
         prompt: `Explain ${t}'s Daily Rating, Weekly Rating, and Outlook`,
-      },
-      {
-        id: 'quadrant',
-        label: 'Quadrant',
-        hint: '21d & 30w EMA position',
-        icon: GitCompare,
-        prompt: `What is ${t}'s Quadrant Analysis position and what does it mean?`,
       },
       {
         id: 'performance',
@@ -103,14 +107,20 @@ function quickActions(ref?: ChatContextRef): QuickAction[] {
       },
     ];
   }
-  // MWS Dashboard / general: no ticker bias — analyze is a draft so user names a ticker
   return [
     {
-      id: 'analyze',
-      label: 'Analyze a ticker',
-      hint: 'Type any MWS name',
+      id: 'chart',
+      label: 'Show a chart',
+      hint: 'Price + EMAs',
       icon: LineChart,
-      draft: 'Analyze ',
+      draft: 'Show me the chart of ',
+    },
+    {
+      id: 'quadrant',
+      label: 'Build a quadrant',
+      hint: 'Multi-ticker plot',
+      icon: GitCompare,
+      draft: 'Create a Quadrant Analysis of ',
     },
     {
       id: 'book',
@@ -120,14 +130,7 @@ function quickActions(ref?: ChatContextRef): QuickAction[] {
       prompt: 'Summarize MWS state for my open holdings',
     },
     {
-      id: 'weakspots',
-      label: 'Weak spots',
-      hint: 'Pullback & Broken Trend',
-      icon: GitCompare,
-      prompt: 'Which of my holdings are in Pullback or Broken Trend?',
-    },
-    {
-      id: 'quadrant',
+      id: 'explain',
       label: 'Explain Quadrant',
       hint: '21d vs 30w EMA',
       icon: BookOpen,
@@ -231,6 +234,10 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const actions = useMemo(() => quickActions(contextRef), [contextRef]);
+  const hasWidgets = useMemo(
+    () => messages.some((m) => (m.widgets?.length ?? 0) > 0),
+    [messages],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -301,7 +308,21 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
           return;
         }
         if (json.sessionId) setSessionId(json.sessionId);
-        setMessages((m) => [...m, { role: 'assistant', content: json.content as string }]);
+        const widgets = Array.isArray(json.widgets) ? (json.widgets as ChatWidget[]) : [];
+        setMessages((m) => [
+          ...m,
+          { role: 'assistant', content: json.content as string, widgets },
+        ]);
+        if (widgets.length > 0) {
+          activity?.trackEvent({
+            eventType: 'feature_use',
+            eventName: 'ai_chat_widgets',
+            metadata: {
+              types: widgets.map((w) => w.type),
+              count: widgets.length,
+            },
+          });
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Chat failed');
         setMessages((m) => [
@@ -358,8 +379,11 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
         <DialogContent
           className={cn(
             'flex h-[min(720px,88vh)] w-full max-w-[calc(100%-1.5rem)] flex-col gap-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white p-0 shadow-2xl',
-            'sm:max-w-2xl',
+            hasWidgets ? 'sm:max-w-3xl' : 'sm:max-w-2xl',
           )}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
         >
           <DialogHeader className="shrink-0 space-y-0 border-b border-neutral-100 bg-white px-5 pb-4 pt-5 text-left sm:px-6">
             <div className="flex items-start gap-3 pr-8">
@@ -369,7 +393,7 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
                   Ask MWS
                 </DialogTitle>
                 <DialogDescription className="mt-0.5 text-[12.5px] leading-snug text-neutral-500">
-                  Your AI assistant for market insights
+                  Charts and Quadrant Analysis, right in the conversation
                 </DialogDescription>
               </div>
             </div>
@@ -386,7 +410,7 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
                     How can I help?
                   </p>
                   <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-neutral-500">
-                    Ask about any MWS ticker, your holdings, or how the framework works.
+                    Ask for a chart, a multi-ticker quadrant, or an explanation of any MWS name.
                   </p>
                 </div>
 
@@ -423,7 +447,7 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
                 </div>
               </div>
             ) : (
-              <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
+              <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
                 {messages.map((m, i) => (
                   <div
                     key={`${m.role}-${i}`}
@@ -441,14 +465,22 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
                     )}
                     <div
                       className={cn(
-                        'min-w-0 max-w-[88%]',
+                        'min-w-0',
                         m.role === 'user'
-                          ? 'rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-[13px] leading-[1.5] text-white sm:text-sm'
-                          : 'rounded-2xl rounded-tl-md border border-neutral-100 bg-neutral-50 px-3.5 py-2.5',
+                          ? 'max-w-[88%] rounded-2xl rounded-br-md bg-neutral-950 px-3.5 py-2.5 text-[13px] leading-[1.5] text-white sm:text-sm'
+                          : cn(
+                              'max-w-[min(100%,36rem)] rounded-2xl rounded-tl-md border border-neutral-100 bg-neutral-50 px-3.5 py-2.5',
+                              (m.widgets?.length ?? 0) > 0 && 'w-full max-w-full',
+                            ),
                       )}
                     >
                       {m.role === 'assistant' ? (
-                        <AssistantMarkdown content={m.content} />
+                        <>
+                          <AssistantMarkdown content={m.content} />
+                          {m.widgets && m.widgets.length > 0 && (
+                            <ChatWidgetStack widgets={m.widgets} />
+                          )}
+                        </>
                       ) : (
                         <span className="whitespace-pre-wrap">{m.content}</span>
                       )}
@@ -476,7 +508,7 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
                 e.preventDefault();
                 void sendMessage(input);
               }}
-              className="mx-auto w-full max-w-xl"
+              className="mx-auto w-full max-w-2xl"
             >
               <div
                 className={cn(
@@ -489,7 +521,7 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
                   ref={inputRef}
                   rows={1}
                   className="max-h-30 min-h-10 flex-1 resize-none bg-transparent py-2.5 text-[13px] leading-snug text-neutral-900 outline-none placeholder:text-neutral-400 sm:text-sm"
-                  placeholder="Ask about your holdings, tickers, or MWS data…"
+                  placeholder="Try: show chart of SLV · quadrant of AAPL, MSFT, XLE…"
                   value={input}
                   disabled={busy}
                   onChange={(e) => setInput(e.target.value)}

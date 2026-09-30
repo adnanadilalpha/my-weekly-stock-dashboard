@@ -13,7 +13,10 @@ import {
 import { TickerIcon } from '../ui/ticker-icon';
 import { RelativeStrengthScatter } from './relative-strength-scatter';
 import { fetchTickersRelativeStrength } from '@/lib/hooks/useRelativeStrength';
+import { useMwsHubPreferences } from '@/lib/hooks/useMwsHubPreferences';
 import { loadUniversePickerRows } from '@/lib/mws-universe-picker-rows';
+import { getUniverseTickersByBucket } from '@/lib/queries/ticker';
+import { listAllOpenHoldingTickers } from '@/lib/queries/user-portfolio';
 import type { RelativeStrengthPoint } from '@/lib/relative-strength';
 import { QUADRANT_COLORS } from '@/lib/relative-strength';
 import { useActivity } from '@/lib/activity/ActivityProvider';
@@ -26,6 +29,16 @@ type Props = {
   initialTickers?: string[];
   onSelectTicker?: (ticker: string) => void;
 };
+
+type PresetId = 'segments' | 'sectors' | 'large' | 'watchlist' | 'portfolio';
+
+const PRESET_META: { id: PresetId; label: string; emptyHint: string }[] = [
+  { id: 'segments', label: 'Market segments', emptyHint: 'No market segment tickers loaded' },
+  { id: 'sectors', label: 'Sectors', emptyHint: 'No sector tickers loaded' },
+  { id: 'large', label: 'Large caps', emptyHint: 'No large-cap tickers loaded' },
+  { id: 'watchlist', label: 'Watchlist', emptyHint: 'Add tickers under Your Tickers first' },
+  { id: 'portfolio', label: 'Portfolio', emptyHint: 'No open portfolio holdings' },
+];
 
 const GUIDE_SECTIONS = [
   {
@@ -57,6 +70,7 @@ export function RelativeStrengthDialog({
   onSelectTicker,
 }: Props) {
   const activity = useActivity();
+  const { prefs } = useMwsHubPreferences();
   const searchRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<MwsPickerTickerRow[]>([]);
   const [search, setSearch] = useState('');
@@ -66,6 +80,13 @@ export function RelativeStrengthDialog({
   const [loadingChart, setLoadingChart] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [universeBuckets, setUniverseBuckets] = useState<{
+    segments: string[];
+    sectors: string[];
+    megaCaps: string[];
+  }>({ segments: [], sectors: [], megaCaps: [] });
+  const [portfolioTickers, setPortfolioTickers] = useState<string[]>([]);
+  const [loadingPresets, setLoadingPresets] = useState(false);
 
   const seedKey = useMemo(
     () =>
@@ -75,11 +96,32 @@ export function RelativeStrengthDialog({
     [initialTickers],
   );
 
+  const watchlistTickers = useMemo(
+    () =>
+      [...new Set(prefs.personalTickers.map((t) => t.ticker.trim().toUpperCase()).filter(Boolean))],
+    [prefs.personalTickers],
+  );
+
+  const presetTickers = useMemo(
+    (): Record<PresetId, string[]> => ({
+      segments: universeBuckets.segments,
+      sectors: universeBuckets.sectors,
+      large: universeBuckets.megaCaps,
+      watchlist: watchlistTickers,
+      portfolio: portfolioTickers,
+    }),
+    [universeBuckets, watchlistTickers, portfolioTickers],
+  );
+
   const nameByTicker = useMemo(() => {
     const map = new Map<string, string>();
     for (const row of rows) map.set(row.ticker.toUpperCase(), row.name);
+    for (const t of prefs.personalTickers) {
+      const key = t.ticker.toUpperCase();
+      if (!map.has(key) && t.name) map.set(key, t.name);
+    }
     return map;
-  }, [rows]);
+  }, [rows, prefs.personalTickers]);
 
   useEffect(() => {
     if (!open) return;
@@ -99,15 +141,30 @@ export function RelativeStrengthDialog({
     if (!open) return;
     let cancelled = false;
     setLoadingUniverse(true);
-    loadUniversePickerRows()
-      .then((list) => {
-        if (!cancelled) setRows(list);
+    setLoadingPresets(true);
+    Promise.all([
+      loadUniversePickerRows(),
+      getUniverseTickersByBucket(),
+      listAllOpenHoldingTickers().catch(() => [] as string[]),
+    ])
+      .then(([list, buckets, holdings]) => {
+        if (cancelled) return;
+        setRows(list);
+        setUniverseBuckets({
+          segments: buckets.segments,
+          sectors: buckets.sectors,
+          megaCaps: buckets.megaCaps,
+        });
+        setPortfolioTickers(holdings);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load tickers');
       })
       .finally(() => {
-        if (!cancelled) setLoadingUniverse(false);
+        if (!cancelled) {
+          setLoadingUniverse(false);
+          setLoadingPresets(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -165,9 +222,42 @@ export function RelativeStrengthDialog({
     setSelected((prev) => prev.filter((t) => t !== key));
   }, []);
 
-  const focusSearch = useCallback(() => {
-    searchRef.current?.focus();
-  }, []);
+  const togglePreset = useCallback(
+    (id: PresetId) => {
+      const tickers = presetTickers[id];
+      if (tickers.length === 0) return;
+      const set = new Set(tickers);
+      const allActive = tickers.every((t) => selectedSet.has(t));
+      if (allActive) {
+        const keep = new Set<string>();
+        for (const meta of PRESET_META) {
+          if (meta.id === id) continue;
+          const other = presetTickers[meta.id];
+          if (other.length > 0 && other.every((t) => selectedSet.has(t))) {
+            for (const t of other) keep.add(t);
+          }
+        }
+        setSelected((prev) => prev.filter((t) => !set.has(t) || keep.has(t)));
+        activity?.trackEvent({
+          eventType: 'feature_use',
+          eventName: 'relative_strength_preset_remove',
+          metadata: { preset: id, count: tickers.length },
+        });
+      } else {
+        setSelected((prev) => {
+          const next = new Set(prev);
+          for (const t of tickers) next.add(t);
+          return [...next];
+        });
+        activity?.trackEvent({
+          eventType: 'feature_use',
+          eventName: 'relative_strength_preset_add',
+          metadata: { preset: id, count: tickers.length },
+        });
+      }
+    },
+    [presetTickers, selectedSet, activity],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -265,6 +355,55 @@ export function RelativeStrengthDialog({
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[280px_minmax(0,1fr)]">
           <aside className="flex max-h-[38vh] min-h-0 flex-col border-b border-neutral-100 bg-neutral-50/60 md:max-h-none md:border-b-0 md:border-r">
             <div className="shrink-0 space-y-3 p-4">
+              <div>
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                  Load presets
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESET_META.map((preset) => {
+                    const tickers = presetTickers[preset.id];
+                    const empty = tickers.length === 0;
+                    const active =
+                      !empty && tickers.every((t) => selectedSet.has(t));
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        disabled={empty || loadingPresets}
+                        title={
+                          empty
+                            ? preset.emptyHint
+                            : active
+                              ? `Remove ${tickers.length} ${preset.label.toLowerCase()}`
+                              : `Add ${tickers.length} ${preset.label.toLowerCase()}`
+                        }
+                        onClick={() => togglePreset(preset.id)}
+                        className={cn(
+                          'rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                          empty || loadingPresets
+                            ? 'cursor-not-allowed border-neutral-100 bg-neutral-50 text-neutral-300'
+                            : active
+                              ? 'border-neutral-900 bg-neutral-900 text-white'
+                              : 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300 hover:bg-neutral-50',
+                        )}
+                      >
+                        {preset.label}
+                        {!empty && (
+                          <span
+                            className={cn(
+                              'ml-1 tabular-nums',
+                              active ? 'text-white/70' : 'text-neutral-400',
+                            )}
+                          >
+                            {tickers.length}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="relative">
                 <Search
                   className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
@@ -323,7 +462,7 @@ export function RelativeStrengthDialog({
               {selected.length === 0 ? (
                 <div className="flex h-full min-h-28 flex-col items-center justify-center rounded-xl border border-dashed border-neutral-200 bg-white/70 px-4 text-center">
                   <p className="text-[13px] text-neutral-500">
-                    Search above to add tickers to the chart.
+                    Use a preset above, or search to add tickers.
                   </p>
                 </div>
               ) : (
