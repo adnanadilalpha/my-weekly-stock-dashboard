@@ -71,7 +71,7 @@ export function HoldingValuesDialog({
   onSave,
   busy = false,
   title = 'Edit holdings',
-  description = 'Enter Start date, shares, and average entry cost. Cash invested is shares × avg entry. Your return uses MWS prices from Start when the ticker is covered.',
+  description = 'Enter shares and average entry cost. Cash invested is shares × avg entry. Your return = (current price − avg entry) / avg entry when the ticker is in MWS.',
 }: Props) {
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
 

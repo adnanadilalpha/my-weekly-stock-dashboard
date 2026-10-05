@@ -5,6 +5,7 @@ export interface OtherStock {
   id: string;
   ticker: string;
   company_name: string;
+  sector_etf?: string | null;
   // New simplified performance fields (preferred)
   '1m_percent': number | null;
   '3m_percent': number | null;

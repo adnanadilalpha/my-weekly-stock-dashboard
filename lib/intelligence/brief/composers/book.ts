@@ -5,11 +5,14 @@ import type { QuadrantId } from '../types';
 
 export type BookBriefInput = {
   holdingCount: number;
-  /** Cash-weighted return since each holding’s Start date (decimal). */
+  /** Cash-weighted unrealized P&L vs avg entry: (price − avg) / avg. */
   bookReturn: number | null;
   bookReturnCounted: number;
-  /** Average last-month price change among covered rows. */
-  avg1m: number | null;
+  /** Cash-weighted book price change over ~30 days (from price_history). */
+  book1m?: number | null;
+  book1mCounted?: number;
+  /** @deprecated Use book1m — kept for older callers. */
+  avg1m?: number | null;
   attentionTickers: string[];
   /** Optional quadrant id per attention ticker (same order as attentionTickers). */
   attentionQuadrants?: Array<Exclude<QuadrantId, 'UNKNOWN'> | 'UNKNOWN' | null>;
@@ -19,7 +22,8 @@ export type BookBriefInput = {
 };
 
 function friendlyMove(value: number): string {
-  const pct = Math.abs(value) <= 2 ? value * 100 : value;
+  // Values are decimals (e.g. 9.88 = +988%). Never treat large gains as already-%.
+  const pct = value * 100;
   const abs = Math.abs(pct);
   const rounded = abs >= 10 ? abs.toFixed(0) : abs.toFixed(1);
   if (pct > 0.05) return `up about ${rounded}%`;
@@ -60,12 +64,14 @@ export function composeBookBrief(input: BookBriefInput): MwsBriefOutput {
     holdingCount,
     bookReturn,
     bookReturnCounted,
+    book1m,
     avg1m,
     attentionTickers,
     attentionQuadrants,
     quadrantCounts,
     closedCount = 0,
   } = input;
+  const monthMove = book1m ?? avg1m ?? null;
   const sourceFields: string[] = [];
   const sentences: string[] = [];
 
@@ -77,34 +83,36 @@ export function composeBookBrief(input: BookBriefInput): MwsBriefOutput {
       body:
         closedCount > 0
           ? 'No open holdings right now. Past positions are still available below for review.'
-          : 'Add a few tickers, then set shares, average entry, and Start. We’ll summarize how your book is doing.',
+          : 'Add a few tickers, then set shares and average entry. We’ll summarize how your book is doing.',
       bullets: [],
       sourceFields: [],
     };
   }
 
   if (bookReturn != null && Number.isFinite(bookReturn) && bookReturnCounted > 0) {
-    sourceFields.push('since_start_return');
+    sourceFields.push('cost_basis_return');
     if (bookReturnCounted === holdingCount) {
-      sentences.push(`Your open book is ${friendlyMove(bookReturn)} since you bought.`);
+      sentences.push(
+        `Your open book is ${friendlyMove(bookReturn)} vs average entry (current price vs what you paid).`,
+      );
     } else {
       sentences.push(
-        `Where Start dates are set (${bookReturnCounted} of ${holdingCount}), the book is ${friendlyMove(bookReturn)} since you bought.`,
+        `Where avg entry is set (${bookReturnCounted} of ${holdingCount}), the book is ${friendlyMove(bookReturn)} vs what you paid.`,
       );
     }
   } else {
-    sentences.push('Set a Start date on your holdings to see how the book has done since you bought.');
+    sentences.push('Set average entry on your holdings to see unrealized return vs cost.');
   }
 
-  if (avg1m != null && Number.isFinite(avg1m)) {
-    sourceFields.push('1m_percent');
+  if (monthMove != null && Number.isFinite(monthMove)) {
+    sourceFields.push('book_30d_return');
     const tone =
-      avg1m > 0.02
-        ? 'The past month has been a lift for the group'
-        : avg1m < -0.02
-          ? 'The past month has been a drag for the group'
-          : 'The past month has been quiet for the group';
-    sentences.push(`${tone} (${friendlyMove(avg1m)}).`);
+      monthMove > 0.02
+        ? 'Over the last ~30 days your book is higher'
+        : monthMove < -0.02
+          ? 'Over the last ~30 days your book is lower'
+          : 'Over the last ~30 days your book is roughly flat';
+    sentences.push(`${tone} (${friendlyMove(monthMove)} on a cash-weighted basis).`);
   }
 
   const mix = quadrantMixLine(quadrantCounts);

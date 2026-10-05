@@ -4,43 +4,92 @@
 /node_modules
 /.pnp
 .pnp.js
+.pnp.cjs
 .yarn/install-state.gz
+.yarn/cache
+.pnpm-store/
 
 # testing
 /coverage
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/
 
 # next.js
 /.next/
 /out/
 
-# production
+# production / build
 /build
+/dist
+/.turbo
+*.tsbuildinfo
 
-# misc
+# misc OS / editor
 .DS_Store
+Thumbs.db
 *.pem
+*.p12
+*.key
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+*.swp
+*.swo
+*~
 
-# debug
+# debug / logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+*.log
+logs/
 
-# local env files
-.env*.local
+# local env & secrets (keep .env.example committed)
 .env
+.env.*
+!.env.example
+*.local
+credentials.json
+**/credentials*.json
+**/service-account*.json
+**/*-service-account.json
+**/secrets/
+.secrets/
 
 # vercel
 .vercel
 
-# typescript
-*.tsbuildinfo
+# typescript / next generated (keep next-env.d.ts out of noise)
 next-env.d.ts
 
-# google apps script
+# google apps script / sheet dumps
 google-apps-script/
-
-
 sheets/
 
+# local excel / python tooling
+.tmp_excel_env/
+.venv/
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.xlsx
+*.xls
+
+# supabase local / CLI temp
+supabase/.temp/
+supabase/.branches/
+.supabase/
+
+# cursor / claude local
 .claude/
 .cursor/
+
+# optional large local dumps (already partially present locally)
+portfolio sheets/

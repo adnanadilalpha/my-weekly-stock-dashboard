@@ -22,6 +22,7 @@ import {
   type MarketCapBucket,
   type ScreenerIndexId,
 } from '@/lib/screening/types';
+import { CLIENT_CAP_BUCKETS } from '@/lib/screening/client-ticker-meta';
 import { cn } from '../ui/utils';
 
 type FilterId = 'ALL' | Exclude<QuadrantId, 'UNKNOWN'>;
@@ -36,10 +37,7 @@ const FILTERS: { id: FilterId; label: string }[] = [
 
 const MARKET_CAP_OPTIONS: { id: 'ALL' | MarketCapBucket; label: string }[] = [
   { id: 'ALL', label: 'All sizes' },
-  { id: 'large', label: MARKET_CAP_LABELS.large },
-  { id: 'mid_small', label: MARKET_CAP_LABELS.mid_small },
-  { id: 'sector_etf', label: MARKET_CAP_LABELS.sector_etf },
-  { id: 'segment', label: MARKET_CAP_LABELS.segment },
+  ...CLIENT_CAP_BUCKETS.map((id) => ({ id, label: MARKET_CAP_LABELS[id] })),
 ];
 
 const INDEX_OPTIONS: { id: 'ALL' | ScreenerIndexId; label: string }[] = [

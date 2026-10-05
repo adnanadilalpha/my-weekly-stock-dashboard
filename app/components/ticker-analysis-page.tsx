@@ -36,6 +36,13 @@ import {
   toDisplayPercent,
 } from '@/lib/mws-performance-tone';
 import { composeOverviewBrief, composeQuadrantBrief } from '@/lib/intelligence/brief';
+import {
+  benchmarkComparisonLabel,
+  getClientTickerMeta,
+  getClientTickerName,
+  FAROUK_SECTOR_TO_ETF,
+  sectorEtfDisplayName,
+} from '@/lib/screening';
 import { BriefCard } from './intelligence/brief-card';
 import { RelativeStrengthButton } from './charts/relative-strength-dialog';
 import { ChatDrawer } from './intelligence/chat-drawer';
@@ -99,8 +106,11 @@ const TICKER_NAMES: Record<string, string> = {
 
 function extractBenchmarkTicker(text: string | null | undefined): string | null {
   if (!text) return null;
-  const m = text.match(/^\$?([^:]+):/);
-  return m?.[1]?.trim() ?? null;
+  // "$XLP: Lagging" or "$XLP (Consumer Defensive)" or "XLP (…)"
+  const labeled = text.match(/^\$?([A-Z]{1,5})\s*[:(\s]/);
+  if (labeled?.[1]) return labeled[1];
+  const bare = text.match(/^\$?([A-Z]{1,5})$/);
+  return bare?.[1] ?? null;
 }
 
 function getBenchmarkName(data: Record<string, unknown> | null, tp: string | null): string {
@@ -333,12 +343,31 @@ export function TickerAnalysisPage({
   const fetchBenchmarkData = async () => {
     if (!supabaseData) return;
     const sd = supabaseData as unknown as Record<string, unknown>;
+    // Farouk: stocks (other_stocks) → SPY + sector ETF. Segment/sector/ETF pages unchanged.
+    // Resolve from mapping sheet directly so we never stay on stale QQQ in DB.
+    const clientMeta = getClientTickerMeta(ticker);
+    const mappedSectorEtf =
+      clientMeta && clientMeta.cap !== 'ETF'
+        ? (FAROUK_SECTOR_TO_ETF[clientMeta.sector as keyof typeof FAROUK_SECTOR_TO_ETF] ?? null)
+        : null;
+    const dbSecond = String(sd.second_benchmark_ticker ?? sd.second_benchmark_name ?? '').toUpperCase();
+    const dbIsQqq = dbSecond.includes('QQQ');
+    const faroukSectorEtf =
+      type !== 'segment' && type !== 'sector' && mappedSectorEtf && (type === 'other_stock' || dbIsQqq)
+        ? mappedSectorEtf
+        : null;
+    const useFaroukSectorBench = faroukSectorEtf != null;
 
     const firstText = sd.daily_vs_spy_comparison as string | undefined;
-    const firstRaw = extractBenchmarkTicker(firstText);
+    const firstFromDb = typeof sd.first_benchmark_ticker === 'string' ? sd.first_benchmark_ticker : null;
+    const firstRaw = (
+      (useFaroukSectorBench ? 'SPY' : null) ||
+      firstFromDb?.trim().toUpperCase() ||
+      extractBenchmarkTicker(firstText)
+    );
     setFirstBenchmarkTicker(firstRaw);
     if (firstRaw) {
-      const actual = firstRaw.match(/^([A-Z]{2,5})\s/)?.[1] ?? firstRaw;
+      const actual = firstRaw.match(/^([A-Z]{1,5})\s/)?.[1] ?? firstRaw;
       const res = await getTickerData(actual);
       setFirstBenchmarkData(res.data as unknown as Record<string, unknown> | null);
       setFirstBenchmarkName(getBenchmarkName(res.data as unknown as Record<string, unknown> | null, res.type));
@@ -347,14 +376,26 @@ export function TickerAnalysisPage({
       setFirstBenchmarkName('N/A');
     }
 
-    const secondText = (type === 'mega_cap' ? sd.daily_vs_sector_comparison : sd.daily_vs_benchmark_comparison) as string | undefined;
-    const secondRaw = extractBenchmarkTicker(secondText);
+    const secondText = (
+      type === 'mega_cap' ? sd.daily_vs_sector_comparison : sd.daily_vs_benchmark_comparison
+    ) as string | undefined;
+    // When Farouk applies, ignore DB second_benchmark (often QQQ).
+    const secondRaw =
+      faroukSectorEtf ||
+      (!useFaroukSectorBench && typeof sd.second_benchmark_ticker === 'string'
+        ? sd.second_benchmark_ticker.trim().toUpperCase()
+        : null) ||
+      (!useFaroukSectorBench ? extractBenchmarkTicker(secondText) : null);
     setBenchmarkTicker(secondRaw);
     if (secondRaw) {
-      const actual = secondRaw.match(/^([A-Z]{2,5})\s/)?.[1] ?? secondRaw;
+      const actual = secondRaw.match(/^([A-Z]{1,5})\s/)?.[1] ?? secondRaw;
       const res = await getTickerData(actual);
       setSectorBenchmarkData(res.data as unknown as Record<string, unknown> | null);
-      setBenchmarkName(getBenchmarkName(res.data as unknown as Record<string, unknown> | null, res.type));
+      setBenchmarkName(
+        faroukSectorEtf
+          ? sectorEtfDisplayName(faroukSectorEtf).replace(/^\$/, '')
+          : getBenchmarkName(res.data as unknown as Record<string, unknown> | null, res.type),
+      );
     } else {
       setSectorBenchmarkData(null);
       setBenchmarkName('N/A');
@@ -364,7 +405,7 @@ export function TickerAnalysisPage({
   useEffect(() => {
     if (supabaseData) void fetchBenchmarkData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ticker, supabaseData]);
+  }, [ticker, supabaseData, type]);
 
   const handleRefresh = async () => {
     await refetch();
@@ -377,10 +418,12 @@ export function TickerAnalysisPage({
     if (!supabaseData) return null;
     const sd = supabaseData as unknown as Record<string, unknown>;
 
+    const clientMeta = getClientTickerMeta(ticker);
+    const cleanName = clientMeta?.name ?? getClientTickerName(ticker);
     let name = '';
     if (type === 'segment') name = String(sd.name ?? TICKER_NAMES[ticker] ?? ticker);
     else if (type === 'sector') name = String(sd.sector_name ?? TICKER_NAMES[ticker] ?? ticker);
-    else name = String(sd.company_name ?? TICKER_NAMES[ticker] ?? ticker);
+    else name = String(cleanName || sd.company_name || TICKER_NAMES[ticker] || ticker);
 
     const lastUpdated = supabaseData.updated_at
       ? new Date(supabaseData.updated_at as string).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })
@@ -389,8 +432,56 @@ export function TickerAnalysisPage({
     const perf1M = toNum(sd['1m_percent'] ?? supabaseData.daily_1m_percent);
     const perf3M = toNum(sd['3m_percent'] ?? supabaseData.daily_3m_percent);
     const vsHigh1Y = toNum(sd['vs_1y_high'] ?? supabaseData.daily_vs_1y_high);
-    const vsSpyComparison = String(supabaseData.daily_vs_spy_comparison ?? 'N/A');
-    const vsBenchmarkComparison = String((type === 'mega_cap' ? sd.daily_vs_sector_comparison : sd.daily_vs_benchmark_comparison) ?? 'N/A');
+    // Farouk: non-ETF stocks → SPY + sector ETF. Never keep stale QQQ from collect.
+    // Apply whenever mapping has a sector ETF and this is not a segment/sector page.
+    const mappedSectorEtf =
+      clientMeta && clientMeta.cap !== 'ETF'
+        ? (FAROUK_SECTOR_TO_ETF[clientMeta.sector as keyof typeof FAROUK_SECTOR_TO_ETF] ?? null)
+        : null;
+    const dbSecond = String(sd.second_benchmark_ticker ?? sd.second_benchmark_name ?? '').toUpperCase();
+    const dbIsQqq = dbSecond.includes('QQQ');
+    const resolvedSectorEtf =
+      type !== 'segment' && type !== 'sector' && mappedSectorEtf && (type === 'other_stock' || dbIsQqq)
+        ? mappedSectorEtf
+        : null;
+    const useFaroukSectorBench = resolvedSectorEtf != null;
+
+    const liveFirst1M = toNum(
+      (firstBenchmarkData as Record<string, unknown> | null)?.['1m_percent'] ??
+        (firstBenchmarkData as Record<string, unknown> | null)?.daily_1m_percent,
+    );
+    const liveFirst3M = toNum(
+      (firstBenchmarkData as Record<string, unknown> | null)?.['3m_percent'] ??
+        (firstBenchmarkData as Record<string, unknown> | null)?.daily_3m_percent,
+    );
+    const liveSecond1M = toNum(
+      (sectorBenchmarkData as Record<string, unknown> | null)?.['1m_percent'] ??
+        (sectorBenchmarkData as Record<string, unknown> | null)?.daily_1m_percent,
+    );
+    const liveSecond3M = toNum(
+      (sectorBenchmarkData as Record<string, unknown> | null)?.['3m_percent'] ??
+        (sectorBenchmarkData as Record<string, unknown> | null)?.daily_3m_percent,
+    );
+
+    const firstSym = (useFaroukSectorBench ? 'SPY' : firstBenchmarkTicker ?? 'SPY').toUpperCase();
+    const secondSym = (resolvedSectorEtf ?? benchmarkTicker ?? '').toUpperCase();
+
+    const vsSpyComparison =
+      liveFirst1M != null && liveFirst3M != null
+        ? benchmarkComparisonLabel(perf1M, perf3M, liveFirst1M, liveFirst3M, firstSym)
+        : useFaroukSectorBench
+          ? benchmarkComparisonLabel(perf1M, perf3M, null, null, 'SPY')
+          : String(supabaseData.daily_vs_spy_comparison ?? 'N/A');
+
+    const storedSecondComparison = String(
+      (type === 'mega_cap' ? sd.daily_vs_sector_comparison : sd.daily_vs_benchmark_comparison) ?? 'N/A',
+    );
+    const vsBenchmarkComparison =
+      secondSym && liveSecond1M != null && liveSecond3M != null
+        ? benchmarkComparisonLabel(perf1M, perf3M, liveSecond1M, liveSecond3M, secondSym)
+        : resolvedSectorEtf
+          ? benchmarkComparisonLabel(perf1M, perf3M, null, null, resolvedSectorEtf)
+          : storedSecondComparison;
 
     const makeTrend = (daily: boolean) => {
       const p = daily ? 'daily_' : 'weekly_';
@@ -433,12 +524,30 @@ export function TickerAnalysisPage({
       vsHigh1Y,
       vsSpyComparison,
       vsBenchmarkComparison,
-      firstBenchmarkLabel: String(sd.first_benchmark_name ?? `$${firstBenchmarkTicker ?? 'N/A'}`),
-      firstBenchmark1M: toNum(sd.first_benchmark_1m_percent ?? (firstBenchmarkData as Record<string, unknown> | null)?.[`1m_percent`] ?? null),
-      firstBenchmark3M: toNum(sd.first_benchmark_3m_percent ?? (firstBenchmarkData as Record<string, unknown> | null)?.[`3m_percent`] ?? null),
-      secondBenchmarkLabel: String(sd.second_benchmark_name ?? `$${benchmarkTicker ?? 'N/A'}`),
-      secondBenchmark1M: toNum(sd.second_benchmark_1m_percent ?? (sectorBenchmarkData as Record<string, unknown> | null)?.[`1m_percent`] ?? null),
-      secondBenchmark3M: toNum(sd.second_benchmark_3m_percent ?? (sectorBenchmarkData as Record<string, unknown> | null)?.[`3m_percent`] ?? null),
+      firstBenchmarkLabel: useFaroukSectorBench
+        ? '$SPY (S&P 500)'
+        : String(
+            sd.first_benchmark_name ??
+              (firstBenchmarkTicker
+                ? `$${firstBenchmarkTicker}`
+                : firstBenchmarkName !== 'N/A'
+                  ? `$${firstSym}`
+                  : '$N/A'),
+          ),
+      firstBenchmark1M: liveFirst1M ?? toNum(sd.first_benchmark_1m_percent),
+      firstBenchmark3M: liveFirst3M ?? toNum(sd.first_benchmark_3m_percent),
+      // Never show stale QQQ label when Farouk sector ETF is resolved.
+      secondBenchmarkLabel: resolvedSectorEtf
+        ? sectorEtfDisplayName(resolvedSectorEtf)
+        : String(
+            sd.second_benchmark_name ??
+              (benchmarkTicker ? `$${benchmarkTicker}` : benchmarkName !== 'N/A' ? benchmarkName : '$N/A'),
+          ),
+      // Prefer live sector-ETF returns; do not fall back to stored QQQ % when Farouk path is on.
+      secondBenchmark1M:
+        liveSecond1M ?? (resolvedSectorEtf ? null : toNum(sd.second_benchmark_1m_percent)),
+      secondBenchmark3M:
+        liveSecond3M ?? (resolvedSectorEtf ? null : toNum(sd.second_benchmark_3m_percent)),
       perfSummary: String(supabaseData.daily_performance_summary ?? 'N/A'),
       perfDescription: String(supabaseData.daily_performance_description ?? ''),
       weekly: makeTrend(false),
@@ -551,12 +660,22 @@ export function TickerAnalysisPage({
       '1m_percent': data.perf1M,
       '3m_percent': data.perf3M,
       daily_vs_spy_comparison: data.vsSpyComparison !== 'N/A' ? data.vsSpyComparison : null,
+      daily_vs_sector_comparison:
+        type === 'other_stock'
+          ? data.vsBenchmarkComparison !== 'N/A'
+            ? data.vsBenchmarkComparison
+            : null
+          : type === 'mega_cap'
+            ? data.vsBenchmarkComparison !== 'N/A'
+              ? data.vsBenchmarkComparison
+              : null
+            : null,
       daily_vs_benchmark_comparison:
         data.vsBenchmarkComparison !== 'N/A' ? data.vsBenchmarkComparison : null,
       daily_price_vs_21ema: pct21,
       weekly_price_vs_30ema: pct30,
     });
-  }, [activeTrendDescription, chartTf, data, supabaseData, ticker]);
+  }, [activeTrendDescription, chartTf, data, supabaseData, ticker, type]);
 
   const quadrantInsightBrief = useMemo(() => {
     if (!supabaseData) return null;
@@ -697,8 +816,10 @@ export function TickerAnalysisPage({
     score_weak: formulaNums.score_weak,
   };
 
-  const firstBenchSym = (firstBenchmarkTicker ?? extractBenchmarkTicker(data.firstBenchmarkLabel) ?? '').toUpperCase() || null;
-  const secondBenchSym = (benchmarkTicker ?? extractBenchmarkTicker(data.secondBenchmarkLabel) ?? '').toUpperCase() || null;
+  const firstBenchSym =
+    (extractBenchmarkTicker(data.firstBenchmarkLabel) ?? firstBenchmarkTicker ?? '').toUpperCase() || null;
+  const secondBenchSym =
+    (extractBenchmarkTicker(data.secondBenchmarkLabel) ?? benchmarkTicker ?? '').toUpperCase() || null;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">

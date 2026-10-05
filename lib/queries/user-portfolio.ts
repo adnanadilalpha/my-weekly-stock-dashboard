@@ -159,6 +159,53 @@ export function computeRealizedReturn(
   return exitPrice / avgEntry - 1;
 }
 
+/**
+ * Unrealized P&L vs average entry (client formula):
+ * (current price − avg cost) / avg cost
+ */
+export function computeCostBasisReturn(
+  avgEntry: number | null | undefined,
+  currentPrice: number | null | undefined,
+): number | null {
+  if (
+    avgEntry == null ||
+    currentPrice == null ||
+    !Number.isFinite(avgEntry) ||
+    !Number.isFinite(currentPrice) ||
+    avgEntry === 0
+  ) {
+    return null;
+  }
+  return currentPrice / avgEntry - 1;
+}
+
+/** Calendar date ~`days` ago as YYYY-MM-DD (UTC). */
+export function isoDateDaysAgo(days: number, from = new Date()): string {
+  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() - Math.max(0, Math.floor(days)));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Price change over a lookback window from two closes:
+ * (current − prior) / prior
+ */
+export function computePriceChangeReturn(
+  priorClose: number | null | undefined,
+  currentPrice: number | null | undefined,
+): number | null {
+  if (
+    priorClose == null ||
+    currentPrice == null ||
+    !Number.isFinite(priorClose) ||
+    !Number.isFinite(currentPrice) ||
+    priorClose === 0
+  ) {
+    return null;
+  }
+  return currentPrice / priorClose - 1;
+}
+
 export function computeSinceStartReturn(
   startClose: number | null | undefined,
   currentPrice: number | null | undefined,

@@ -1,5 +1,6 @@
 import { SP500_BY_TICKER } from '@/lib/screening/sp500-constituents';
 import { NASDAQ100_TICKERS } from '@/lib/screening/nasdaq100-constituents';
+import { getClientTickerMeta } from '@/lib/screening/client-ticker-meta';
 import { sectorEtfLabel } from '@/lib/screening/sector-labels';
 import type { MarketCapBucket, ScreenerMeta } from '@/lib/screening/types';
 
@@ -9,11 +10,11 @@ export type UniverseSourceTable =
   | 'mega_caps'
   | 'other_stocks';
 
-function marketCapForTable(table: UniverseSourceTable): MarketCapBucket {
-  if (table === 'mega_caps') return 'large';
-  if (table === 'sectors') return 'sector_etf';
-  if (table === 'market_segments') return 'segment';
-  return 'mid_small';
+/** Fallback only when ticker is missing from the client mapping file. */
+function marketCapFallback(table: UniverseSourceTable): MarketCapBucket {
+  if (table === 'mega_caps') return 'Large Cap';
+  if (table === 'sectors' || table === 'market_segments') return 'ETF';
+  return 'Small Cap';
 }
 
 function lookupKeys(ticker: string): string[] {
@@ -29,20 +30,29 @@ export function buildScreenerMeta(input: {
   industry?: string | null;
 }): ScreenerMeta {
   const keys = lookupKeys(input.ticker);
+  const client = getClientTickerMeta(input.ticker);
   const spMeta = keys.map((k) => SP500_BY_TICKER[k]).find(Boolean) ?? null;
   const inSp500 = spMeta != null;
   const inNasdaq100 = keys.some((k) => NASDAQ100_TICKERS.has(k));
   const etf = input.sectorEtf?.trim().toUpperCase() || null;
+
+  // Prefer Farouk's Sector / Industry / Cap mapping when present.
   const sector =
-    spMeta?.sector ??
-    sectorEtfLabel(etf) ??
+    client?.sector ||
+    spMeta?.sector ||
+    sectorEtfLabel(etf) ||
     (input.sourceTable === 'sectors' ? sectorEtfLabel(input.ticker) : null);
-  const industry = spMeta?.industry ?? (input.industry?.trim() || null);
+
+  const industry =
+    client?.industry || spMeta?.industry || (input.industry?.trim() || null);
+
+  const marketCap: MarketCapBucket | null =
+    client?.cap ?? marketCapFallback(input.sourceTable);
 
   return {
-    marketCap: marketCapForTable(input.sourceTable),
-    sector,
-    industry,
+    marketCap,
+    sector: sector || null,
+    industry: industry || null,
     sectorEtf: etf,
     inSp500,
     inNasdaq100,

@@ -169,11 +169,19 @@ const INDUSTRY_TO_SECTOR_ETF: Record<string, string> = {
   'Restaurants': 'XLY',
   'Lodging': 'XLY',
   'Consumer Defensive': 'XLP',
+  'Consumer Staples': 'XLP',
+  'Packaged Foods': 'XLP',
+  'Packaged Foods & Meats': 'XLP',
   'Beverages—Non-Alcoholic': 'XLP',
   'Household & Personal Products': 'XLP',
   'Food Distribution': 'XLP',
   'Grocery Stores': 'XLP',
   'Discount Stores': 'XLP',
+  'Consumer Discretionary': 'XLY',
+  'Financials': 'XLF',
+  'Health Care': 'XLV',
+  'Information Technology': 'XLK',
+  'Materials': 'XLB',
   'Energy': 'XLE',
   'Oil & Gas E&P': 'XLE',
   'Oil & Gas Integrated': 'XLE',
@@ -506,7 +514,7 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
   }
 
   // --- Load tickers ---------------------------------------------------------
-  type Row = { id: string; ticker: string; updated_at?: string | null };
+  type Row = { id: string; ticker: string; updated_at?: string | null; sector_etf?: string | null };
   const tickers: { table: TickerTable; rows: Row[] }[] = [];
   let totalLoaded = 0;
 
@@ -514,9 +522,13 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     // Targeted update: look up only the specified tickers across all tables
     console.info('[load-tickers] targeted mode', { tickers: targetTickers });
     for (const table of TICKER_TABLES) {
+      const selectCols =
+        table === 'mega_caps' || table === 'other_stocks'
+          ? 'id, ticker, updated_at, sector_etf'
+          : 'id, ticker, updated_at';
       const { data, error } = await db
         .from(table)
-        .select('id, ticker, updated_at')
+        .select(selectCols)
         .in('ticker', targetTickers);
       if (error) { console.error('[load-tickers] failed for', table, error.message); continue; }
       const rows = (data ?? []).filter((r) => typeof r.ticker === 'string' && r.ticker.length > 0) as Row[];
@@ -527,9 +539,13 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     for (const table of TICKER_TABLES) {
       if (totalLoaded >= MAX_TICKERS_PER_RUN) break;
       const remaining = MAX_TICKERS_PER_RUN - totalLoaded;
+      const selectCols =
+        table === 'mega_caps' || table === 'other_stocks'
+          ? 'id, ticker, updated_at, sector_etf'
+          : 'id, ticker, updated_at';
       const { data, error } = await db
         .from(table)
-        .select('id, ticker, updated_at')
+        .select(selectCols)
         .lt('updated_at', sessionStartedAt)
         .order('updated_at', { ascending: true })
         .limit(remaining);
@@ -612,7 +628,21 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
           if (result.quoteProvider !== result.historyProvider && result.historyProvider) {
             fallbackUsed += 1;
           }
-          const patch = buildUpdatePatch(result, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, bucket.table, row.ticker);
+          const rowSectorEtf =
+            typeof row.sector_etf === 'string' && row.sector_etf.trim()
+              ? row.sector_etf.trim().toUpperCase()
+              : null;
+          const patch = buildUpdatePatch(
+            result,
+            params,
+            ratingLabels,
+            performanceLabels,
+            trendTemplates,
+            benchmarks,
+            bucket.table,
+            row.ticker,
+            rowSectorEtf,
+          );
           // Keep sector_etf current for mega_caps on every collect cycle (hardcoded, no extra API call).
           if (bucket.table === 'mega_caps') {
             const etf = MEGA_CAP_SECTOR_ETF[row.ticker];
@@ -853,6 +883,7 @@ async function loadBenchmarkSnapshots(
     'BND',
     ...Object.values(MARKET_SEGMENT_BENCHMARKS).flatMap((v) => [v.first, v.second]),
     ...Object.values(MEGA_CAP_SECTOR_ETF),
+    ...SECTOR_TICKERS,
   ]));
   const byTicker: Record<string, BenchmarkSnapshot> = {};
   for (const ticker of tickers) {
@@ -1048,7 +1079,17 @@ async function importTickerUniverse(
           continue;
         }
 
-        const patch = buildUpdatePatch(result, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, table, ticker);
+        const patch = buildUpdatePatch(
+          result,
+          params,
+          ratingLabels,
+          performanceLabels,
+          trendTemplates,
+          benchmarks,
+          table,
+          ticker,
+          MEGA_CAP_SECTOR_ETF[ticker] ?? null,
+        );
         const { error: upErr } = await db.from(table).update(patch).eq('ticker', ticker);
         if (upErr) {
           failed += 1;
@@ -1270,8 +1311,16 @@ async function importFromCandidates(
           const profile = await primaryProvider.getProfile(ticker);
           if (profile?.industry) {
             sectorEtf = INDUSTRY_TO_SECTOR_ETF[profile.industry] ?? null;
-            console.info('[import-candidates:profile]', { ticker, industry: profile.industry, sectorEtf });
           }
+          if (!sectorEtf && profile?.sector) {
+            sectorEtf = INDUSTRY_TO_SECTOR_ETF[profile.sector] ?? null;
+          }
+          console.info('[import-candidates:profile]', {
+            ticker,
+            industry: profile?.industry ?? null,
+            sector: profile?.sector ?? null,
+            sectorEtf,
+          });
         }
       }
 
@@ -1290,7 +1339,17 @@ async function importFromCandidates(
         continue;
       }
 
-      const patch = buildUpdatePatch(result, params, ratingLabels, performanceLabels, trendTemplates, benchmarks, targetTable, ticker);
+      const patch = buildUpdatePatch(
+        result,
+        params,
+        ratingLabels,
+        performanceLabels,
+        trendTemplates,
+        benchmarks,
+        targetTable,
+        ticker,
+        sectorEtf,
+      );
       // Write sector ETF for tables that carry the column.
       if (sectorEtf && (targetTable === 'mega_caps' || targetTable === 'other_stocks')) {
         (patch as Record<string, unknown>).sector_etf = sectorEtf;
@@ -1418,15 +1477,30 @@ function buildUpdatePatch(
   trendTemplates: TrendTemplateMap,
   benchmarks: BenchmarkSnapshots,
   table: TickerTable,
-  ticker: string
+  ticker: string,
+  sectorEtfHint: string | null = null,
 ): Record<string, unknown> {
   const hasSectorCol = TABLES_WITH_SECTOR_COMPARISON.has(table);
   const marketBench = table === 'market_segments' ? MARKET_SEGMENT_BENCHMARKS[ticker] : null;
-  const sectorBenchmarkTicker = MEGA_CAP_SECTOR_ETF[ticker];
+  const resolvedSectorEtf =
+    (sectorEtfHint && SECTOR_TICKERS.has(sectorEtfHint) ? sectorEtfHint : null) ??
+    MEGA_CAP_SECTOR_ETF[ticker] ??
+    null;
   const firstBenchmarkTicker = marketBench?.first ?? benchmarks.spy.ticker;
-  const secondBenchmarkTicker = marketBench?.second ?? sectorBenchmarkTicker ?? benchmarks.qqq.ticker;
+  // Stocks: sector ETF as second benchmark. Segments keep their peer map. QQQ only as last resort.
+  const secondBenchmarkTicker =
+    marketBench?.second ?? resolvedSectorEtf ?? benchmarks.qqq.ticker;
   const firstBenchmark = benchmarks.byTicker[firstBenchmarkTicker] ?? benchmarks.spy;
-  const secondBenchmark = benchmarks.byTicker[secondBenchmarkTicker] ?? benchmarks.qqq;
+  const secondBenchmark =
+    (secondBenchmarkTicker ? benchmarks.byTicker[secondBenchmarkTicker] : null) ??
+    (resolvedSectorEtf
+      ? {
+          ticker: resolvedSectorEtf,
+          name: SECTOR_ETF_NAMES[resolvedSectorEtf] ?? `$${resolvedSectorEtf}`,
+          ret1m: null,
+          ret3m: null,
+        }
+      : benchmarks.qqq);
 
   const patch: Record<string, unknown> = {
     daily_current_price: result.quote.currentPrice,

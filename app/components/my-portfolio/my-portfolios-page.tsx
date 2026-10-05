@@ -11,6 +11,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog';
 import { MwsTickerPickerDialog } from './mws-ticker-picker-dialog';
 import { HoldingValuesDialog } from './holding-values-dialog';
 import { CloseHoldingDialog } from './close-holding-dialog';
@@ -18,13 +28,15 @@ import {
   addHoldingsBatch,
   cashWeightedReturn,
   closeHolding,
+  computeCostBasisReturn,
+  computePriceChangeReturn,
   computeRealizedReturn,
-  computeSinceStartReturn,
   createUserPortfolio,
   deleteUserPortfolio,
   fetchMwsOverlays,
   fetchNearestDailyCloses,
   getUserPortfolio,
+  isoDateDaysAgo,
   listHoldings,
   listUserPortfolios,
   removeHolding,
@@ -266,7 +278,8 @@ function MyPortfolioDetail({
   const [portfolio, setPortfolio] = useState<UserPortfolio | null>(null);
   const [holdings, setHoldings] = useState<UserPortfolioHolding[]>([]);
   const [overlays, setOverlays] = useState<Map<string, MwsOverlay>>(new Map());
-  const [startCloses, setStartCloses] = useState<Map<string, number>>(new Map());
+  /** Nearest daily close ~30 days ago — key `${TICKER}|YYYY-MM-DD`. */
+  const [monthAgoCloses, setMonthAgoCloses] = useState<Map<string, number>>(new Map());
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerBusy, setPickerBusy] = useState(false);
   const [valuesOpen, setValuesOpen] = useState(false);
@@ -274,6 +287,13 @@ function MyPortfolioDetail({
   const [valuesTargets, setValuesTargets] = useState<UserPortfolioHolding[]>([]);
   const [closeTarget, setCloseTarget] = useState<UserPortfolioHolding | null>(null);
   const [closeBusy, setCloseBusy] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<
+    | { kind: 'delete-portfolio' }
+    | { kind: 'remove-holding'; holding: UserPortfolioHolding }
+    | { kind: 'delete-past'; holding: UserPortfolioHolding }
+    | null
+  >(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const activity = useActivity();
@@ -288,10 +308,17 @@ function MyPortfolioDetail({
       const ov = await fetchMwsOverlays(h.map((x) => x.ticker));
       setOverlays(ov);
 
-      const closeReqs = h
-        .filter((row) => row.start_date)
-        .map((row) => ({ ticker: row.ticker, asOfDate: String(row.start_date) }));
-      setStartCloses(closeReqs.length ? await fetchNearestDailyCloses(closeReqs) : new Map());
+      const asOf1m = isoDateDaysAgo(30);
+      const openTickers = [
+        ...new Set(
+          h.filter((row) => row.status !== 'closed').map((row) => row.ticker.trim().toUpperCase()),
+        ),
+      ].filter(Boolean);
+      setMonthAgoCloses(
+        openTickers.length
+          ? await fetchNearestDailyCloses(openTickers.map((ticker) => ({ ticker, asOfDate: asOf1m })))
+          : new Map(),
+      );
 
       return h;
     } catch (e) {
@@ -377,32 +404,46 @@ function MyPortfolioDetail({
     }
   };
 
-  const handleDeletePortfolio = async () => {
-    if (!confirm('Delete this portfolio and all holdings?')) return;
+  const handleConfirmAction = async () => {
+    if (!confirmAction) return;
+    setConfirmBusy(true);
+    setError(null);
     try {
-      await deleteUserPortfolio(portfolioId);
-      onDeleted();
+      if (confirmAction.kind === 'delete-portfolio') {
+        await deleteUserPortfolio(portfolioId);
+        setConfirmAction(null);
+        onDeleted();
+        return;
+      }
+      await removeHolding(confirmAction.holding.id);
+      setConfirmAction(null);
+      await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Delete failed');
+      setError(
+        e instanceof Error
+          ? e.message
+          : confirmAction.kind === 'delete-portfolio'
+            ? 'Delete failed'
+            : 'Remove failed',
+      );
+    } finally {
+      setConfirmBusy(false);
     }
   };
+
+  const monthAgoDate = useMemo(() => isoDateDaysAgo(30), []);
 
   const enrichOne = useCallback(
     (h: UserPortfolioHolding) => {
       const o = overlays.get(h.ticker.toUpperCase()) ?? null;
       const inMws = o?.in_mws_coverage ?? false;
-      const startKey =
-        h.start_date && h.ticker
-          ? `${h.ticker.toUpperCase()}|${String(h.start_date).slice(0, 10)}`
-          : null;
-      const startClose = startKey ? (startCloses.get(startKey) ?? null) : null;
       const currentPrice = o?.daily_current_price ?? null;
-      const { sinceStartReturn, holdingDays, cagr } = computeSinceStartReturn(
-        startClose,
-        currentPrice,
-        h.start_date,
-      );
-      const ret1m = o?.['1m_percent'] ?? null;
+      /** (current − avg entry) / avg entry */
+      const yourReturn = computeCostBasisReturn(h.cost_basis, currentPrice);
+      const monthKey = `${h.ticker.toUpperCase()}|${monthAgoDate}`;
+      const monthAgoClose = monthAgoCloses.get(monthKey) ?? null;
+      /** Real price change over ~30 days from price_history. */
+      const monthReturn = computePriceChangeReturn(monthAgoClose, currentPrice);
       const strength = o?.performance_strength ?? o?.daily_performance_strength ?? null;
       const quadrant = quadrantFromPct(o?.daily_price_vs_21ema, o?.weekly_price_vs_30ema);
       const realizedReturn = computeRealizedReturn(h.cost_basis, h.exit_price);
@@ -415,25 +456,23 @@ function MyPortfolioDetail({
           quadrant === 'PULLBACK' ||
           (strength ?? '').toLowerCase() === 'weak' ||
           ratingLower.includes('downtrend') ||
-          (ret1m != null && ret1m <= -0.05));
+          (monthReturn != null && monthReturn <= -0.05));
 
       return {
         h,
         o,
         inMws,
-        startClose,
         currentPrice,
-        sinceStartReturn,
-        holdingDays,
-        cagr,
-        ret1m,
+        yourReturn,
+        monthReturn,
+        monthAgoClose,
         strength,
         quadrant,
         realizedReturn,
         needsAttention,
       };
     },
-    [overlays, startCloses],
+    [overlays, monthAgoCloses, monthAgoDate],
   );
 
   const enrichedOpen = useMemo(() => {
@@ -453,10 +492,12 @@ function MyPortfolioDetail({
     const cash = openHoldings.reduce((s, h) => s + (h.cash_invested ?? 0), 0);
     const hasCash = openHoldings.some((h) => h.cash_invested != null);
     const book = cashWeightedReturn(
-      enrichedOpen.map((e) => ({ cash: e.h.cash_invested, ret: e.sinceStartReturn })),
+      enrichedOpen.map((e) => ({ cash: e.h.cash_invested, ret: e.yourReturn })),
     );
-    const ones = enrichedOpen.map((e) => e.ret1m).filter((v): v is number => v != null && Number.isFinite(v));
-    const avg1m = ones.length ? ones.reduce((a, b) => a + b, 0) / ones.length : null;
+    const book30d = cashWeightedReturn(
+      enrichedOpen.map((e) => ({ cash: e.h.cash_invested, ret: e.monthReturn })),
+    );
+
     const attention = enrichedOpen.filter((e) => e.needsAttention);
     const quadrantCounts: Partial<Record<Exclude<QuadrantId, 'UNKNOWN'>, number>> = {};
     for (const e of enrichedOpen) {
@@ -467,7 +508,8 @@ function MyPortfolioDetail({
       cashInvested: hasCash ? cash : null,
       bookReturn: book.bookReturn,
       bookReturnCounted: book.counted,
-      avg1m,
+      book1m: book30d.bookReturn,
+      book1mCounted: book30d.counted,
       attention,
       quadrantCounts,
     };
@@ -479,7 +521,8 @@ function MyPortfolioDetail({
         holdingCount: openHoldings.length,
         bookReturn: totals.bookReturn,
         bookReturnCounted: totals.bookReturnCounted,
-        avg1m: totals.avg1m,
+        book1m: totals.book1m,
+        book1mCounted: totals.book1mCounted,
         attentionTickers: totals.attention.map((a) => a.h.ticker),
         attentionQuadrants: totals.attention.map((a) => a.quadrant),
         quadrantCounts: totals.quadrantCounts,
@@ -497,10 +540,12 @@ function MyPortfolioDetail({
           maximumFractionDigits: digits,
         }).format(v);
 
+  /** Returns are stored as decimals (e.g. 9.88 = +988%). Always ×100 for display. */
   const fmtPct = (v: number | null) => {
     if (v == null || !Number.isFinite(v)) return '—';
-    const display = Math.abs(v) <= 2 ? v * 100 : v;
-    const rounded = Number(display.toFixed(1));
+    const display = v * 100;
+    const abs = Math.abs(display);
+    const rounded = Number((abs >= 100 ? display.toFixed(0) : display.toFixed(1)));
     const sign = rounded > 0 ? '+' : '';
     return `${sign}${rounded}%`;
   };
@@ -559,7 +604,12 @@ function MyPortfolioDetail({
               onSelectTicker={(t) => onNavigateMws?.('ticker-analysis', t)}
             />
             <QuadrantScreenerButton onSelectTicker={(t) => onNavigateMws?.('ticker-analysis', t)} />
-            <Button type="button" variant="ghost" size="sm" onClick={() => void handleDeletePortfolio()}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmAction({ kind: 'delete-portfolio' })}
+            >
               <Trash2 className="h-4 w-4 text-muted-foreground" />
               <span className="sr-only">Delete portfolio</span>
             </Button>
@@ -604,27 +654,31 @@ function MyPortfolioDetail({
                 </div>
                 <div className="mt-1 text-[10px] text-muted-foreground">
                   {totals.bookReturnCounted > 0
-                    ? `Since your Start dates (${totals.bookReturnCounted} of ${openHoldings.length})`
-                    : 'Add Start under Edit values'}
+                    ? `(Price − avg entry) / avg entry · ${totals.bookReturnCounted} of ${openHoldings.length}`
+                    : 'Set avg entry under Edit values'}
                 </div>
               </div>
               <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Last month
+                  Last 30 days
                 </div>
                 <div
                   className={cn(
                     'mt-1 text-[1.375rem] font-semibold tracking-tight sm:text-2xl',
-                    totals.avg1m == null
+                    totals.book1m == null
                       ? 'text-foreground'
-                      : totals.avg1m >= 0
+                      : totals.book1m >= 0
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : 'text-rose-600 dark:text-rose-400',
                   )}
                 >
-                  {fmtPct(totals.avg1m)}
+                  {fmtPct(totals.book1m)}
                 </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">Avg market move (not your Start)</div>
+                <div className="mt-1 text-[10px] text-muted-foreground">
+                  {totals.book1mCounted > 0
+                    ? `Price change vs ~30 days ago · ${totals.book1mCounted} of ${openHoldings.length}`
+                    : 'Needs MWS price history'}
+                </div>
               </div>
             </div>
           </>
@@ -660,21 +714,22 @@ function MyPortfolioDetail({
                 </span>
               </div>
               <span className="text-[11px] text-muted-foreground sm:text-[12px]">
-                Your return = since Start · Quadrant = 21d & 30w EMA
+                Your return = (price − avg entry) / avg entry · Last 30d = price change
               </span>
             </div>
             <div className="w-full min-w-0 overflow-x-auto">
-              <table className="min-w-[880px] w-full border-separate border-spacing-0 text-xs sm:text-sm">
+              <table className="min-w-[980px] w-full border-separate border-spacing-0 text-xs sm:text-sm">
                 <thead>
                   <tr>
                     {[
                       { key: 'ticker', label: 'Ticker' },
                       { key: 'shares', label: 'Shares' },
                       { key: 'avg', label: 'Avg entry' },
+                      { key: 'price', label: 'Current' },
                       { key: 'cash', label: 'Cash' },
                       { key: 'weight', label: 'Weight' },
                       { key: 'yours', label: 'Your return' },
-                      { key: 'month', label: 'Last month' },
+                      { key: 'month', label: 'Last 30 days' },
                       { key: 'quad', label: 'Quadrant' },
                       { key: 'actions', label: '' },
                     ].map((col) => (
@@ -689,11 +744,11 @@ function MyPortfolioDetail({
                 </thead>
                 <tbody>
                   {enrichedOpen.map((row) => {
-                    const { h, inMws, sinceStartReturn, ret1m, weight, quadrant } = row;
-                    const sincePos = sinceStartReturn != null && sinceStartReturn > 0;
-                    const sinceNeg = sinceStartReturn != null && sinceStartReturn < 0;
-                    const m1Pos = ret1m != null && ret1m > 0;
-                    const m1Neg = ret1m != null && ret1m < 0;
+                    const { h, inMws, currentPrice, yourReturn, monthReturn, weight, quadrant } = row;
+                    const yoursPos = yourReturn != null && yourReturn > 0;
+                    const yoursNeg = yourReturn != null && yourReturn < 0;
+                    const m1Pos = monthReturn != null && monthReturn > 0;
+                    const m1Neg = monthReturn != null && monthReturn < 0;
                     const missingSize = h.shares == null || h.cost_basis == null;
                     return (
                       <tr
@@ -734,31 +789,46 @@ function MyPortfolioDetail({
                           )}
                         </td>
                         <td className="px-3 py-3 font-mono text-xs tabular-nums text-foreground sm:px-4 sm:py-4 sm:text-sm">
+                          {currentPrice == null ? (
+                            <span className="text-muted-foreground" title="Needs MWS price">
+                              —
+                            </span>
+                          ) : (
+                            fmtMoney(currentPrice, 2)
+                          )}
+                        </td>
+                        <td className="px-3 py-3 font-mono text-xs tabular-nums text-foreground sm:px-4 sm:py-4 sm:text-sm">
                           {fmtMoney(h.cash_invested)}
                         </td>
                         <td className="px-3 py-3 font-mono text-xs tabular-nums text-muted-foreground sm:px-4 sm:py-4 sm:text-sm">
                           {fmtWeight(weight)}
                         </td>
                         <td className="px-3 py-3 text-left align-middle font-mono text-xs tabular-nums sm:px-4 sm:py-4 sm:text-sm">
-                          {sincePos || sinceNeg ? (
+                          {yoursPos || yoursNeg || yourReturn === 0 ? (
                             <span
                               className={cn(
                                 'inline-flex rounded-full px-2 py-1 text-[10px] font-semibold sm:px-3 sm:py-1.5 sm:text-xs',
-                                sincePos
+                                yoursPos
                                   ? 'bg-emerald-600 text-white'
-                                  : 'bg-rose-600 text-white',
+                                  : yoursNeg
+                                    ? 'bg-rose-600 text-white'
+                                    : 'bg-neutral-200 text-neutral-800',
                               )}
+                              title="(Current price − avg entry) / avg entry"
                             >
-                              {fmtPct(sinceStartReturn)}
+                              {fmtPct(yourReturn)}
                             </span>
                           ) : (
-                            <span className="text-muted-foreground" title="Set Start under Edit values">
-                              Add start
+                            <span
+                              className="text-muted-foreground"
+                              title="Needs avg entry and a current MWS price"
+                            >
+                              {h.cost_basis == null ? 'Add entry' : '—'}
                             </span>
                           )}
                         </td>
                         <td className="px-3 py-3 font-mono text-xs tabular-nums sm:px-4 sm:py-4 sm:text-sm">
-                          {inMws ? (
+                          {monthReturn != null ? (
                             <span
                               className={
                                 m1Pos
@@ -767,8 +837,9 @@ function MyPortfolioDetail({
                                     ? 'text-rose-600 dark:text-rose-400'
                                     : 'text-foreground'
                               }
+                              title="Price change vs close ~30 days ago"
                             >
-                              {fmtPct(ret1m)}
+                              {fmtPct(monthReturn)}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -791,10 +862,7 @@ function MyPortfolioDetail({
                             <button
                               type="button"
                               className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
-                              onClick={() => {
-                                if (!confirm(`Permanently remove ${h.ticker}? Prefer Close to keep history.`)) return;
-                                void removeHolding(h.id).then(() => reload());
-                              }}
+                              onClick={() => setConfirmAction({ kind: 'remove-holding', holding: h })}
                               aria-label={`Remove ${h.ticker}`}
                             >
                               <Trash2 className="h-4 w-4" />
@@ -885,10 +953,7 @@ function MyPortfolioDetail({
                           <button
                             type="button"
                             className="rounded-md p-1.5 text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              if (!confirm(`Permanently delete past position ${h.ticker}?`)) return;
-                              void removeHolding(h.id).then(() => reload());
-                            }}
+                            onClick={() => setConfirmAction({ kind: 'delete-past', holding: h })}
                             aria-label={`Delete past ${h.ticker}`}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -935,6 +1000,49 @@ function MyPortfolioDetail({
         busy={closeBusy}
         onConfirm={handleCloseConfirm}
       />
+
+      <AlertDialog
+        open={confirmAction != null}
+        onOpenChange={(open) => {
+          if (!open && !confirmBusy) setConfirmAction(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction?.kind === 'delete-portfolio'
+                ? 'Delete portfolio?'
+                : confirmAction?.kind === 'delete-past'
+                  ? `Delete past ${confirmAction.holding.ticker}?`
+                  : confirmAction?.kind === 'remove-holding'
+                    ? `Remove ${confirmAction.holding.ticker}?`
+                    : 'Confirm'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.kind === 'delete-portfolio'
+                ? 'This deletes the portfolio and all holdings. This cannot be undone.'
+                : confirmAction?.kind === 'delete-past'
+                  ? 'Permanently deletes this past position. This cannot be undone.'
+                  : confirmAction?.kind === 'remove-holding'
+                    ? 'Permanently removes this holding. Prefer Close if you want to keep it in Past positions.'
+                    : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirmBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={confirmBusy}
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                void handleConfirmAction();
+              }}
+            >
+              {confirmBusy ? 'Working…' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

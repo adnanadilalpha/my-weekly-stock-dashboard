@@ -1,12 +1,10 @@
-/** Universe / market-cap style buckets used by Quadrant Screener filters. */
-export type MarketCapBucket = 'large' | 'mid_small' | 'sector_etf' | 'segment';
+import type { ClientCapBucket } from '@/lib/screening/client-ticker-meta';
+import { CLIENT_CAP_LABELS } from '@/lib/screening/client-ticker-meta';
 
-export const MARKET_CAP_LABELS: Record<MarketCapBucket, string> = {
-  large: 'Large caps',
-  mid_small: 'Mid / small',
-  sector_etf: 'Sector ETFs',
-  segment: 'Market segments',
-};
+/** Market-cap buckets from client Sector and Industry Mapping.xlsx. */
+export type MarketCapBucket = ClientCapBucket;
+
+export const MARKET_CAP_LABELS: Record<MarketCapBucket, string> = CLIENT_CAP_LABELS;
 
 export type ScreenerIndexId = 'sp500' | 'nasdaq100';
 
@@ -17,10 +15,10 @@ export const SCREENER_INDEX_LABELS: Record<ScreenerIndexId, string> = {
 
 /** Extra fields attached to RS points for screener filtering. */
 export type ScreenerMeta = {
-  marketCap: MarketCapBucket;
-  /** GICS sector or sector-ETF label. */
+  marketCap: MarketCapBucket | null;
+  /** Client mapping sector (preferred), else GICS / sector-ETF label. */
   sector: string | null;
-  /** GICS sub-industry when known. */
+  /** Client mapping industry (preferred), else GICS sub-industry. */
   industry: string | null;
   sectorEtf: string | null;
   inSp500: boolean;
