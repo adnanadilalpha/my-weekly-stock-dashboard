@@ -13,6 +13,30 @@ function paragraphs(body: string): string[] {
     .filter(Boolean);
 }
 
+function parseQuadrantQuickRead(body: string): {
+  /** Short quadrant name, e.g. "Synced Uptrend" */
+  name: string;
+  metrics: { label: string; value: string }[];
+} | null {
+  const lines = body
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) return null;
+
+  const name = lines[0].split(' — ')[0]?.trim() || lines[0];
+  const metrics = lines.slice(1).flatMap((line) => {
+    const match = line.match(/^% from (.+?):\s*(.+)$/i);
+    if (!match) return [];
+    const horizon = match[1]
+      .replace(/\s*EMA\s*$/i, '')
+      .trim();
+    return [{ label: horizon, value: match[2].trim() }];
+  });
+
+  return { name, metrics };
+}
+
 export function BriefCard({
   brief,
   defaultOpen = true,
@@ -20,12 +44,15 @@ export function BriefCard({
   label = 'MWS explain',
   /** Compact quick-read: no title bar, no pill tags — just the summary text. */
   variant = 'default',
+  /** Optional quadrant snapshot shown above the recap in quick-read. */
+  quadrantBrief = null,
 }: {
   brief: MwsBriefOutput | null;
   defaultOpen?: boolean;
   compact?: boolean;
   label?: string;
   variant?: 'default' | 'quickRead';
+  quadrantBrief?: MwsBriefOutput | null;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const activity = useActivity();
@@ -35,16 +62,58 @@ export function BriefCard({
   const paras = paragraphs(brief.body);
 
   if (variant === 'quickRead') {
+    const quadrant =
+      quadrantBrief && !quadrantBrief.body.toLowerCase().includes('not enough')
+        ? parseQuadrantQuickRead(quadrantBrief.body)
+        : null;
+    const hasRecap = Boolean(brief.body.trim());
+
     return (
-      <div className="rounded-xl border border-neutral-200/80 bg-neutral-50/90 px-3.5 py-3 text-left sm:px-4 sm:py-3.5">
-        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+      <aside className="w-full text-left">
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           <MwsLogo variant="mark" className="h-3.5 w-3.5 rounded-sm" alt="" />
           Quick read
         </div>
-        <p className={`leading-relaxed text-neutral-800 ${compact ? 'text-xs sm:text-[13px]' : 'text-sm'}`}>
-          {brief.body}
-        </p>
-      </div>
+
+        <div
+          className={
+            quadrant && hasRecap
+              ? 'grid gap-3 sm:gap-4 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start lg:gap-6'
+              : undefined
+          }
+        >
+          {quadrant && (
+            <div className="min-w-0 lg:border-r lg:border-border/70 lg:pr-6">
+              <p className="text-[15px] font-semibold leading-snug tracking-tight text-foreground sm:text-base">
+                {quadrant.name}
+              </p>
+              {quadrant.metrics.length > 0 && (
+                <p className="mt-1.5 whitespace-nowrap text-[13px] leading-relaxed text-muted-foreground">
+                  {quadrant.metrics.map((m, i) => {
+                    const below = m.value.trim().startsWith('-');
+                    return (
+                      <span key={m.label}>
+                        {i > 0 && <span className="mx-1.5 text-border">·</span>}
+                        <span className="font-mono text-[12.5px] font-semibold tabular-nums text-foreground">
+                          {m.value}
+                        </span>
+                        {' '}
+                        {below ? 'below' : 'above'} {m.label} EMA
+                      </span>
+                    );
+                  })}
+                </p>
+              )}
+            </div>
+          )}
+
+          {hasRecap ? (
+            <p className="text-[13px] leading-relaxed text-foreground/85 sm:text-sm lg:pt-0.5">
+              {brief.body}
+            </p>
+          ) : null}
+        </div>
+      </aside>
     );
   }
 

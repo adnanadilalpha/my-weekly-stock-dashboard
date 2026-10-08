@@ -184,6 +184,28 @@ export async function fetchTickersRelativeStrength(tickers: string[]): Promise<R
   return fillMissingEma(ordered);
 }
 
+/** PostgREST defaults to max 1000 rows; other_stocks alone is ~2k so we must page. */
+const POSTGREST_PAGE = 1000;
+
+async function selectAllUniverseRows(table: string, selectCols: string): Promise<unknown[]> {
+  const out: unknown[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(selectCols)
+      .or(USER_TICKER_ACTIVE_OR)
+      .order('ticker')
+      .range(from, from + POSTGREST_PAGE - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < POSTGREST_PAGE) break;
+    from += POSTGREST_PAGE;
+  }
+  return out;
+}
+
 /** Full MWS universe for Quadrant Screener (active tickers only). */
 export async function fetchUniverseRelativeStrength(): Promise<RelativeStrengthPoint[]> {
   const byTicker = new Map<string, RelativeStrengthPoint>();
@@ -197,20 +219,16 @@ export async function fetchUniverseRelativeStrength(): Promise<RelativeStrengthP
   };
 
   const [segments, sectors, mega, other] = await Promise.all([
-    supabase.from('market_segments').select(`${RS_SELECT}, name`).or(USER_TICKER_ACTIVE_OR),
-    supabase.from('sectors').select(`${RS_SELECT}, sector_name`).or(USER_TICKER_ACTIVE_OR),
-    supabase.from('mega_caps').select(`${RS_SELECT}, company_name, sector_etf`).or(USER_TICKER_ACTIVE_OR),
-    supabase.from('other_stocks').select(`${RS_SELECT}, company_name, sector_etf`).or(USER_TICKER_ACTIVE_OR),
+    selectAllUniverseRows('market_segments', `${RS_SELECT}, name`),
+    selectAllUniverseRows('sectors', `${RS_SELECT}, sector_name`),
+    selectAllUniverseRows('mega_caps', `${RS_SELECT}, company_name, sector_etf`),
+    selectAllUniverseRows('other_stocks', `${RS_SELECT}, company_name, sector_etf`),
   ]);
 
-  for (const res of [segments, sectors, mega, other]) {
-    if (res.error) throw res.error;
-  }
-
-  ingest(segments.data ?? [], 'market_segments');
-  ingest(sectors.data ?? [], 'sectors');
-  ingest(mega.data ?? [], 'mega_caps');
-  ingest(other.data ?? [], 'other_stocks');
+  ingest(segments, 'market_segments');
+  ingest(sectors, 'sectors');
+  ingest(mega, 'mega_caps');
+  ingest(other, 'other_stocks');
 
   return fillMissingEma([...byTicker.values()].sort((a, b) => a.ticker.localeCompare(b.ticker)));
 }

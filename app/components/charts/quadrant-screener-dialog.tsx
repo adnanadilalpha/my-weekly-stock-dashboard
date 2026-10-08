@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Filter, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Filter, Search, X } from 'lucide-react';
 import { Button } from '../ui/button';
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { RelativeStrengthScatter } from './relative-strength-scatter';
 import { fetchUniverseRelativeStrength } from '@/lib/hooks/useRelativeStrength';
 import type { RelativeStrengthPoint } from '@/lib/relative-strength';
@@ -35,13 +36,11 @@ const FILTERS: { id: FilterId; label: string }[] = [
   { id: 'BROKEN_TREND', label: 'Broken Trend' },
 ];
 
-const MARKET_CAP_OPTIONS: { id: 'ALL' | MarketCapBucket; label: string }[] = [
-  { id: 'ALL', label: 'All sizes' },
-  ...CLIENT_CAP_BUCKETS.map((id) => ({ id, label: MARKET_CAP_LABELS[id] })),
-];
+const MARKET_CAP_OPTIONS: { id: MarketCapBucket; label: string }[] = CLIENT_CAP_BUCKETS.map(
+  (id) => ({ id, label: MARKET_CAP_LABELS[id] }),
+);
 
-const INDEX_OPTIONS: { id: 'ALL' | ScreenerIndexId; label: string }[] = [
-  { id: 'ALL', label: 'Any index' },
+const INDEX_OPTIONS: { id: ScreenerIndexId; label: string }[] = [
   { id: 'sp500', label: SCREENER_INDEX_LABELS.sp500 },
   { id: 'nasdaq100', label: SCREENER_INDEX_LABELS.nasdaq100 },
 ];
@@ -53,34 +52,110 @@ type Props = {
   initialFilter?: FilterId;
 };
 
-function FilterSelect({
+function toggleValue(list: string[], id: string): string[] {
+  return list.includes(id) ? list.filter((v) => v !== id) : [...list, id];
+}
+
+function summaryLabel(
+  selected: string[],
+  options: { id: string; label: string }[],
+  allLabel: string,
+): string {
+  if (selected.length === 0) return allLabel;
+  if (selected.length === 1) {
+    return options.find((o) => o.id === selected[0])?.label ?? selected[0];
+  }
+  return `${selected.length} selected`;
+}
+
+function MultiFilterSelect({
   label,
-  value,
+  allLabel,
+  selected,
   onChange,
   options,
 }: {
   label: string;
-  value: string;
-  onChange: (v: string) => void;
+  allLabel: string;
+  selected: string[];
+  onChange: (next: string[]) => void;
   options: { id: string; label: string }[];
 }) {
+  const [open, setOpen] = useState(false);
+  const active = selected.length > 0;
+
   return (
-    <label className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1">
       <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
         {label}
       </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 max-w-full rounded-lg border border-neutral-200 bg-white px-2.5 text-[12px] text-neutral-800 outline-none focus:ring-2 focus:ring-neutral-300"
-      >
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              'flex h-9 w-full items-center justify-between gap-1.5 rounded-lg border bg-white px-2.5 text-left text-[12px] outline-none focus:ring-2 focus:ring-neutral-300',
+              active
+                ? 'border-neutral-400 text-neutral-900'
+                : 'border-neutral-200 text-neutral-800',
+            )}
+          >
+            <span className="min-w-0 truncate">
+              {summaryLabel(selected, options, allLabel)}
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[min(100vw-2rem,16rem)] p-1.5"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <div className="max-h-56 overflow-y-auto">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-neutral-700 hover:bg-neutral-50"
+              onClick={() => onChange([])}
+            >
+              <span
+                className={cn(
+                  'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border',
+                  selected.length === 0
+                    ? 'border-neutral-900 bg-neutral-900 text-white'
+                    : 'border-neutral-300 bg-white',
+                )}
+              >
+                {selected.length === 0 && <Check className="h-2.5 w-2.5" />}
+              </span>
+              {allLabel}
+            </button>
+            {options.map((o) => {
+              const checked = selected.includes(o.id);
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-neutral-800 hover:bg-neutral-50"
+                  onClick={() => onChange(toggleValue(selected, o.id))}
+                >
+                  <span
+                    className={cn(
+                      'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border',
+                      checked
+                        ? 'border-neutral-900 bg-neutral-900 text-white'
+                        : 'border-neutral-300 bg-white',
+                    )}
+                  >
+                    {checked && <Check className="h-2.5 w-2.5" />}
+                  </span>
+                  <span className="min-w-0 truncate">{o.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -96,19 +171,19 @@ export function QuadrantScreenerDialog({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterId>(initialFilter);
   const [search, setSearch] = useState('');
-  const [sector, setSector] = useState('ALL');
-  const [industry, setIndustry] = useState('ALL');
-  const [marketCap, setMarketCap] = useState<'ALL' | MarketCapBucket>('ALL');
-  const [indexFilter, setIndexFilter] = useState<'ALL' | ScreenerIndexId>('ALL');
+  const [sectors, setSectors] = useState<string[]>([]);
+  const [industries, setIndustries] = useState<string[]>([]);
+  const [marketCaps, setMarketCaps] = useState<MarketCapBucket[]>([]);
+  const [indexes, setIndexes] = useState<ScreenerIndexId[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setFilter(initialFilter);
     setSearch('');
-    setSector('ALL');
-    setIndustry('ALL');
-    setMarketCap('ALL');
-    setIndexFilter('ALL');
+    setSectors([]);
+    setIndustries([]);
+    setMarketCaps([]);
+    setIndexes([]);
     activity?.trackEvent({
       eventType: 'feature_use',
       eventName: 'quadrant_screener_open',
@@ -140,45 +215,53 @@ export function QuadrantScreenerDialog({
       const s = p.screener?.sector?.trim();
       if (s) set.add(s);
     }
-    return [
-      { id: 'ALL', label: 'All sectors' },
-      ...[...set].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, label: s })),
-    ];
+    return [...set].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, label: s }));
   }, [charted]);
 
   const industryOptions = useMemo(() => {
     const set = new Set<string>();
     for (const p of charted) {
-      if (sector !== 'ALL' && p.screener?.sector !== sector) continue;
+      if (sectors.length > 0 && !sectors.includes(p.screener?.sector ?? '')) continue;
       const ind = p.screener?.industry?.trim();
       if (ind) set.add(ind);
     }
-    return [
-      { id: 'ALL', label: 'All industries' },
-      ...[...set].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, label: s })),
-    ];
-  }, [charted, sector]);
+    return [...set].sort((a, b) => a.localeCompare(b)).map((s) => ({ id: s, label: s }));
+  }, [charted, sectors]);
 
   useEffect(() => {
-    if (industry !== 'ALL' && !industryOptions.some((o) => o.id === industry)) {
-      setIndustry('ALL');
-    }
-  }, [industry, industryOptions]);
+    if (industries.length === 0) return;
+    const allowed = new Set(industryOptions.map((o) => o.id));
+    const next = industries.filter((id) => allowed.has(id));
+    if (next.length !== industries.length) setIndustries(next);
+  }, [industries, industryOptions]);
+
+  const matchesAdvanced = useCallback(
+    (p: (typeof charted)[number]) => {
+      const meta = p.screener;
+      if (sectors.length > 0 && !sectors.includes(meta?.sector ?? '')) return false;
+      if (industries.length > 0 && !industries.includes(meta?.industry ?? '')) return false;
+      if (marketCaps.length > 0 && !marketCaps.includes(meta?.marketCap as MarketCapBucket)) {
+        return false;
+      }
+      if (indexes.length > 0) {
+        const ok =
+          (indexes.includes('sp500') && meta?.inSp500) ||
+          (indexes.includes('nasdaq100') && meta?.inNasdaq100);
+        if (!ok) return false;
+      }
+      return true;
+    },
+    [sectors, industries, marketCaps, indexes],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toUpperCase();
     return charted.filter((p) => {
       if (filter !== 'ALL' && p.quadrant !== filter) return false;
       if (q && !p.ticker.includes(q) && !(p.label ?? '').toUpperCase().includes(q)) return false;
-      const meta = p.screener;
-      if (sector !== 'ALL' && meta?.sector !== sector) return false;
-      if (industry !== 'ALL' && meta?.industry !== industry) return false;
-      if (marketCap !== 'ALL' && meta?.marketCap !== marketCap) return false;
-      if (indexFilter === 'sp500' && !meta?.inSp500) return false;
-      if (indexFilter === 'nasdaq100' && !meta?.inNasdaq100) return false;
-      return true;
+      return matchesAdvanced(p);
     });
-  }, [charted, filter, search, sector, industry, marketCap, indexFilter]);
+  }, [charted, filter, search, matchesAdvanced]);
 
   const filteredPoints: RelativeStrengthPoint[] = useMemo(
     () =>
@@ -196,15 +279,7 @@ export function QuadrantScreenerDialog({
   );
 
   const counts = useMemo(() => {
-    const base = charted.filter((p) => {
-      const meta = p.screener;
-      if (sector !== 'ALL' && meta?.sector !== sector) return false;
-      if (industry !== 'ALL' && meta?.industry !== industry) return false;
-      if (marketCap !== 'ALL' && meta?.marketCap !== marketCap) return false;
-      if (indexFilter === 'sp500' && !meta?.inSp500) return false;
-      if (indexFilter === 'nasdaq100' && !meta?.inNasdaq100) return false;
-      return true;
-    });
+    const base = charted.filter(matchesAdvanced);
     const c: Record<FilterId, number> = {
       ALL: base.length,
       SYNCED_UPTREND: 0,
@@ -216,16 +291,19 @@ export function QuadrantScreenerDialog({
       if (p.quadrant !== 'UNKNOWN') c[p.quadrant] += 1;
     }
     return c;
-  }, [charted, sector, industry, marketCap, indexFilter]);
+  }, [charted, matchesAdvanced]);
 
   const advancedActive =
-    sector !== 'ALL' || industry !== 'ALL' || marketCap !== 'ALL' || indexFilter !== 'ALL';
+    sectors.length > 0 ||
+    industries.length > 0 ||
+    marketCaps.length > 0 ||
+    indexes.length > 0;
 
   const clearAdvanced = useCallback(() => {
-    setSector('ALL');
-    setIndustry('ALL');
-    setMarketCap('ALL');
-    setIndexFilter('ALL');
+    setSectors([]);
+    setIndustries([]);
+    setMarketCaps([]);
+    setIndexes([]);
   }, []);
 
   return (
@@ -237,6 +315,7 @@ export function QuadrantScreenerDialog({
           </DialogTitle>
           <DialogDescription className="text-[13px] leading-relaxed text-neutral-500">
             Filter the MWS universe by quadrant, sector, industry, market cap, and index membership.
+            Multi-select within each filter.
           </DialogDescription>
         </DialogHeader>
 
@@ -252,28 +331,32 @@ export function QuadrantScreenerDialog({
               />
             </div>
             <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
-              <FilterSelect
+              <MultiFilterSelect
                 label="Sector"
-                value={sector}
-                onChange={setSector}
+                allLabel="All sectors"
+                selected={sectors}
+                onChange={setSectors}
                 options={sectorOptions}
               />
-              <FilterSelect
+              <MultiFilterSelect
                 label="Industry"
-                value={industry}
-                onChange={setIndustry}
+                allLabel="All industries"
+                selected={industries}
+                onChange={setIndustries}
                 options={industryOptions}
               />
-              <FilterSelect
+              <MultiFilterSelect
                 label="Market cap"
-                value={marketCap}
-                onChange={(v) => setMarketCap(v as 'ALL' | MarketCapBucket)}
+                allLabel="All sizes"
+                selected={marketCaps}
+                onChange={(next) => setMarketCaps(next as MarketCapBucket[])}
                 options={MARKET_CAP_OPTIONS}
               />
-              <FilterSelect
+              <MultiFilterSelect
                 label="Index"
-                value={indexFilter}
-                onChange={(v) => setIndexFilter(v as 'ALL' | ScreenerIndexId)}
+                allLabel="Any index"
+                selected={indexes}
+                onChange={(next) => setIndexes(next as ScreenerIndexId[])}
                 options={INDEX_OPTIONS}
               />
             </div>

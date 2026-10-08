@@ -632,9 +632,11 @@ export function TickerAnalysisPage({
       const n = v == null ? NaN : Number(v);
       return Number.isFinite(n) ? n : null;
     })();
+    const hasQuadrant = pct21 != null && pct30 != null;
     return composeOverviewBrief({
       ticker,
       timeframe: chartTf === 'W' ? 'weekly' : 'daily',
+      omitQuadrantLead: hasQuadrant,
       daily_trend_score: data.daily.score,
       daily_rating: data.daily.rating,
       daily_outlook: data.daily.outlook,
@@ -962,22 +964,16 @@ export function TickerAnalysisPage({
           </div>
 
           {topSummaryBrief &&
-            !topSummaryBrief.body.startsWith('Not enough MWS fields') && (
-            <div className="mb-5 space-y-2.5">
+            !topSummaryBrief.body.startsWith('Not enough MWS fields') &&
+            !topSummaryBrief.body.startsWith('Not enough MWS data') &&
+            (topSummaryBrief.body.trim() || quadrantInsightBrief) && (
+            <div className="mb-5">
               <BriefCard
                 variant="quickRead"
                 compact
                 brief={topSummaryBrief}
+                quadrantBrief={quadrantInsightBrief}
               />
-              {quadrantInsightBrief &&
-                !quadrantInsightBrief.body.toLowerCase().includes('not enough') && (
-                  <BriefCard
-                    compact
-                    defaultOpen
-                    label="Quadrant Analysis"
-                    brief={quadrantInsightBrief}
-                  />
-                )}
             </div>
           )}
 

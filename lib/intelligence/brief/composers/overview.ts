@@ -4,7 +4,11 @@ import { withDisclaimer } from '../format';
 import type { RatingBriefInput, PerformanceBriefInput } from '../types';
 import { quadrantFromPct } from './quadrant';
 
-export type OverviewBriefInput = RatingBriefInput & PerformanceBriefInput;
+export type OverviewBriefInput = RatingBriefInput &
+  PerformanceBriefInput & {
+    /** When true, skip the quadrant lead sentence (used when Quick read shows quadrant details above the recap). */
+    omitQuadrantLead?: boolean;
+  };
 
 function friendlyPct(value: number): string {
   const pct = Math.abs(value) <= 1 ? value * 100 : value;
@@ -80,7 +84,9 @@ export function composeOverviewBrief(input: OverviewBriefInput): MwsBriefOutput 
 
   if (quadrant !== 'UNKNOWN') {
     sourceFields.push('daily_price_vs_21ema', 'weekly_price_vs_30ema');
-    sentences.push(`${ticker} is in ${QUADRANT_SNAPSHOT[quadrant]}.`);
+    if (!input.omitQuadrantLead) {
+      sentences.push(`${ticker} is in ${QUADRANT_SNAPSHOT[quadrant]}.`);
+    }
   } else {
     const trend = trendPhrase(rating, tf);
     if (trend) {
@@ -144,6 +150,17 @@ export function composeOverviewBrief(input: OverviewBriefInput): MwsBriefOutput 
   }
 
   if (sentences.length === 0) {
+    // Quadrant details may still render above an empty recap in Quick read.
+    if (quadrant !== 'UNKNOWN' && input.omitQuadrantLead) {
+      return withDisclaimer({
+        composerId: 'overview',
+        title: ticker,
+        body: '',
+        bullets: [],
+        disclaimer: undefined,
+        sourceFields: [...new Set(sourceFields)],
+      });
+    }
     return {
       version: BRIEF_ENGINE_VERSION,
       composerId: 'overview',
