@@ -46,7 +46,11 @@ import {
   type UserPortfolio,
   type UserPortfolioHolding,
 } from '@/lib/queries/user-portfolio';
-import { composeBookBrief, quadrantFromPct } from '@/lib/intelligence/brief';
+import {
+  composeBookBrief,
+  composeBookQuadrantBrief,
+  quadrantFromPct,
+} from '@/lib/intelligence/brief';
 import { BriefCard } from '../intelligence/brief-card';
 import { RelativeStrengthButton } from '../charts/relative-strength-dialog';
 import { QuadrantScreenerButton } from '../charts/quadrant-screener-dialog';
@@ -515,6 +519,11 @@ function MyPortfolioDetail({
     };
   }, [openHoldings, enrichedOpen]);
 
+  const bookQuadrantBrief = useMemo(
+    () => composeBookQuadrantBrief(totals.quadrantCounts),
+    [totals.quadrantCounts],
+  );
+
   const bookBrief = useMemo(
     () =>
       composeBookBrief({
@@ -527,8 +536,9 @@ function MyPortfolioDetail({
         attentionQuadrants: totals.attention.map((a) => a.quadrant),
         quadrantCounts: totals.quadrantCounts,
         closedCount: closedHoldings.length,
+        omitQuadrantMix: Boolean(bookQuadrantBrief),
       }),
-    [openHoldings.length, closedHoldings.length, totals],
+    [openHoldings.length, closedHoldings.length, totals, bookQuadrantBrief],
   );
 
   const fmtMoney = (v: number | null, digits = 0) =>
@@ -624,7 +634,13 @@ function MyPortfolioDetail({
 
         {!loading && openHoldings.length > 0 && (
           <>
-            <BriefCard brief={bookBrief} variant="quickRead" compact defaultOpen />
+            <BriefCard
+              brief={bookBrief}
+              variant="quickRead"
+              compact
+              defaultOpen
+              quadrantBrief={bookQuadrantBrief}
+            />
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">

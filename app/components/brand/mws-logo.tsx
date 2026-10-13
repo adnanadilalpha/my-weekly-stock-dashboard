@@ -16,11 +16,11 @@ type Props = {
 
 /**
  * MWS brand assets.
- * - mark: `/mws-mark.svg` on light, `/mws-mark-white.svg` on dark
+ * - mark: `/app_icon.svg` on light, `/mws-mark-white.svg` on dark (white + gold)
  * - wordmark: `/logo-on-light.svg` on light, `/logo.svg` on dark
  *
- * Note: do not use `/icon.svg` as a public URL — `app/icon.svg` is reserved
- * for the Next.js favicon route and conflicts with `public/icon.svg`.
+ * Favicon: `app/icon.svg` and metadata icons both mirror `/app_icon.svg`.
+ * Do not put a conflicting `public/icon.svg` next to the App Router icon route.
  */
 export function MwsLogo({
   variant = 'mark',
@@ -34,7 +34,7 @@ export function MwsLogo({
         ? '/logo-on-light.svg'
         : '/logo.svg'
       : onLight
-        ? '/mws-mark.svg'
+        ? '/app_icon.svg'
         : '/mws-mark-white.svg';
 
   return (

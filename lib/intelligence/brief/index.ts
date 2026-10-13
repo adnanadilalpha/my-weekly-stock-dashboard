@@ -15,5 +15,5 @@ export { composeQuadrantBrief, quadrantFromPct } from './composers/quadrant';
 export { composePortfolioHoldingBrief } from './composers/portfolio-holding';
 export { composeOverviewBrief } from './composers/overview';
 export type { OverviewBriefInput } from './composers/overview';
-export { composeBookBrief } from './composers/book';
+export { composeBookBrief, composeBookQuadrantBrief } from './composers/book';
 export type { BookBriefInput } from './composers/book';

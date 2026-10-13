@@ -17,6 +17,8 @@ function parseQuadrantQuickRead(body: string): {
   /** Short quadrant name, e.g. "Synced Uptrend" */
   name: string;
   metrics: { label: string; value: string }[];
+  /** Book-level mix line when EMA % metrics are not applicable. */
+  subtitle?: string;
 } | null {
   const lines = body
     .split(/\n+/)
@@ -33,8 +35,12 @@ function parseQuadrantQuickRead(body: string): {
       .trim();
     return [{ label: horizon, value: match[2].trim() }];
   });
+  const subtitle = lines
+    .slice(1)
+    .filter((line) => !/^% from /i.test(line))
+    .join(' · ');
 
-  return { name, metrics };
+  return { name, metrics, subtitle: subtitle || undefined };
 }
 
 export function BriefCard({
@@ -78,8 +84,8 @@ export function BriefCard({
         <div
           className={
             quadrant && hasRecap
-              ? 'grid gap-3 sm:gap-4 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start lg:gap-6'
-              : undefined
+              ? 'grid max-w-3xl gap-3 sm:gap-4 lg:grid-cols-[auto_minmax(0,1fr)] lg:items-start lg:gap-6'
+              : 'max-w-prose'
           }
         >
           {quadrant && (
@@ -87,7 +93,7 @@ export function BriefCard({
               <p className="text-[15px] font-semibold leading-snug tracking-tight text-foreground sm:text-base">
                 {quadrant.name}
               </p>
-              {quadrant.metrics.length > 0 && (
+              {quadrant.metrics.length > 0 ? (
                 <p className="mt-1.5 whitespace-nowrap text-[13px] leading-relaxed text-muted-foreground">
                   {quadrant.metrics.map((m, i) => {
                     const below = m.value.trim().startsWith('-');
@@ -103,12 +109,16 @@ export function BriefCard({
                     );
                   })}
                 </p>
-              )}
+              ) : quadrant.subtitle ? (
+                <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
+                  {quadrant.subtitle}
+                </p>
+              ) : null}
             </div>
           )}
 
           {hasRecap ? (
-            <p className="text-[13px] leading-relaxed text-foreground/85 sm:text-sm lg:pt-0.5">
+            <p className="max-w-prose text-[13px] leading-relaxed text-foreground/85 sm:text-sm lg:pt-0.5">
               {brief.body}
             </p>
           ) : null}

@@ -19,7 +19,53 @@ export type BookBriefInput = {
   /** Open-book quadrant mix when EMA data exists. */
   quadrantCounts?: Partial<Record<Exclude<QuadrantId, 'UNKNOWN'>, number>>;
   closedCount?: number;
+  /** When true, skip the quadrant mix sentence (Quick read shows it beside the recap). */
+  omitQuadrantMix?: boolean;
 };
+
+const QUADRANT_SHORT: Record<Exclude<QuadrantId, 'UNKNOWN'>, string> = {
+  SYNCED_UPTREND: 'Synced Uptrend',
+  PULLBACK: 'Pullback',
+  TURNING: 'Turning',
+  BROKEN_TREND: 'Broken Trend',
+};
+
+function sortedQuadrantEntries(
+  counts: Partial<Record<Exclude<QuadrantId, 'UNKNOWN'>, number>> | undefined,
+): Array<[Exclude<QuadrantId, 'UNKNOWN'>, number]> {
+  if (!counts) return [];
+  return (Object.entries(counts) as Array<[Exclude<QuadrantId, 'UNKNOWN'>, number]>)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1]);
+}
+
+/**
+ * Dominant book quadrant for Quick read left column (same BriefCard layout as ticker detail).
+ */
+export function composeBookQuadrantBrief(
+  counts: Partial<Record<Exclude<QuadrantId, 'UNKNOWN'>, number>> | undefined,
+): MwsBriefOutput | null {
+  const entries = sortedQuadrantEntries(counts);
+  if (entries.length === 0) return null;
+
+  const [topId, topCount] = entries[0];
+  const name = QUADRANT_SHORT[topId];
+  const countLabel = `${topCount} name${topCount === 1 ? '' : 's'}`;
+  const subtitle =
+    entries.length === 1
+      ? countLabel
+      : `${countLabel} · ${QUADRANT_SHORT[entries[1][0]]} next (${entries[1][1]})`;
+
+  return {
+    version: BRIEF_ENGINE_VERSION,
+    composerId: 'quadrant',
+    title: name,
+    // First line = name; second = subtitle (BriefCard quickRead parses this).
+    body: `${name}\n${subtitle}`,
+    bullets: [],
+    sourceFields: ['daily_price_vs_21ema', 'weekly_price_vs_30ema'],
+  };
+}
 
 function friendlyMove(value: number): string {
   // Values are decimals (e.g. 9.88 = +988%). Never treat large gains as already-%.
@@ -34,26 +80,15 @@ function friendlyMove(value: number): string {
 function quadrantMixLine(
   counts: Partial<Record<Exclude<QuadrantId, 'UNKNOWN'>, number>> | undefined,
 ): string | null {
-  if (!counts) return null;
-  const entries = (
-    Object.entries(counts) as Array<[Exclude<QuadrantId, 'UNKNOWN'>, number]>
-  ).filter(([, n]) => n > 0);
+  const entries = sortedQuadrantEntries(counts);
   if (entries.length === 0) return null;
 
-  const labels: Record<Exclude<QuadrantId, 'UNKNOWN'>, string> = {
-    SYNCED_UPTREND: 'Synced Uptrend',
-    PULLBACK: 'Pullback',
-    TURNING: 'Turning',
-    BROKEN_TREND: 'Broken Trend',
-  };
-
-  entries.sort((a, b) => b[1] - a[1]);
   const top = entries[0];
   if (entries.length === 1) {
-    return `On EMA quadrants, the book sits in ${labels[top[0]]} (${top[1]} name${top[1] === 1 ? '' : 's'}).`;
+    return `On EMA quadrants, the book sits in ${QUADRANT_SHORT[top[0]]} (${top[1]} name${top[1] === 1 ? '' : 's'}).`;
   }
   const second = entries[1];
-  return `On EMA quadrants, most names are in ${labels[top[0]]} (${top[1]}), with ${labels[second[0]]} next (${second[1]}).`;
+  return `On EMA quadrants, most names are in ${QUADRANT_SHORT[top[0]]} (${top[1]}), with ${QUADRANT_SHORT[second[0]]} next (${second[1]}).`;
 }
 
 /**
@@ -70,6 +105,7 @@ export function composeBookBrief(input: BookBriefInput): MwsBriefOutput {
     attentionQuadrants,
     quadrantCounts,
     closedCount = 0,
+    omitQuadrantMix = false,
   } = input;
   const monthMove = book1m ?? avg1m ?? null;
   const sourceFields: string[] = [];
@@ -92,33 +128,27 @@ export function composeBookBrief(input: BookBriefInput): MwsBriefOutput {
   if (bookReturn != null && Number.isFinite(bookReturn) && bookReturnCounted > 0) {
     sourceFields.push('cost_basis_return');
     if (bookReturnCounted === holdingCount) {
-      sentences.push(
-        `Your open book is ${friendlyMove(bookReturn)} vs average entry (current price vs what you paid).`,
-      );
+      sentences.push(`Open book ${friendlyMove(bookReturn)} vs average entry.`);
     } else {
       sentences.push(
-        `Where avg entry is set (${bookReturnCounted} of ${holdingCount}), the book is ${friendlyMove(bookReturn)} vs what you paid.`,
+        `Where avg entry is set (${bookReturnCounted}/${holdingCount}), ${friendlyMove(bookReturn)} vs entry.`,
       );
     }
   } else {
-    sentences.push('Set average entry on your holdings to see unrealized return vs cost.');
+    sentences.push('Set average entry to see return vs cost.');
   }
 
   if (monthMove != null && Number.isFinite(monthMove)) {
     sourceFields.push('book_30d_return');
-    const tone =
-      monthMove > 0.02
-        ? 'Over the last ~30 days your book is higher'
-        : monthMove < -0.02
-          ? 'Over the last ~30 days your book is lower'
-          : 'Over the last ~30 days your book is roughly flat';
-    sentences.push(`${tone} (${friendlyMove(monthMove)} on a cash-weighted basis).`);
+    sentences.push(`Last ~30 days: ${friendlyMove(monthMove)}.`);
   }
 
-  const mix = quadrantMixLine(quadrantCounts);
-  if (mix) {
-    sourceFields.push('daily_price_vs_21ema', 'weekly_price_vs_30ema');
-    sentences.push(mix);
+  if (!omitQuadrantMix) {
+    const mix = quadrantMixLine(quadrantCounts);
+    if (mix) {
+      sourceFields.push('daily_price_vs_21ema', 'weekly_price_vs_30ema');
+      sentences.push(mix);
+    }
   }
 
   if (attentionTickers.length >= 1) {
@@ -134,18 +164,19 @@ export function composeBookBrief(input: BookBriefInput): MwsBriefOutput {
       return t;
     });
     if (attentionTickers.length === 1) {
-      sentences.push(`${labeled[0]} stands out on the quadrant / recent-price screen.`);
+      sentences.push(`${labeled[0]} needs a closer look.`);
     } else {
-      const more = attentionTickers.length > 3 ? ` (+${attentionTickers.length - 3} more)` : '';
+      const more = attentionTickers.length > 3 ? ` (+${attentionTickers.length - 3})` : '';
       sentences.push(
-        `${labeled.slice(0, -1).join(', ')} and ${labeled[labeled.length - 1]}${more} stand out on the quadrant / recent-price screen.`,
+        `${labeled.slice(0, -1).join(', ')} and ${labeled[labeled.length - 1]}${more} need a closer look.`,
       );
     }
   }
 
-  if (closedCount > 0) {
+  if (closedCount > 0 && !omitQuadrantMix) {
+    // Past count already shows in the page subtitle when Quick read has a quadrant column.
     sentences.push(
-      `${closedCount} past position${closedCount === 1 ? '' : 's'} archived for analysis (not in these totals).`,
+      `${closedCount} past position${closedCount === 1 ? '' : 's'} archived (not in these totals).`,
     );
   }
 

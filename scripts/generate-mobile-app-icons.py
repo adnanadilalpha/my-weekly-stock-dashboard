@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
-"""Generate iOS + Android app icons from SVG masters.
+"""Generate iOS + Android app icons from masters.
 
 Sources:
-  iOS:     public/app_icon.svg
+  iOS:     public/app_icon.svg  (transparent mark — rasterize then --ios-full)
   Android: public/android_icon.svg
 
 Usage:
   mkdir -p /tmp/mws-icon
-  npx --yes @resvg/resvg-js-cli --fit-width 1024 public/app_icon.svg /tmp/mws-icon/ios-1024.png
-  npx --yes @resvg/resvg-js-cli --fit-width 1024 public/android_icon.svg /tmp/mws-icon/android-1024.png
-  python3 scripts/generate-mobile-app-icons.py \\
-    --ios /tmp/mws-icon/ios-1024.png \\
-    --android /tmp/mws-icon/android-1024.png
+  npx --yes @resvg/resvg-js-cli --fit-width 1024 public/app_icon.svg /tmp/mws-icon/app-icon-1024.png
+  python3 scripts/generate-mobile-app-icons.py --ios /tmp/mws-icon/app-icon-1024.png --ios-full
 
-  # Android only:
+  npx --yes @resvg/resvg-js-cli --fit-width 1024 public/android_icon.svg /tmp/mws-icon/android-1024.png
   python3 scripts/generate-mobile-app-icons.py --android /tmp/mws-icon/android-1024.png
 """
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from PIL import Image
@@ -54,29 +52,78 @@ def to_monochrome_white(src: Image.Image, size: int, scale: float = 0.70) -> Ima
     return Image.merge('RGBA', (white, white, white, a))
 
 
-def write_ios(logo: Image.Image) -> None:
+def flatten_on(src: Image.Image, plate_rgb: tuple[int, int, int], size: int) -> Image.Image:
+    """Composite transparent artwork onto an opaque plate, then resize. Always copies."""
+    rgba = src.convert('RGBA')
+    if rgba.size != (size, size):
+        rgba = rgba.resize((size, size), Image.Resampling.LANCZOS)
+    canvas = Image.new('RGBA', (size, size), (*plate_rgb, 255))
+    canvas.alpha_composite(rgba)
+    return canvas.convert('RGB')
+
+
+def make_tinted(src: Image.Image, size: int) -> Image.Image:
+    """Tinted / Liquid Glass template: white silhouette on black."""
+    rgba = src.convert('RGBA')
+    if rgba.size != (size, size):
+        rgba = rgba.resize((size, size), Image.Resampling.LANCZOS)
+    _r, _g, _b, a = rgba.split()
+    white = Image.new('RGB', (size, size), (255, 255, 255))
+    canvas = Image.new('RGB', (size, size), (0, 0, 0))
+    canvas.paste(white, mask=a)
+    return canvas
+
+
+def write_ios(logo: Image.Image, *, full_bleed: bool = False) -> None:
     IOS_DIR.mkdir(parents=True, exist_ok=True)
-    ios_any = [
-        ('AppIcon-20.png', 20),
-        ('AppIcon-20@2x.png', 40),
-        ('AppIcon-20@3x.png', 60),
-        ('AppIcon-29.png', 29),
-        ('AppIcon-29@2x.png', 58),
-        ('AppIcon-29@3x.png', 87),
-        ('AppIcon-40.png', 40),
-        ('AppIcon-40@2x.png', 80),
-        ('AppIcon-40@3x.png', 120),
-        ('AppIcon-60@2x.png', 120),
-        ('AppIcon-60@3x.png', 180),
-        ('AppIcon-76.png', 76),
-        ('AppIcon-76@2x.png', 152),
-        ('AppIcon-83.5@2x.png', 167),
-        ('AppIcon-1024.png', 1024),
-    ]
-    for name, px in ios_any:
-        with_bg(logo, LIGHT_BG, px).save(IOS_DIR / name, 'PNG')
-        with_bg(logo, DARK_BG, px).save(IOS_DIR / name.replace('AppIcon-', 'AppIcon-dark-'), 'PNG')
-    print(f'Wrote iOS icons → {IOS_DIR}')
+
+    # Drop legacy multi-size files — modern catalog is single 1024 Any/Dark/Tinted.
+    for old in IOS_DIR.glob('*.png'):
+        old.unlink()
+
+    size = 1024
+    if full_bleed:
+        # Source is mostly transparent (not opaque black). Plate must differ by appearance
+        # or Light + Liquid Glass Clear always look the same washed-out icon.
+        any_img = flatten_on(logo, (255, 255, 255), size)
+        dark_img = flatten_on(logo, (0, 0, 0), size)
+        tinted_img = make_tinted(logo, size)
+    else:
+        any_img = with_bg(logo, LIGHT_BG, size)
+        dark_img = with_bg(logo, DARK_BG, size)
+        tinted_img = make_tinted(logo, size)
+
+    any_img.save(IOS_DIR / 'AppIcon.png', 'PNG')
+    dark_img.save(IOS_DIR / 'AppIcon-dark.png', 'PNG')
+    tinted_img.save(IOS_DIR / 'AppIcon-tinted.png', 'PNG')
+
+    contents = {
+        'images': [
+            {
+                'filename': 'AppIcon.png',
+                'idiom': 'universal',
+                'platform': 'ios',
+                'size': '1024x1024',
+            },
+            {
+                'appearances': [{'appearance': 'luminosity', 'value': 'dark'}],
+                'filename': 'AppIcon-dark.png',
+                'idiom': 'universal',
+                'platform': 'ios',
+                'size': '1024x1024',
+            },
+            {
+                'appearances': [{'appearance': 'luminosity', 'value': 'tinted'}],
+                'filename': 'AppIcon-tinted.png',
+                'idiom': 'universal',
+                'platform': 'ios',
+                'size': '1024x1024',
+            },
+        ],
+        'info': {'author': 'xcode', 'version': 1},
+    }
+    (IOS_DIR / 'Contents.json').write_text(json.dumps(contents, indent=2) + '\n')
+    print(f'Wrote iOS icons → {IOS_DIR} (universal 1024 any/dark/tinted, full_bleed={full_bleed})')
 
 
 def write_android(logo: Image.Image) -> None:
@@ -104,7 +151,6 @@ def write_android(logo: Image.Image) -> None:
     to_monochrome_white(logo, 432, 0.70).save(draw / 'ic_launcher_monochrome.png', 'PNG')
     Image.new('RGB', (432, 432), LIGHT_BG[:3]).save(draw / 'ic_launcher_background.png', 'PNG')
     Image.new('RGB', (432, 432), DARK_BG[:3]).save(night / 'ic_launcher_background.png', 'PNG')
-    # In-app onboarding / brand mark (transparent, no launcher plate)
     logo.resize((192, 192), Image.Resampling.LANCZOS).save(draw / 'mws_mark.png', 'PNG')
     print(f'Wrote Android icons → {AND_RES}')
 
@@ -112,6 +158,7 @@ def write_android(logo: Image.Image) -> None:
 def write_ios_brand_mark(logo: Image.Image) -> None:
     brand = IOS_DIR.parent / 'BrandMark.imageset'
     brand.mkdir(parents=True, exist_ok=True)
+    # Keep transparency for in-app use on light screens
     for name, px in [('BrandMark.png', 48), ('BrandMark@2x.png', 96), ('BrandMark@3x.png', 144)]:
         logo.resize((px, px), Image.Resampling.LANCZOS).save(brand / name, 'PNG')
     (brand / 'Contents.json').write_text(
@@ -129,22 +176,14 @@ def write_ios_brand_mark(logo: Image.Image) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='Generate iOS/Android app icons from master PNGs')
+    parser.add_argument('--ios', type=Path, help='Master PNG for iOS')
     parser.add_argument(
-        '--ios',
-        type=Path,
-        help='Master PNG for iOS (from public/app_icon.svg)',
+        '--ios-full',
+        action='store_true',
+        help='Transparent/full artwork: white Any plate, black Dark plate, tinted silhouette',
     )
-    parser.add_argument(
-        '--android',
-        type=Path,
-        help='Master PNG for Android (from public/android_icon.svg)',
-    )
-    parser.add_argument(
-        'legacy_master',
-        nargs='?',
-        type=Path,
-        help='Deprecated: single master used for both platforms',
-    )
+    parser.add_argument('--android', type=Path, help='Master PNG for Android')
+    parser.add_argument('legacy_master', nargs='?', type=Path)
     args = parser.parse_args()
 
     ios_path = args.ios
@@ -159,7 +198,7 @@ def main() -> None:
         if not ios_path.exists():
             raise SystemExit(f'Missing iOS master PNG: {ios_path}')
         ios_logo = Image.open(ios_path).convert('RGBA')
-        write_ios(ios_logo)
+        write_ios(ios_logo, full_bleed=args.ios_full)
         write_ios_brand_mark(ios_logo)
 
     if android_path:
