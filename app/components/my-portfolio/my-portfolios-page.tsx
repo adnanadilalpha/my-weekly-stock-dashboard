@@ -223,6 +223,18 @@ export function MyPortfoliosPage({
             <p className="mt-2 text-sm text-muted-foreground">
               Track shares and average entry, then review MWS quadrant position for each name.
             </p>
+            <Button
+              type="button"
+              className="mt-6"
+              size="sm"
+              onClick={() => {
+                setFormError(null);
+                setCreateOpen(true);
+              }}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              Create book
+            </Button>
           </>
         )}
       </main>
