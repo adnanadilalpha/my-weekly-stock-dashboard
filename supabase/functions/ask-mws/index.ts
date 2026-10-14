@@ -56,6 +56,37 @@ Deno.serve(async (req) => {
     const contextTicker = body?.ticker ? String(body.ticker).toUpperCase() : null;
     if (!message) return json({ error: 'message_required' }, 400);
 
+    // Prefer the same Platform Chat API as web when PUBLIC_WEB_APP_URL is set.
+    const webBase = (Deno.env.get('PUBLIC_WEB_APP_URL') || Deno.env.get('MWS_WEB_API_URL') || '').replace(/\/$/, '');
+    if (webBase) {
+      try {
+        const contextRef = body?.contextRef ?? (contextTicker ? { ticker: contextTicker } : {});
+        const proxied = await fetch(`${webBase}/api/ai/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader,
+          },
+          body: JSON.stringify({
+            message,
+            sessionId: body?.sessionId ?? null,
+            stream: false,
+            contextRef,
+          }),
+        });
+        const payload = await proxied.json();
+        if (proxied.ok) {
+          return json({
+            ...payload,
+            text: payload.content ?? payload.text ?? payload.message ?? '',
+          }, proxied.status);
+        }
+        console.error('web chat proxy failed', proxied.status, payload);
+      } catch (e) {
+        console.error('web chat proxy error', e);
+      }
+    }
+
     if (/\b(buy|sell|hold|price target|should i (buy|sell))\b/i.test(message)) {
       return json({
         text: 'I can explain MWS ratings and momentum data, but I cannot give buy/sell/hold advice.',
@@ -76,6 +107,7 @@ Deno.serve(async (req) => {
       buildFallback(message, tickers);
 
     return json({
+      content: text,
       text,
       tickers: tickers.slice(0, 6).map((t) => ({
         ticker: t.ticker,
@@ -84,6 +116,7 @@ Deno.serve(async (req) => {
         change3m: t['3m_percent'] ?? null,
         from52w: t.vs_1y_high ?? null,
       })),
+      widgets: [],
     });
   } catch (e) {
     console.error(e);
