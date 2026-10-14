@@ -68,6 +68,10 @@ function summaryLabel(
   return `${selected.length} selected`;
 }
 
+function isInsidePopover(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest('[data-slot="popover-content"]'));
+}
+
 function MultiFilterSelect({
   label,
   allLabel,
@@ -89,7 +93,8 @@ function MultiFilterSelect({
       <span className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
         {label}
       </span>
-      <Popover open={open} onOpenChange={setOpen}>
+      {/* modal=false: nest inside Dialog without stealing pointer/scroll events */}
+      <Popover modal={false} open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -108,13 +113,20 @@ function MultiFilterSelect({
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-[min(100vw-2rem,16rem)] p-1.5"
+          // Above Dialog (z-50) so options receive clicks/scroll
+          className="z-[100] w-[min(100vw-2rem,16rem)] p-1.5"
           onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          onWheel={(e) => e.stopPropagation()}
         >
-          <div className="max-h-56 overflow-y-auto">
+          <div
+            className="max-h-56 touch-pan-y overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
+            onWheel={(e) => e.stopPropagation()}
+          >
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-neutral-700 hover:bg-neutral-50"
+              onPointerDown={(e) => e.preventDefault()}
               onClick={() => onChange([])}
             >
               <span
@@ -136,6 +148,7 @@ function MultiFilterSelect({
                   key={o.id}
                   type="button"
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-neutral-800 hover:bg-neutral-50"
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={() => onChange(toggleValue(selected, o.id))}
                 >
                   <span
@@ -308,7 +321,19 @@ export function QuadrantScreenerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!flex h-[min(92dvh,860px)] max-h-[92dvh] w-[calc(100%-1.25rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-2xl border-border/70 bg-white p-0 shadow-2xl sm:max-w-6xl">
+      <DialogContent
+        className="!flex h-[min(92dvh,860px)] max-h-[92dvh] w-[calc(100%-1.25rem)] max-w-6xl flex-col gap-0 overflow-hidden rounded-2xl border-border/70 bg-white p-0 shadow-2xl sm:max-w-6xl"
+        // Popover portals outside Dialog; don't treat those clicks as dismiss.
+        onPointerDownOutside={(e) => {
+          if (isInsidePopover(e.target)) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (isInsidePopover(e.target)) e.preventDefault();
+        }}
+        onFocusOutside={(e) => {
+          if (isInsidePopover(e.target)) e.preventDefault();
+        }}
+      >
         <DialogHeader className="shrink-0 space-y-1 border-b border-neutral-100 px-5 py-4 pr-12 text-left sm:px-6">
           <DialogTitle className="text-[17px] font-semibold tracking-tight text-neutral-900">
             Quadrant Screener
@@ -381,7 +406,14 @@ export function QuadrantScreenerDialog({
                 <button
                   key={f.id}
                   type="button"
-                  onClick={() => setFilter(f.id)}
+                  onClick={() => {
+                    // Toggle: click active quadrant again to clear back to All.
+                    if (f.id === 'ALL') {
+                      setFilter('ALL');
+                      return;
+                    }
+                    setFilter((prev) => (prev === f.id ? 'ALL' : f.id));
+                  }}
                   className={cn(
                     'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition-colors',
                     active
