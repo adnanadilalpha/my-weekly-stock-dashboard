@@ -21,9 +21,67 @@ const supabaseAdmin = supabaseServiceRoleKey
 // Fallback anon client (used only if service role is unavailable)
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+const MOBILE_DEEP_LINK = 'mws://auth-callback';
+
+function isMobileRedirect(value: string): boolean {
+  return value === MOBILE_DEEP_LINK || value.startsWith(`${MOBILE_DEEP_LINK}?`);
+}
+
+/** Mobile deep-link or same-site auth callback only — never arbitrary redirects. */
+function resolveRedirectTo(
+  requested: unknown,
+  fallbackWebCallback: string,
+): string {
+  if (typeof requested !== 'string' || !requested.trim()) return fallbackWebCallback;
+  const value = requested.trim();
+  if (isMobileRedirect(value)) {
+    return value.split('#')[0];
+  }
+  try {
+    const u = new URL(value);
+    const hostOk =
+      u.hostname === 'app.myweeklystock.com' ||
+      u.hostname === 'www.myweeklystock.com' ||
+      u.hostname.endsWith('.vercel.app') ||
+      u.hostname === 'localhost' ||
+      u.hostname === '127.0.0.1';
+    if (hostOk && u.pathname.startsWith('/auth/callback')) {
+      return `${u.origin}${u.pathname}${u.search}`;
+    }
+  } catch {
+    // ignore
+  }
+  return fallbackWebCallback;
+}
+
+/**
+ * Supabase action_link always goes through https verify, then redirects to Site URL
+ * when custom schemes like mws:// are not on the allowlist — so mobile would open web.
+ *
+ * Email clients need an https:// href. We use /auth/callback?client=mobile which
+ * immediately hands off to mws://auth-callback (app verifies the OTP).
+ */
+function buildMobileDeepLink(hashedToken: string): string {
+  const params = new URLSearchParams({
+    token_hash: hashedToken,
+    type: 'email',
+  });
+  return `${MOBILE_DEEP_LINK}?${params.toString()}`;
+}
+
+function buildMobileBridgeLink(appUrl: string, hashedToken: string): string {
+  const params = new URLSearchParams({
+    token_hash: hashedToken,
+    type: 'email',
+    client: 'mobile',
+  });
+  return `${appUrl.replace(/\/$/, '')}/auth/callback?${params.toString()}`;
+}
+
 export async function POST(request: Request) {
   try {
-    const { email } = await request.json();
+    const body = await request.json();
+    const { email, redirectTo: requestedRedirect } = body ?? {};
 
     if (!email) {
       return NextResponse.json(
@@ -121,7 +179,7 @@ export async function POST(request: Request) {
       appUrl = 'http://localhost:3000';
     }
     
-    const redirectTo = `${appUrl}/auth/callback`;
+    const redirectTo = resolveRedirectTo(requestedRedirect, `${appUrl}/auth/callback`);
     console.log('Magic link redirect URL:', redirectTo); // Debug log
     console.log('URL detection details:', {
       forwardedHost: request.headers.get('x-forwarded-host'),
@@ -130,6 +188,7 @@ export async function POST(request: Request) {
       host: request.headers.get('host'),
       requestUrl: request.url,
       finalAppUrl: appUrl,
+      requestedRedirect: typeof requestedRedirect === 'string' ? requestedRedirect : null,
     });
     
     // Use Resend if explicitly enabled AND API key is available, otherwise use Supabase's built-in email
@@ -144,44 +203,77 @@ export async function POST(request: Request) {
     });
     
     let magicLink: string;
+    let mobileBridgeLink: string | null = null;
+    const forMobileApp = isMobileRedirect(redirectTo);
 
-    // Always generate magic link using Supabase (prefer admin API to avoid sending email)
-    if (useResend) {
-      console.log('Using Resend for email delivery');
-      // When using Resend, we need the magic link to send via Resend
-      // Prefer admin API to generate link without sending email
-      if (supabaseAdmin) {
-        console.log('Generating magic link via Supabase Admin API (no email will be sent by Supabase)');
-        const { data: otpData, error: signInError } = await supabaseAdmin.auth.admin.generateLink({
-          type: 'magiclink',
-          email: emailLower,
-          options: {
-            redirectTo: redirectTo,
+    // Mobile must never use Supabase's built-in email — that template always redirects
+    // to the web Site URL. Always generate a token and send a custom Resend email.
+    if (forMobileApp) {
+      if (!useResend || !supabaseAdmin) {
+        console.error('Mobile magic link requires ENABLE_RESEND + SUPABASE_SERVICE_ROLE_KEY');
+        return NextResponse.json(
+          {
+            error:
+              'Mobile sign-in is not configured. Enable Resend and set SUPABASE_SERVICE_ROLE_KEY.',
           },
-        });
+          { status: 500 }
+        );
+      }
 
-        if (signInError || !otpData?.properties?.action_link) {
-          console.error('Error generating magic link with admin API:', signInError);
-          return NextResponse.json(
-            { error: signInError?.message || 'Failed to generate magic link' },
-            { status: 500 }
-          );
-        }
+      const { data: otpData, error: signInError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: emailLower,
+        options: {
+          // Keep web-safe redirect for Supabase metadata; email will not use action_link.
+          redirectTo: `${appUrl}/auth/callback`,
+        },
+      });
 
-        magicLink = otpData.properties.action_link;
-        console.log('Magic link generated successfully, will send via Resend');
-      } else {
-        // No service role key - cannot generate link without sending email via Supabase
-        // Return error to require service role key when using Resend
+      const hashedToken = otpData?.properties?.hashed_token;
+      if (signInError || !hashedToken) {
+        console.error('Error generating mobile magic link:', signInError);
+        return NextResponse.json(
+          { error: signInError?.message || 'Failed to generate mobile magic link' },
+          { status: 500 }
+        );
+      }
+
+      // HTTPS bridge is the email CTA (email clients block/strip mws:// hrefs).
+      // Bridge page immediately opens mws:// — never signs the user into the web app.
+      magicLink = buildMobileBridgeLink(appUrl, hashedToken);
+      mobileBridgeLink = buildMobileDeepLink(hashedToken);
+      console.log('Mobile magic link ready (HTTPS bridge → app deep link)');
+    } else if (useResend) {
+      console.log('Using Resend for email delivery');
+      if (!supabaseAdmin) {
         console.error('Service role key missing - cannot use Resend without it');
         return NextResponse.json(
           { error: 'Service role key required when using Resend. Please set SUPABASE_SERVICE_ROLE_KEY environment variable.' },
           { status: 500 }
         );
       }
+
+      console.log('Generating magic link via Supabase Admin API (no email will be sent by Supabase)');
+      const { data: otpData, error: signInError } = await supabaseAdmin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: emailLower,
+        options: {
+          redirectTo: redirectTo,
+        },
+      });
+
+      if (signInError || !otpData?.properties?.action_link) {
+        console.error('Error generating magic link with admin API:', signInError);
+        return NextResponse.json(
+          { error: signInError?.message || 'Failed to generate magic link' },
+          { status: 500 }
+        );
+      }
+
+      magicLink = otpData.properties.action_link;
+      console.log('Magic link generated successfully, will send via Resend');
     } else {
       console.log('Using Supabase built-in email delivery');
-      // Use Supabase's built-in email - just trigger the OTP (Supabase will send email)
       const { error: signInError } = await supabase.auth.signInWithOtp({
         email: emailLower,
         options: {
@@ -198,11 +290,15 @@ export async function POST(request: Request) {
         );
       }
 
-      // Supabase will send the email automatically, we don't need the magic link
       console.log('OTP sent via Supabase email');
       return NextResponse.json({ success: true });
     }
-    
+
+    const ctaLabel = forMobileApp ? 'Open My Weekly Stock App →' : 'Sign In to Dashboard →';
+    const introCopy = forMobileApp
+      ? 'Click the button below to securely sign in to the My Weekly Stock mobile app. This magic link will expire in <strong>1 hour</strong> for your security.'
+      : 'Click the button below to securely access your My Weekly Stock dashboard. This magic link will expire in <strong>1 hour</strong> for your security.';
+
     const emailHtml = `
 <!DOCTYPE html>
 <html lang="en">
@@ -245,7 +341,7 @@ export async function POST(request: Request) {
             <td style="padding: 48px 40px;">
               <h2 style="margin: 0 0 12px; color: #0f172a; font-size: 26px; font-weight: 700; line-height: 1.3;">Welcome back!</h2>
               <p style="margin: 0 0 32px; color: #475569; font-size: 16px; line-height: 1.6;">
-                Click the button below to securely access your My Weekly Stock dashboard. This magic link will expire in <strong>1 hour</strong> for your security.
+                ${introCopy}
               </p>
               
               <!-- CTA Button -->
@@ -253,7 +349,7 @@ export async function POST(request: Request) {
                 <tr>
                   <td align="center" style="padding: 8px 0 32px;">
                     <a href="${magicLink}" style="display: inline-block; padding: 16px 40px; background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); color: #ffffff; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); transition: all 0.2s;">
-                      Sign In to Dashboard →
+                      ${ctaLabel}
                     </a>
                   </td>
                 </tr>
@@ -265,7 +361,9 @@ export async function POST(request: Request) {
                   <td style="padding: 24px 0; border-top: 1px solid #e2e8f0;">
                     <p style="margin: 0 0 16px; color: #64748b; font-size: 14px; line-height: 1.5;">
                       <strong style="color: #334155;">Button not working?</strong><br>
-                      Copy and paste this link into your browser:
+                      ${forMobileApp
+                        ? 'Open this link on your phone to finish signing in to the app:'
+                        : 'Copy and paste this link into your browser:'}
                     </p>
                     <p style="margin: 0; padding: 12px; background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
                       <a href="${magicLink}" style="color: #3b82f6; text-decoration: none; word-break: break-all; font-size: 13px; font-family: 'Courier New', monospace;">${magicLink}</a>
@@ -318,9 +416,9 @@ export async function POST(request: Request) {
     const emailText = `
 Sign in to My Weekly Stock
 
-Click the link below to securely sign in to your dashboard:
+${forMobileApp ? 'Click the link below to securely sign in to the mobile app:' : 'Click the link below to securely sign in to your dashboard:'}
 ${magicLink}
-
+${mobileBridgeLink ? `\nDirect app link:\n${mobileBridgeLink}\n` : ''}
 This link expires in 1 hour for security reasons.
 
 If you didn't request this email, you can safely ignore it.

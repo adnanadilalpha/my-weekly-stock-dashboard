@@ -1,5 +1,8 @@
 /**
- * Mobile magic-link start (allowlist + Resend email, same template family as web).
+ * Mobile magic-link start (legacy edge path).
+ *
+ * Native apps now call the web API `POST /api/auth/send-magic-link` (Resend),
+ * same as the website. Keep this function for older builds only.
  *
  * POST JSON: { email: string, redirectTo?: string }
  * Secrets:
@@ -86,8 +89,9 @@ Deno.serve(async (req) => {
       },
     });
 
-    const magicLink = linkData?.properties?.action_link;
-    if (linkError || !magicLink) {
+    const actionLink = linkData?.properties?.action_link;
+    const hashedToken = linkData?.properties?.hashed_token as string | undefined;
+    if (linkError || !actionLink) {
       console.error('generateLink failed', linkError);
       return json({ error: linkError?.message || 'Failed to generate magic link' }, 500);
     }
@@ -97,6 +101,15 @@ Deno.serve(async (req) => {
       Deno.env.get('NEXT_PUBLIC_APP_URL') ||
       ''
     ).replace(/\/$/, '');
+    // Prefer HTTPS bridge → mws:// so email clients never land on the web dashboard.
+    const magicLink =
+      hashedToken && webAppUrl
+        ? `${webAppUrl}/auth/callback?${new URLSearchParams({
+            token_hash: hashedToken,
+            type: 'email',
+            client: 'mobile',
+          }).toString()}`
+        : actionLink;
     const logoUrl = webAppUrl
       ? `${webAppUrl}/logo-on-light.svg`
       : '';
