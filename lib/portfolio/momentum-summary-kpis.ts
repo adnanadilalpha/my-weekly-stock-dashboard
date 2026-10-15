@@ -190,3 +190,27 @@ export function combinedRecapRowFromMomentumSummary(
     column_15: opts?.holdingDays ?? null,
   };
 }
+
+/**
+ * Overlay live Macro ETF / Macro 2-3x sheet KPIs onto a stale `performance_recap` ETF row.
+ * Same idea as Combined Performance ← `momentum_picks_summary`.
+ * Keeps cash / portfolio $ / holding days from recap when the sheet KPI block omits them.
+ */
+export function overlayEtfRecapRowFromSheetKpis<T extends Record<string, unknown>>(
+  existing: T,
+  kpis: MomentumSummaryKpis,
+): T {
+  return {
+    ...existing,
+    column_3: kpis.start ?? existing.column_3 ?? existing.column3 ?? null,
+    column_9: kpis.returnsRatio ?? existing.column_9 ?? existing.column9 ?? null,
+    column_10: kpis.hitRateRatio ?? existing.column_10 ?? existing.column10 ?? null,
+    column_11: kpis.avgGainRatio ?? existing.column_11 ?? existing.column11 ?? null,
+    column_12: kpis.avgLossRatio ?? existing.column_12 ?? existing.column12 ?? null,
+    column_13: kpis.netAvgReturnRatio ?? existing.column_13 ?? existing.column13 ?? null,
+    column_14: kpis.cagrRatio ?? existing.column_14 ?? existing.column14 ?? null,
+  };
+}
+
+/** Alias — sheet KPI header parse works for macro_etf / macro_3x_etf as well. */
+export const parseSheetSummaryKpis = parseMomentumSummaryKpis;

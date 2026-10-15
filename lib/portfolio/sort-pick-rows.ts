@@ -66,12 +66,55 @@ export function pickRowSortKey(
   return Number.isFinite(idx) ? idx : 0;
 }
 
-/** Client feedback #3: newest picks first. */
+function statusSortRank(val: unknown): number {
+  const s = String(val ?? '')
+    .trim()
+    .toLowerCase();
+  if (s.startsWith('open')) return 0;
+  if (s.startsWith('closed') || s === 'close') return 2;
+  return 1;
+}
+
+/** Real macro trades only — drops OPEN/CLOSED POSITIONS banners and header repeats. */
+export function isMacroPositionRow<T extends PortfolioSheetRow>(
+  row: T,
+  headerCols: HeaderCol[],
+): boolean {
+  const cells = headerCols.map((c) => String(rowVal(row, c.key) ?? '').trim());
+  if (cells.some((c) => /^(open|closed)\s+positions?$/i.test(c))) return false;
+
+  const statusKey = headerCols.find((c) => c.label.toLowerCase().replace(/\s+/g, ' ').trim() === 'status')?.key;
+  if (statusKey) {
+    const s = String(rowVal(row, statusKey) ?? '')
+      .trim()
+      .toLowerCase();
+    return s.startsWith('open') || s.startsWith('closed') || s === 'close';
+  }
+
+  const idKey = headerCols.find((c) => c.label.toLowerCase().replace(/\s+/g, ' ').trim() === 'id')?.key;
+  if (idKey) {
+    const id = String(rowVal(row, idKey) ?? '')
+      .trim()
+      .replace(/,/g, '');
+    return id !== '' && Number.isFinite(Number(id));
+  }
+  return true;
+}
+
+/** Client feedback #3: newest picks first. Open positions before closed when Status exists. */
 export function sortPickRowsNewestFirst<T extends PortfolioSheetRow>(
   rows: T[],
   headerCols: HeaderCol[],
 ): T[] {
   if (rows.length <= 1 || headerCols.length === 0) return rows;
   const dateKey = findPickSortDateKey(headerCols);
-  return [...rows].sort((a, b) => pickRowSortKey(b, headerCols, dateKey) - pickRowSortKey(a, headerCols, dateKey));
+  const statusKey =
+    headerCols.find((c) => c.label.toLowerCase().replace(/\s+/g, ' ').trim() === 'status')?.key ?? null;
+  return [...rows].sort((a, b) => {
+    if (statusKey) {
+      const byStatus = statusSortRank(rowVal(a, statusKey)) - statusSortRank(rowVal(b, statusKey));
+      if (byStatus !== 0) return byStatus;
+    }
+    return pickRowSortKey(b, headerCols, dateKey) - pickRowSortKey(a, headerCols, dateKey);
+  });
 }

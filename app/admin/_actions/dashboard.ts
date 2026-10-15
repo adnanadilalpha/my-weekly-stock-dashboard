@@ -5,7 +5,9 @@ import {
   combinedRecapRowFromMomentumSummary,
   legacyCombinedRecapFieldsFromRecap,
   momentumReturnsDisplayPct,
+  overlayEtfRecapRowFromSheetKpis,
   parseMomentumSummaryKpis,
+  parseSheetSummaryKpis,
 } from '@/lib/portfolio/momentum-summary-kpis';
 import { recapStrategyDisplayName } from '@/lib/portfolio/recap-table-columns';
 import type { PortfolioSheetRow } from '@/lib/hooks/usePortfolioData';
@@ -252,6 +254,8 @@ function buildRecapDisplay(row: Record<string, unknown>): PortfolioRecapRowDispl
 function processPerformanceRecap(
   rawRows: Record<string, unknown>[],
   momentumSummaryRows: PortfolioSheetRow[] = [],
+  macroEtfSheetRows: PortfolioSheetRow[] = [],
+  macro3xSheetRows: PortfolioSheetRow[] = [],
 ): {
   weekly: PortfolioRecapRowDisplay[];
   etf: PortfolioRecapRowDisplay[];
@@ -260,6 +264,8 @@ function processPerformanceRecap(
   const getCol2 = (r: Record<string, unknown>) => normalizeCol2(String(getCol(r, 'column_2')));
 
   const momentumKpis = parseMomentumSummaryKpis(momentumSummaryRows);
+  const macroEtfKpis = parseSheetSummaryKpis(macroEtfSheetRows);
+  const macro3xKpis = parseSheetSummaryKpis(macro3xSheetRows);
   const legacyCombined = legacyCombinedRecapFieldsFromRecap(rawRows);
   const combinedFromSummary = momentumKpis
     ? combinedRecapRowFromMomentumSummary(momentumKpis, legacyCombined)
@@ -282,7 +288,18 @@ function processPerformanceRecap(
     (r) => WEEKLY_NAMES.has(getCol2(r)) && !/^combined performance(\b|$)/i.test(getCol2(r)),
   );
   const weekly = [...combinedRecap, ...weeklyOnly].map((r) => buildRecapDisplay(r));
-  const etf = withData.filter((r) => ETF_NAMES.has(getCol2(r))).map((r) => buildRecapDisplay(r));
+  const etf = withData
+    .filter((r) => ETF_NAMES.has(getCol2(r)))
+    .map((r) => {
+      const name = getCol2(r);
+      if (name === PORTFOLIO_NAMES.MACRO_ETF && macroEtfKpis) {
+        return buildRecapDisplay(overlayEtfRecapRowFromSheetKpis(r, macroEtfKpis));
+      }
+      if (name === PORTFOLIO_NAMES.MACRO_2_3X && macro3xKpis) {
+        return buildRecapDisplay(overlayEtfRecapRowFromSheetKpis(r, macro3xKpis));
+      }
+      return buildRecapDisplay(r);
+    });
 
   const kpiRecapRows = [...weeklyOnly, ...withData.filter((r) => ETF_NAMES.has(getCol2(r)))];
   const combinedPts = momentumReturnsDisplayPct(momentumKpis?.returnsRatio ?? null);
@@ -309,25 +326,40 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
     const sinceWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const [usersRes, newUsersRes, adminsRes, runs24hRes, recapRes, momentumSummaryRes, authAct] = await Promise.all([
+    const [
+      usersRes,
+      newUsersRes,
+      adminsRes,
+      runs24hRes,
+      recapRes,
+      momentumSummaryRes,
+      macroEtfRes,
+      macro3xRes,
+      authAct,
+    ] = await Promise.all([
       admin.from('authorized_users').select('id', { count: 'exact', head: true }),
       admin.from('authorized_users').select('id', { count: 'exact', head: true }).gte('created_at', sinceWeek),
       admin.from('authorized_users').select('id', { count: 'exact', head: true }).eq('role', 'Admin'),
       admin.from('api_health_log').select('status').gte('run_at', since24h),
       admin.from('performance_recap').select('*').order('row_index', { ascending: true }),
       admin.from('momentum_picks_summary').select('*').order('row_index', { ascending: true }),
+      admin.from('macro_etf').select('*').order('row_index', { ascending: true }),
+      admin.from('macro_3x_etf').select('*').order('row_index', { ascending: true }),
       authSignInActivity(admin),
     ]);
 
     if (usersRes.error) return err('Failed to load user count.', 'db_error');
     if (recapRes.error) return err('Failed to load portfolio recap.', 'db_error');
     if (momentumSummaryRes.error) return err('Failed to load momentum summary.', 'db_error');
+    // Macro sheet overlays are best-effort — fall back to recap if missing.
 
     const runs24h = (runs24hRes.data ?? []) as { status: 'ok' | 'partial' | 'error' }[];
     const recapRows = (recapRes.data ?? []) as Record<string, unknown>[];
     const momentumSummaryRows = (momentumSummaryRes.data ?? []) as PortfolioSheetRow[];
+    const macroEtfSheetRows = (macroEtfRes.data ?? []) as PortfolioSheetRow[];
+    const macro3xSheetRows = (macro3xRes.data ?? []) as PortfolioSheetRow[];
     const { weekly: portfolioRecapWeekly, etf: portfolioRecapEtf, recapAvgReturnDisplay } =
-      processPerformanceRecap(recapRows, momentumSummaryRows);
+      processPerformanceRecap(recapRows, momentumSummaryRows, macroEtfSheetRows, macro3xSheetRows);
 
     const stats: DashboardStats = {
       totalUsers: usersRes.count ?? 0,

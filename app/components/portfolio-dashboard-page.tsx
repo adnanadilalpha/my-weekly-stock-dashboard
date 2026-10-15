@@ -25,7 +25,9 @@ import {
   legacyCombinedRecapFieldsFromRecap,
   momentumRatioToDisplayPct,
   momentumReturnsDisplayPct,
+  overlayEtfRecapRowFromSheetKpis,
   parseMomentumSummaryKpis,
+  parseSheetSummaryKpis,
 } from '@/lib/portfolio/momentum-summary-kpis';
 import type { AppMode, PortfolioPage } from '../types';
 const NAME_TO_PAGE: Record<string, PortfolioPage> = {
@@ -125,6 +127,16 @@ export function PortfolioDashboardPage({
     error: momentumSummaryError,
     refetch: refetchMomentumSummary,
   } = usePortfolioSheet('momentum-combined');
+  const {
+    rows: macroEtfSheetRows,
+    loading: macroEtfLoading,
+    refetch: refetchMacroEtf,
+  } = usePortfolioSheet('macro-etf');
+  const {
+    rows: macro3xSheetRows,
+    loading: macro3xLoading,
+    refetch: refetchMacro3x,
+  } = usePortfolioSheet('macro-3x');
 
   const weeklyNames = new Set<string>([PORTFOLIO_NAMES.DOW30, PORTFOLIO_NAMES.LARGE_CAPS, PORTFOLIO_NAMES.NASDAQ100]);
   const etfNames = new Set<string>([PORTFOLIO_NAMES.MACRO_ETF, PORTFOLIO_NAMES.MACRO_2_3X]);
@@ -146,6 +158,14 @@ export function PortfolioDashboardPage({
     () => parseMomentumSummaryKpis(momentumSummaryRows),
     [momentumSummaryRows],
   );
+  const macroEtfKpis = useMemo(
+    () => parseSheetSummaryKpis(macroEtfSheetRows),
+    [macroEtfSheetRows],
+  );
+  const macro3xKpis = useMemo(
+    () => parseSheetSummaryKpis(macro3xSheetRows),
+    [macro3xSheetRows],
+  );
 
   const combinedRows = useMemo(() => {
     if (momentumKpis) {
@@ -161,7 +181,21 @@ export function PortfolioDashboardPage({
   const weeklyRows = portfolioRows.filter(
     (r) => weeklyNames.has(getCol2(r)) && !isCombinedPerformanceRecapName(getCol2(r)) && hasRowData(r),
   );
-  const etfRows = portfolioRows.filter((r) => etfNames.has(getCol2(r)) && hasRowData(r));
+  const etfRows = useMemo(() => {
+    return portfolioRows
+      .filter((r) => etfNames.has(getCol2(r)) && hasRowData(r))
+      .map((r) => {
+        const name = getCol2(r);
+        const asRec = r as unknown as Record<string, unknown>;
+        if (name === PORTFOLIO_NAMES.MACRO_ETF && macroEtfKpis) {
+          return overlayEtfRecapRowFromSheetKpis(asRec, macroEtfKpis) as unknown as PerformanceRecapRow;
+        }
+        if (name === PORTFOLIO_NAMES.MACRO_2_3X && macro3xKpis) {
+          return overlayEtfRecapRowFromSheetKpis(asRec, macro3xKpis) as unknown as PerformanceRecapRow;
+        }
+        return r;
+      });
+  }, [portfolioRows, macroEtfKpis, macro3xKpis]);
 
   /** Weekly Momentum KPI source is the COMBINED PERFORMANCE recap row. */
   const kpiSourceRow = combinedRows[0] ?? null;
@@ -487,11 +521,19 @@ export function PortfolioDashboardPage({
             onClick={() => {
               void refetch();
               void refetchMomentumSummary();
+              void refetchMacroEtf();
+              void refetchMacro3x();
             }}
-            disabled={loading || momentumSummaryLoading}
+            disabled={loading || momentumSummaryLoading || macroEtfLoading || macro3xLoading}
             className="inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-card px-3.5 text-xs font-medium shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50 sm:w-auto sm:justify-start sm:text-[13px]"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading || momentumSummaryLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${
+                loading || momentumSummaryLoading || macroEtfLoading || macro3xLoading
+                  ? 'animate-spin'
+                  : ''
+              }`}
+            />
             Refresh
           </button>
         </div>
