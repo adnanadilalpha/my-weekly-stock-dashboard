@@ -284,10 +284,11 @@ function processPerformanceRecap(
   const withData = portfolioRows.filter((r) => recapRowHasData(r));
 
   const combinedRecap = withData.filter((r) => /^combined performance(\b|$)/i.test(getCol2(r)));
+  // Admin Weekly Momentum table: only the combined line (not Dow / Large Caps / Nasdaq).
   const weeklyOnly = withData.filter(
     (r) => WEEKLY_NAMES.has(getCol2(r)) && !/^combined performance(\b|$)/i.test(getCol2(r)),
   );
-  const weekly = [...combinedRecap, ...weeklyOnly].map((r) => buildRecapDisplay(r));
+  const weekly = combinedRecap.map((r) => buildRecapDisplay(r));
   const etf = withData
     .filter((r) => ETF_NAMES.has(getCol2(r)))
     .map((r) => {
