@@ -69,10 +69,15 @@ export async function POST(request: Request) {
     ...(contextRef.ticker ? [contextRef.ticker] : []),
   ];
   const t0 = Date.now();
-  // Widgets are pure local inference; focusTickers cover "quadrant of it" follow-ups.
+  // Widgets only from explicit "show chart/quadrant of|for …" (see tools.parseVisualAsk).
   const widgets: ChatWidget[] = inferWidgetsFromQuestion(message, focusTickers);
 
-  const mwsData = await loadMwsDataBlock(auth.client, contextRef, message, auth.user.id);
+  const mwsData = await loadMwsDataBlock(
+    auth.client,
+    { ...contextRef, focusTickers },
+    message,
+    auth.user.id,
+  );
   const tContext = Date.now() - t0;
 
   let assistantText: string;

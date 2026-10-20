@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getSupabaseConfig } from '@/lib/supabase-env';
 import { quadrantFromPct } from '@/lib/intelligence/brief/composers/quadrant';
 import type { QuadrantId } from '@/lib/intelligence/brief/types';
+import { hasTickerPronoun, questionWantsVisual } from '@/lib/intelligence/chat/tools';
 
 export type ChatContextRef = {
   ticker?: string;
@@ -15,15 +16,27 @@ export type ChatContextRef = {
 
 const SYSTEM_PROMPT = `You are MWS Intelligence for My Weekly Stock.
 
+How this chat works:
+- Inline chart/quadrant cards are attached by the app when the user asks to show/plot a specific ticker. You do not create them.
+- Concept / how-to questions (e.g. “What is Quadrant Analysis?”) are text-only. Answer clearly. Never ask them to name a ticker unless they asked about a specific name.
+- When a TICKER block is in MWS DATA, use those fields only. Never invent numbers. If they named a ticker and it is listed as not in the MWS universe, say so.
+- Portfolio questions: use only the USER PORTFOLIO block. If it says there are no open holdings, say that plainly — do not invent holdings or discuss unrelated tickers.
+
+User-facing language:
+- Speak in product terms (Rating, Outlook, Daily/Weekly, Quadrant). Never mention internal plumbing: “snapshots”, “MWS DATA”, “loaded”, “universe tables”, or similar.
+
+Quadrant Analysis (product fact — use for concept answers):
+- Scatter of % vs 21-day EMA (X) and % vs 30-week EMA (Y).
+- Synced Uptrend: above both. Pullback: above 30-week, below 21-day. Turning: below 30-week, above 21-day. Broken Trend: below both.
+- Use as a quick trend-alignment read with Daily + Weekly Ratings — not a buy/sell signal.
+
 Rules:
-- Use ONLY the supplied MWS DATA. Never invent numbers or missing fields.
 - Never recalculate Rating, Score, Outlook, EMAs, or returns. Never give buy/sell/hold advice.
-- Daily and Weekly are concurrent MWS timeframe snapshots — not calendar day/week P&L.
-- If quadrant_position is present, lead with it (Synced Uptrend / Pullback / Turning / Broken Trend).
-- For “today” use Daily fields; for “this week” use Weekly; for “last week” say prior Ratings are not archived.
-- Charts/quadrants may already appear in the UI — narrate them briefly; never say you cannot show visuals.
-- Keep answers short: 2–4 sentences or tight bullets. Bold tickers/ratings. No tables or code fences.
-- If a asked ticker is missing from MWS DATA, say it is not in the MWS universe.`;
+- Daily and Weekly are concurrent MWS timeframe reads — not calendar day/week P&L.
+- If quadrant_position is present on a ticker, lead with it.
+- For “today” use Daily; for “this week” use Weekly; prior-week Ratings are not archived.
+- If a chart/quadrant card is already in the UI for this turn, narrate it briefly — never say you cannot show visuals.
+- Keep answers short: 2–4 sentences or tight bullets. Bold tickers/ratings. No tables or code fences.`;
 
 const ADVICE_RE =
   /\b(buy|sell|hold|accumulate|short|long|price target|should i (buy|sell)|recommend(ed|ation)?)\b/i;
@@ -97,6 +110,10 @@ const TICKER_STOPWORDS = new Set([
   'THAT', 'THESE', 'THOSE', 'THERE', 'THEIR', 'WHERE', 'WHICH', 'WHILE', 'AFTER',
   'BEFORE', 'UNDER', 'AGAIN', 'OTHER', 'EVERY', 'STILL', 'BEING', 'GOING',
   'THEN', 'ALSO', 'SAME', 'HERE', 'THEM', 'QUADRANT', 'CHART', 'SHOW', 'PLEASE',
+  'DAY', 'DAYS', 'USE', 'USED', 'USING', 'MEAN', 'MEANS', 'ANALYSIS',
+  // Portfolio / English — never treat as tickers (OPEN is a real symbol; "open holdings" is not).
+  'OPEN', 'CLOSED', 'HOLDING', 'HOLDINGS', 'PORTFOLIO', 'BOOK', 'SUMMARIZE',
+  'SUMMARY', 'STATE', 'FIRST', 'PRIORITY',
 ]);
 
 const TICKER_TABLES = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
@@ -216,9 +233,9 @@ export function extractTickersDetailed(text: string): ExtractedTickers {
     if (new RegExp(`\\b${alias}\\b`, 'i').test(lower)) definite.add(ticker);
   }
 
+  // $-prefixed is always intentional (even OPEN / ALL) — English stopwords do not apply.
   for (const m of text.matchAll(/\$([A-Za-z]{1,5})\b/g)) {
     const t = m[1].toUpperCase();
-    if (TICKER_STOPWORDS.has(t)) continue;
     definite.add(suggestTickerCorrection(t) ?? t);
   }
 
@@ -494,7 +511,9 @@ export async function loadMwsDataBlock(
     }
     const { data: portfolios } = await pq;
     const p = portfolios?.[0];
-    if (p) {
+    if (!p) {
+      lines.push('USER PORTFOLIO: none — user has not created a portfolio yet.');
+    } else {
       const { data: holdings } = await adminOrUserClient
         .from('user_portfolio_holdings')
         .select(
@@ -504,13 +523,16 @@ export async function loadMwsDataBlock(
         .order('sort_order');
 
       const rows = (holdings ?? []) as HoldingRow[];
-      if (rows.length) {
-        const openRows = rows.filter((h) => (h.status ?? 'open') !== 'closed');
+      const openRows = rows.filter((h) => (h.status ?? 'open') !== 'closed');
+      lines.push(
+        `USER PORTFOLIO "${p.name}" (id=${p.id}, currency=${p.base_currency ?? 'USD'}):`,
+      );
+
+      if (openRows.length === 0) {
+        lines.push('  open_holdings: none — tell the user they have no open holdings yet.');
+      } else {
         const cashTotal = openRows.reduce((s, h) => s + (Number(h.cash_invested) || 0), 0);
         const hasCash = openRows.some((h) => h.cash_invested != null);
-        lines.push(
-          `USER PORTFOLIO "${p.name}" (id=${p.id}, currency=${p.base_currency ?? 'USD'}):`,
-        );
         if (hasCash) lines.push(`  book_cash_invested (open only): ${cashTotal}`);
 
         for (const h of rows) {
@@ -544,29 +566,37 @@ export async function loadMwsDataBlock(
     }
   }
 
-  // Text-named tickers first; conversation focus fills pronoun follow-ups ("quadrant of it").
-  const fromText = [
-    ...extractedEarly.definite.map((t) => t.toUpperCase()),
-    ...extractedEarly.candidates.map((t) => t.toUpperCase()),
-  ];
+  // Text-named tickers; conversation focus fills pronoun follow-ups ("quadrant of it").
+  // Portfolio asks: NEVER treat English in the question ("open holdings") as tickers —
+  // only real book holdings (+ optional $TICKER). OPEN is a real symbol; "open" is not.
+  const dollarOnly =
+    message
+      ? [...message.matchAll(/\$([A-Za-z][A-Za-z0-9.\-]{0,11})\b/g)].map((m) => m[1].toUpperCase())
+      : [];
+  const fromText = asksPortfolioEarly
+    ? dollarOnly
+    : [
+        ...extractedEarly.definite.map((t) => t.toUpperCase()),
+        ...extractedEarly.candidates.map((t) => t.toUpperCase()),
+      ];
   const fromFocus = focusEarly.map((t) => t.toUpperCase()).filter(Boolean);
   const asksPortfolio = asksPortfolioEarly || (!message && holdingTickers.length > 0);
-  const useFocus =
+  // Prior focus only when the user explicitly asked to show a chart/quadrant of "it".
+  const applyFocus =
     fromFocus.length > 0 &&
-    (fromText.length === 0 ||
-      (Boolean(message) && /\b(it|its|this|that|them|same)\b/i.test(message!)));
-  const namedInQuestion = [...new Set(useFocus ? [...fromText, ...fromFocus] : fromText)];
+    Boolean(message) &&
+    questionWantsVisual(message!) &&
+    (hasTickerPronoun(message!) || fromText.length === 0);
+  const namedInQuestion = [...new Set(applyFocus ? [...fromText, ...fromFocus] : fromText)];
 
-  // Snapshot policy (egress-aware):
-  // - Named tickers in the question → load those (full MWS, any universe ticker).
-  // - Pronoun / visual follow-ups → reuse focusTickers from the prior turn.
-  // - Portfolio/holdings questions (or no named ticker) → load holding snapshots.
-  // - Never dump the whole MWS database.
+  // Load policy:
+  // - Portfolio questions → holdings only (plus any $TICKER in the question).
+  // - Otherwise → named tickers / focus / page context.
   const snapshotTargets: string[] = [];
-  if (namedInQuestion.length > 0) {
+  if (asksPortfolio) {
+    snapshotTargets.push(...holdingTickers, ...dollarOnly);
+  } else if (namedInQuestion.length > 0) {
     snapshotTargets.push(...namedInQuestion);
-    // If they also ask about the book, include holdings.
-    if (asksPortfolio) snapshotTargets.push(...holdingTickers);
   } else {
     snapshotTargets.push(...holdingTickers);
     if (context.ticker) snapshotTargets.push(context.ticker.toUpperCase());
@@ -607,12 +637,10 @@ export async function loadMwsDataBlock(
   lines.push(
     'NOTES:',
     '  - Daily_* and Weekly_* are concurrent MWS timeframe analyses (EMA momentum), not calendar day/week returns.',
-    '  - No prior-week Rating archive; only current Daily + Weekly snapshots.',
-    '  - quadrant_position is the MWS Quadrant Analysis snapshot (21-day vs 30-week EMA). Prefer it when explaining trend state.',
-    '  - User portfolio is THIS authenticated user only. MWS ticker blocks come from the same universe tables as the web app.',
-    loaded.length
-      ? `  - Loaded MWS snapshots for: ${loaded.join(', ')}`
-      : '  - No ticker snapshots loaded.',
+    '  - No prior-week Rating archive; only current Daily + Weekly reads.',
+    '  - quadrant_position is the MWS Quadrant Analysis position (21-day vs 30-week EMA). Prefer it when explaining trend state.',
+    '  - User portfolio is THIS authenticated user only.',
+    '  - Never mention these notes or loading status to the user.',
   );
 
   if (lines.length === 0) {

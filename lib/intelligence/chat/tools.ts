@@ -227,95 +227,102 @@ export function collectWidgets(executions: ToolExecution[]): ChatWidget[] {
   return out;
 }
 
-/** True when the user is asking for an inline chart or quadrant visual. */
-export function questionWantsVisual(question: string): boolean {
-  const q = question.trim();
-  if (!q) return false;
-  return (
-    /\b(quadrant|relative\s*strength|screener|scatter|plot\s+(these|them|these\s+names))\b/i.test(
-      q,
-    ) ||
-    /\b(create|build|make|show|display|render|plot)\b.+\b(quadrant|screener|chart)\b/i.test(q) ||
-    /\b(chart|price\s*chart|candles?|ema\s*chart|how\s+it\s+looks?)\b/i.test(q)
-  );
+const VISUAL_ALIASES: Record<string, string> = {
+  silver: 'SLV',
+  gold: 'GLD',
+  apple: 'AAPL',
+  microsoft: 'MSFT',
+  amazon: 'AMZN',
+  nvidia: 'NVDA',
+  tesla: 'TSLA',
+  meta: 'META',
+  google: 'GOOGL',
+};
+
+/** Clause after of/for that is a pronoun → reuse prior chat focus. */
+function isPronounClause(clause: string): boolean {
+  return /^\s*(it|its|this|that|them|same)\b/i.test(clause.trim());
 }
 
 /**
- * If the model forgot to call tools but the user clearly asked for a visual,
- * infer widgets from the question so the chat still feels native.
- * @param fallbackTickers prior-turn focus (e.g. MMM after "chart of mmm") for "quadrant of it"
+ * Parse tickers only from an explicit of/for clause — never scan the whole sentence.
+ * Stops before trailing English ("and explain…", "please", "now").
+ */
+function tickersFromOfForClause(clause: string): string[] {
+  const head = clause
+    .split(/\b(?:and|please|thanks|thank you)\b/i)[0]
+    .replace(/\bnow\b/gi, ' ')
+    .trim();
+  if (!head || isPronounClause(head)) return [];
+
+  const found: string[] = [];
+  for (const m of head.matchAll(/\$([A-Za-z][A-Za-z0-9.\-]{0,11})/g)) {
+    found.push(m[1]);
+  }
+  for (const m of head.matchAll(/\b([A-Za-z][A-Za-z0-9.\-]{0,11})\b/g)) {
+    const raw = m[1];
+    const alias = VISUAL_ALIASES[raw.toLowerCase()];
+    found.push(alias ?? raw);
+  }
+  return uniqTickers(found, MAX_QUADRANT_TICKERS);
+}
+
+type VisualAsk =
+  | { kind: 'quadrant'; clause: string }
+  | { kind: 'chart'; clause: string; weekly: boolean }
+  | null;
+
+/** Only explicit show/plot … chart|quadrant of|for … — concept questions return null. */
+function parseVisualAsk(question: string): VisualAsk {
+  const q = question.trim();
+  if (!q) return null;
+
+  const quad =
+    q.match(
+      /\b(?:show|plot|display|render|create|build|make)\b[\s\S]{0,80}?\bquadrant(?:\s+analysis)?\b[\s\S]{0,40}?\b(?:of|for)\s+(.+)$/i,
+    ) || q.match(/\bquadrant(?:\s+analysis)?\b\s+(?:of|for)\s+(.+)$/i);
+  if (quad?.[1]) return { kind: 'quadrant', clause: quad[1] };
+
+  const chart =
+    q.match(
+      /\b(?:show|plot|display|render|create|build|make)\b[\s\S]{0,80}?\b(?:price\s*)?chart\b[\s\S]{0,40}?\b(?:of|for)\s+(.+)$/i,
+    ) || q.match(/\b(?:price\s*)?chart\b\s+(?:of|for)\s+(.+)$/i);
+  if (chart?.[1]) {
+    return { kind: 'chart', clause: chart[1], weekly: /\bweekly\b/i.test(q) };
+  }
+  return null;
+}
+
+export function questionWantsVisual(question: string): boolean {
+  return parseVisualAsk(question) != null;
+}
+
+export function hasTickerPronoun(question: string): boolean {
+  const ask = parseVisualAsk(question);
+  return Boolean(ask && isPronounClause(ask.clause));
+}
+
+/**
+ * Attach chart/quadrant widgets only for explicit "show X of/for TICKER" asks.
+ * Concept questions ("what is Quadrant Analysis") never match — no stopword lists needed.
  */
 export function inferWidgetsFromQuestion(
   question: string,
   fallbackTickers: string[] = [],
 ): ChatWidget[] {
-  const q = question.trim();
-  if (!q) return [];
-  const lower = q.toLowerCase();
+  const ask = parseVisualAsk(question);
+  if (!ask) return [];
 
-  const STOP = new Set([
-    'A', 'I', 'AM', 'AN', 'AND', 'ARE', 'AS', 'AT', 'BE', 'BY', 'DO', 'FOR', 'FROM',
-    'HOW', 'IF', 'IN', 'IS', 'IT', 'ME', 'MY', 'NO', 'NOT', 'OF', 'OK', 'ON', 'OR',
-    'SO', 'THE', 'TO', 'UP', 'US', 'VS', 'WE', 'WHAT', 'WHEN', 'WHO', 'WHY', 'WITH',
-    'YOU', 'SHOW', 'CHART', 'CREATE', 'BUILD', 'MAKE', 'PLOT', 'PLEASE', 'HELP',
-    'EXPLAIN', 'WEEKLY', 'DAILY', 'MWS', 'ETF', 'EMA', 'EMAS', 'SEE', 'LOOK',
-    'THIS', 'THAT', 'THESE', 'THOSE', 'CAN', 'WILL', 'JUST', 'GIVE', 'GET',
-    'NOW', 'THEN', 'ALSO', 'AGAIN', 'SAME', 'HERE', 'THERE', 'THEM', 'ITS',
-    'QUADRANT', 'ANALYSIS', 'PRICE', 'CANDLE', 'CANDLES', 'SCREEN', 'SCREENER',
-  ]);
-
-  // Case-insensitive ticker tokens ($mmm, MMM, mmm) — users type lowercase a lot.
-  const tickers = uniqTickers(
-    [
-      ...q.matchAll(/\$([A-Za-z][A-Za-z0-9.\-]{0,11})/g),
-      ...q.matchAll(/\b([A-Za-z]{1,5}(?:[.\-][A-Za-z0-9]{1,4})?)\b/g),
-    ]
-      .flatMap((m) => m[1])
-      .filter((t) => !STOP.has(t.toUpperCase())),
-    MAX_QUADRANT_TICKERS,
-  );
-
-  // Also pick common lowercase aliases / names from a short map
-  const aliases: Record<string, string> = {
-    silver: 'SLV',
-    gold: 'GLD',
-    apple: 'AAPL',
-    microsoft: 'MSFT',
-    amazon: 'AMZN',
-    nvidia: 'NVDA',
-    tesla: 'TSLA',
-    meta: 'META',
-    google: 'GOOGL',
-  };
-  let resolved = [...tickers];
-  for (const [name, sym] of Object.entries(aliases)) {
-    if (new RegExp(`\\b${name}\\b`, 'i').test(lower) && !resolved.includes(sym)) {
-      resolved.push(sym);
-    }
+  let tickers = tickersFromOfForClause(ask.clause);
+  if (tickers.length === 0 && isPronounClause(ask.clause)) {
+    tickers = uniqTickers(fallbackTickers, MAX_QUADRANT_TICKERS);
   }
+  if (tickers.length === 0) return [];
 
-  const wantsQuadrant =
-    /\b(quadrant|relative\s*strength|screener|scatter|plot\s+(these|them|these\s+names))\b/i.test(
-      q,
-    ) || /\b(create|build|make|show)\b.+\b(quadrant|screener)\b/i.test(q);
-  const wantsChart =
-    /\b(chart|price\s*chart|candles?|ema\s*chart|how\s+it\s+looks?|show\s+me\s+.+\s+chart)\b/i.test(
-      q,
-    );
-
-  // "show me the quadrant of it" — reuse last chart/quadrant tickers.
-  if (resolved.length === 0 && (wantsQuadrant || wantsChart) && fallbackTickers.length > 0) {
-    resolved = uniqTickers(fallbackTickers, MAX_QUADRANT_TICKERS);
+  if (ask.kind === 'quadrant') {
+    return [{ type: 'quadrant', tickers }];
   }
-
-  if (wantsQuadrant && resolved.length > 0) {
-    return [{ type: 'quadrant', tickers: resolved.slice(0, MAX_QUADRANT_TICKERS) }];
-  }
-  if (wantsChart && resolved.length > 0) {
-    const interval = /\bweekly\b/i.test(q) ? 'weekly' : 'daily';
-    return [{ type: 'price_chart', ticker: resolved[0], interval }];
-  }
-  return [];
+  return [{ type: 'price_chart', ticker: tickers[0], interval: ask.weekly ? 'weekly' : 'daily' }];
 }
 
 export function mergeWidgets(primary: ChatWidget[], fallback: ChatWidget[]): ChatWidget[] {
