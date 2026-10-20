@@ -19,8 +19,8 @@ Rules:
 - Daily and Weekly are concurrent MWS timeframe snapshots — not calendar day/week P&L.
 - If quadrant_position is present, lead with it (Synced Uptrend / Pullback / Turning / Broken Trend).
 - For “today” use Daily fields; for “this week” use Weekly; for “last week” say prior Ratings are not archived.
-- When the user asks for a chart or quadrant, call show_price_chart or show_quadrant so the UI can render it; then narrate briefly. Never say you cannot show visuals.
-- Keep answers short: 2–5 sentences or tight bullets. Bold tickers/ratings. No tables or code fences.
+- Charts/quadrants may already appear in the UI — narrate them briefly; never say you cannot show visuals.
+- Keep answers short: 2–4 sentences or tight bullets. Bold tickers/ratings. No tables or code fences.
 - If a asked ticker is missing from MWS DATA, say it is not in the MWS universe.`;
 
 const ADVICE_RE =
@@ -100,14 +100,14 @@ const TICKER_TABLES = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'
 /** Single-ticker chat lookup — most names live in other_stocks / mega_caps. */
 const SINGLE_TICKER_LOOKUP = ['other_stocks', 'mega_caps', 'sectors', 'market_segments'] as const;
 
-/** Narrow select — common columns across ticker tables (avoids select('*') egress). */
+/** Narrow select — skip long prose columns (smaller prompt → faster model). */
 const TICKER_SELECT =
   'ticker, last_updated, ' +
   'daily_current_price, weekly_current_price, ' +
-  'daily_trend_score, daily_rating, daily_outlook, daily_trend_description, ' +
-  'weekly_trend_score, weekly_rating, weekly_outlook, weekly_trend_description, ' +
+  'daily_trend_score, daily_rating, daily_outlook, ' +
+  'weekly_trend_score, weekly_rating, weekly_outlook, ' +
   'performance_strength, distance_to_highs, ' +
-  'daily_performance_summary, daily_performance_description, ' +
+  'daily_performance_summary, ' +
   '"1m_percent", "3m_percent", vs_1y_high, ' +
   'daily_price_vs_21ema, weekly_price_vs_30ema, ' +
   'daily_vs_spy_comparison, daily_vs_benchmark_comparison, ' +
@@ -120,18 +120,15 @@ const TICKER_OUTPUT_KEYS = [
   'daily_trend_score',
   'daily_rating',
   'daily_outlook',
-  'daily_trend_description',
   'weekly_trend_score',
   'weekly_rating',
   'weekly_outlook',
-  'weekly_trend_description',
   'performance_strength',
   'distance_to_highs',
   '1m_percent',
   '3m_percent',
   'vs_1y_high',
   'daily_performance_summary',
-  'daily_performance_description',
   'daily_price_vs_21ema',
   'weekly_price_vs_30ema',
   'daily_vs_spy_comparison',
@@ -298,6 +295,20 @@ export async function createUserClientFromAuthHeader(authHeader: string | null) 
     global: { headers: { Authorization: `Bearer ${token}` } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  // Local JWT verify (getClaims) — avoids a network round-trip to Auth on every chat.
+  const { data: claimsData, error: claimsError } = await client.auth.getClaims(token);
+  const sub = claimsData?.claims?.sub;
+  if (!claimsError && typeof sub === 'string' && sub.length > 0) {
+    return {
+      client,
+      user: {
+        id: sub,
+        email: typeof claimsData?.claims?.email === 'string' ? claimsData.claims.email : undefined,
+      },
+      accessToken: token,
+    };
+  }
+  // Fallback if claims verification isn't available for this token shape.
   const { data, error } = await client.auth.getUser(token);
   if (error || !data.user) return null;
   return { client, user: data.user, accessToken: token };
@@ -316,38 +327,27 @@ async function fetchTickerSnapshotsBatch(
   const map = new Map<string, { table: string; data: Record<string, unknown> }>();
   if (uniq.length === 0) return map;
 
-  // Single-ticker: probe tables in web order and stop early (avoids 4 cold REST round-trips).
-  // Multi-ticker: keep 4-way parallel.
-  if (uniq.length === 1) {
-    for (const table of SINGLE_TICKER_LOOKUP) {
-      const { data, error } = await client.from(table).select(TICKER_SELECT).eq('ticker', uniq[0]).limit(1);
+  // Always query tables in parallel — sequential single-ticker probes stacked latency.
+  const tables = uniq.length === 1 ? SINGLE_TICKER_LOOKUP : TICKER_TABLES;
+  const settled = await Promise.all(
+    tables.map(async (table) => {
+      const q =
+        uniq.length === 1
+          ? client.from(table).select(TICKER_SELECT).eq('ticker', uniq[0]).limit(1)
+          : client.from(table).select(TICKER_SELECT).in('ticker', uniq);
+      const { data, error } = await q;
       if (error) {
         console.error(`[chat] ticker snapshot query failed on ${table}:`, error.message ?? error);
-        continue;
       }
-      const row = (data ?? [])[0] as Record<string, unknown> | undefined;
-      if (row?.ticker) {
-        map.set(String(row.ticker).toUpperCase(), { table, data: row });
-        break;
-      }
-    }
-  } else {
-    const settled = await Promise.all(
-      TICKER_TABLES.map(async (table) => {
-        const { data, error } = await client.from(table).select(TICKER_SELECT).in('ticker', uniq);
-        if (error) {
-          console.error(`[chat] ticker snapshot query failed on ${table}:`, error.message ?? error);
-        }
-        return { table, rows: error ? [] : ((data ?? []) as Record<string, unknown>[]) };
-      }),
-    );
+      return { table, rows: error ? [] : ((data ?? []) as Record<string, unknown>[]) };
+    }),
+  );
 
-    for (const table of TICKER_TABLES) {
-      const block = settled.find((s) => s.table === table);
-      for (const row of block?.rows ?? []) {
-        const t = String(row.ticker ?? '').toUpperCase();
-        if (t && !map.has(t)) map.set(t, { table, data: row });
-      }
+  for (const table of tables) {
+    const block = settled.find((s) => s.table === table);
+    for (const row of block?.rows ?? []) {
+      const t = String(row.ticker ?? '').toUpperCase();
+      if (t && !map.has(t)) map.set(t, { table, data: row });
     }
   }
 
@@ -535,22 +535,6 @@ export async function loadMwsDataBlock(
         }
       }
     }
-  } else if (context.userPortfolioId) {
-    const { data: holdings } = await adminOrUserClient
-      .from('user_portfolio_holdings')
-      .select(
-        'ticker, shares, cost_basis, cash_invested, start_date, returns_pct, notes, display_name, status, exit_date, exit_price',
-      )
-      .eq('portfolio_id', context.userPortfolioId)
-      .order('sort_order');
-    for (const h of (holdings ?? []) as HoldingRow[]) {
-      const ticker = String(h.ticker ?? '').toUpperCase();
-      const status = h.status === 'closed' ? 'closed' : 'open';
-      if (ticker && status === 'open') holdingTickers.push(ticker);
-      lines.push(
-        `  ${ticker || '?'} status=${status} cash_invested=${h.cash_invested ?? 'n/a'} shares=${h.shares ?? 'n/a'} avg_entry=${h.cost_basis ?? 'n/a'}`,
-      );
-    }
   }
 
   const definite = [
@@ -729,7 +713,7 @@ export async function callModalChat(messages: ChatMessage[]): Promise<ChatModelR
       model: cfg.model,
       messages: openaiMessages,
       temperature: 0.2,
-      max_tokens: 512,
+      max_tokens: 384,
       top_p: 0.9,
       stream: false,
       // DeepSeek Modal endpoint: disable extra reasoning for deterministic MWS answers.
@@ -797,7 +781,7 @@ export async function callGoogleStudioChat(messages: ChatMessage[]): Promise<Cha
     contents,
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 512,
+      maxOutputTokens: 384,
     },
   };
   if (systemParts.length > 0) {

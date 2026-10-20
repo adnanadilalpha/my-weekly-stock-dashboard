@@ -10,11 +10,8 @@ import {
   looksLikeAdviceRequest,
   type ChatContextRef,
 } from '@/lib/intelligence/chat/context';
-import { callChatModelWithTools } from '@/lib/intelligence/chat/tool-loop';
 import {
   inferWidgetsFromQuestion,
-  mergeWidgets,
-  questionWantsVisual,
   type ChatWidget,
 } from '@/lib/intelligence/chat/tools';
 
@@ -35,6 +32,9 @@ export const maxDuration = 60;
  * }
  *
  * Response includes optional `widgets` (price_chart / quadrant) for inline UI.
+ *
+ * Charts/quadrants are attached server-side via inferWidgets (no multi-round tool loop).
+ * That keeps one model round-trip while still rendering native widgets.
  */
 export async function POST(request: Request) {
   const auth = await createUserClientFromAuthHeader(request.headers.get('authorization'));
@@ -64,13 +64,15 @@ export async function POST(request: Request) {
   }
 
   const contextRef: ChatContextRef = body.contextRef ?? {};
+  const t0 = Date.now();
+  // Widgets are pure local inference (show_price_chart / show_quadrant need no model tools).
+  const widgets: ChatWidget[] = inferWidgetsFromQuestion(message);
+
   const mwsData = await loadMwsDataBlock(auth.client, contextRef, message, auth.user.id);
+  const tContext = Date.now() - t0;
 
   let assistantText: string;
-  // Always infer widgets for chart/quadrant asks (covers lowercase tickers like "mmm").
-  const inferredWidgets = inferWidgetsFromQuestion(message);
-  let widgets: ChatWidget[] = inferredWidgets;
-  const wantsVisual = questionWantsVisual(message) || inferredWidgets.length > 0;
+  let modelMs = 0;
 
   if (looksLikeAdviceRequest(message)) {
     assistantText = buildRefusal(
@@ -78,85 +80,58 @@ export async function POST(request: Request) {
     );
   } else {
     const messages = buildChatMessages(mwsData, message);
-    // Visual asks: tool loop (Modal-first) + infer fallback. Text-only: single-shot for speed.
-    if (wantsVisual) {
-      const result = await callChatModelWithTools(messages);
-      if (!result.ok) {
-        console.error('[chat] all providers failed', result.provider, result.status, result.error);
-        assistantText =
-          'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
-        if (!isChatModelConfigured()) {
-          return NextResponse.json(
-            {
-              error: 'chat_unavailable',
-              message: assistantText,
-              fallback: true,
-            },
-            { status: 503 },
-          );
-        }
-      } else {
-        assistantText = result.text;
-        widgets = mergeWidgets(result.widgets, inferredWidgets);
+    // Single-shot only — tool rounds were stacking 2–3 Modal RTTs for free (widgets are local).
+    const tModel = Date.now();
+    const result = await callChatModel(messages);
+    modelMs = Date.now() - tModel;
+    if (!result.ok) {
+      console.error('[chat] all providers failed', result.provider, result.status, result.error);
+      assistantText =
+        'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
+      if (!isChatModelConfigured()) {
+        return NextResponse.json(
+          {
+            error: 'chat_unavailable',
+            message: assistantText,
+            fallback: true,
+          },
+          { status: 503 },
+        );
       }
     } else {
-      const result = await callChatModel(messages);
-      if (!result.ok) {
-        console.error('[chat] all providers failed', result.provider, result.status, result.error);
-        assistantText =
-          'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
-        if (!isChatModelConfigured()) {
-          return NextResponse.json(
-            {
-              error: 'chat_unavailable',
-              message: assistantText,
-              fallback: true,
-            },
-            { status: 503 },
-          );
-        }
-      } else {
-        assistantText = result.text;
-      }
+      assistantText = result.text;
     }
   }
+  console.info(
+    `[chat] total=${Date.now() - t0}ms context=${tContext}ms model=${modelMs}ms widgets=${widgets.length}`,
+  );
 
   const userId = auth.user.id;
   const client = auth.client;
-  let sessionId = body.sessionId ?? null;
+  const isNewSession = !body.sessionId;
+  // Don't block the response on a session INSERT — mint id now, persist in after().
+  const sessionId = body.sessionId ?? crypto.randomUUID();
 
-  // One quick session upsert so the client keeps continuity; message rows persist in after().
-  try {
-    if (!sessionId) {
-      const { data: sessionRow, error } = await client
-        .from('ai_chat_sessions')
-        .insert({
+  after(async () => {
+    try {
+      if (isNewSession) {
+        const { error: sessionErr } = await client.from('ai_chat_sessions').insert({
+          id: sessionId,
           user_id: userId,
           title: message.slice(0, 80),
           context_ref: contextRef,
-        })
-        .select('id')
-        .single();
-      if (error) throw error;
-      sessionId = sessionRow.id as string;
-    } else {
-      void client
-        .from('ai_chat_sessions')
-        .update({ updated_at: new Date().toISOString(), context_ref: contextRef })
-        .eq('id', sessionId)
-        .eq('user_id', userId);
-    }
-  } catch (e) {
-    console.error('chat session error', e);
-  }
-
-  const persistSessionId = sessionId;
-  after(async () => {
-    if (!persistSessionId) return;
-    try {
+        });
+        if (sessionErr) throw sessionErr;
+      } else {
+        await client
+          .from('ai_chat_sessions')
+          .update({ updated_at: new Date().toISOString(), context_ref: contextRef })
+          .eq('id', sessionId)
+          .eq('user_id', userId);
+      }
       const { error: insertErr } = await client.from('ai_chat_messages').insert([
-        { session_id: persistSessionId, user_id: userId, role: 'user', content: message },
-        { session_id: persistSessionId, user_id: userId, role: 'assistant', content: assistantText },
+        { session_id: sessionId, user_id: userId, role: 'user', content: message },
+        { session_id: sessionId, user_id: userId, role: 'assistant', content: assistantText },
       ]);
       if (insertErr) throw insertErr;
     } catch (e) {
