@@ -32,6 +32,22 @@ type ChatBubble = {
   widgets?: ChatWidget[];
 };
 
+/** Last chart/quadrant tickers in the thread — used for "show quadrant of it". */
+function focusTickersFromMessages(messages: ChatBubble[]): string[] {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const widgets = messages[i].widgets;
+    if (!widgets?.length) continue;
+    for (let j = widgets.length - 1; j >= 0; j--) {
+      const w = widgets[j];
+      if (w.type === 'price_chart' && w.ticker) return [w.ticker.toUpperCase()];
+      if (w.type === 'quadrant' && w.tickers.length > 0) {
+        return w.tickers.map((t) => t.toUpperCase());
+      }
+    }
+  }
+  return [];
+}
+
 type QuickAction = {
   id: string;
   label: string;
@@ -282,6 +298,18 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
         const token = data.session?.access_token;
         if (!token) throw new Error('Not signed in');
 
+        const focusTickers = focusTickersFromMessages(messages);
+        const mergedContext: ChatContextRef = {
+          ...(contextRef ?? {}),
+          focusTickers:
+            focusTickers.length > 0
+              ? focusTickers
+              : contextRef?.ticker
+                ? [contextRef.ticker]
+                : contextRef?.focusTickers,
+          ticker: contextRef?.ticker ?? focusTickers[0],
+        };
+
         const res = await fetch('/api/ai/chat', {
           method: 'POST',
           headers: {
@@ -292,7 +320,7 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
             message,
             sessionId,
             stream: false,
-            contextRef: contextRef ?? {},
+            contextRef: mergedContext,
           }),
         });
         const json = await res.json();
@@ -336,7 +364,7 @@ export function ChatDrawer({ contextRef }: { contextRef?: ChatContextRef }) {
         setBusy(false);
       }
     },
-    [activity, busy, contextRef, sessionId],
+    [activity, busy, contextRef, messages, sessionId],
   );
 
   const applyQuickAction = useCallback(

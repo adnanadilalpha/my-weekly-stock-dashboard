@@ -6,6 +6,8 @@ import type { QuadrantId } from '@/lib/intelligence/brief/types';
 
 export type ChatContextRef = {
   ticker?: string;
+  /** Recent chat focus (e.g. last chart/quadrant) for pronoun follow-ups like "quadrant of it". */
+  focusTickers?: string[];
   sector?: string;
   portfolioPage?: string;
   userPortfolioId?: string;
@@ -94,6 +96,7 @@ const TICKER_STOPWORDS = new Set([
   'BIG', 'HIT', 'RUN', 'PUT', 'BUY', 'SELL', 'LONG', 'SHORT', 'HOLD', 'THIS',
   'THAT', 'THESE', 'THOSE', 'THERE', 'THEIR', 'WHERE', 'WHICH', 'WHILE', 'AFTER',
   'BEFORE', 'UNDER', 'AGAIN', 'OTHER', 'EVERY', 'STILL', 'BEING', 'GOING',
+  'THEN', 'ALSO', 'SAME', 'HERE', 'THEM', 'QUADRANT', 'CHART', 'SHOW', 'PLEASE',
 ]);
 
 const TICKER_TABLES = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
@@ -459,10 +462,14 @@ export async function loadMwsDataBlock(
   const extractedEarly = message
     ? extractTickersDetailed(message)
     : { definite: [] as string[], candidates: [] as string[] };
+  const focusEarly = [
+    ...(context.focusTickers ?? []),
+    ...(context.ticker ? [context.ticker] : []),
+  ];
   const namedEarly = [
     ...extractedEarly.definite,
     ...extractedEarly.candidates,
-    ...(context.ticker ? [context.ticker] : []),
+    ...focusEarly,
   ].map((t) => t.toUpperCase());
   const asksPortfolioEarly = messageAsksAboutPortfolio(message);
   // Skip the book for pure ticker questions (even on the portfolio page).
@@ -537,17 +544,22 @@ export async function loadMwsDataBlock(
     }
   }
 
-  const definite = [
+  // Text-named tickers first; conversation focus fills pronoun follow-ups ("quadrant of it").
+  const fromText = [
     ...extractedEarly.definite.map((t) => t.toUpperCase()),
-    ...(context.ticker ? [context.ticker.toUpperCase()] : []),
+    ...extractedEarly.candidates.map((t) => t.toUpperCase()),
   ];
-  const candidates = extractedEarly.candidates.map((t) => t.toUpperCase());
-
+  const fromFocus = focusEarly.map((t) => t.toUpperCase()).filter(Boolean);
   const asksPortfolio = asksPortfolioEarly || (!message && holdingTickers.length > 0);
-  const namedInQuestion = [...new Set([...definite, ...candidates])];
+  const useFocus =
+    fromFocus.length > 0 &&
+    (fromText.length === 0 ||
+      (Boolean(message) && /\b(it|its|this|that|them|same)\b/i.test(message!)));
+  const namedInQuestion = [...new Set(useFocus ? [...fromText, ...fromFocus] : fromText)];
 
   // Snapshot policy (egress-aware):
   // - Named tickers in the question → load those (full MWS, any universe ticker).
+  // - Pronoun / visual follow-ups → reuse focusTickers from the prior turn.
   // - Portfolio/holdings questions (or no named ticker) → load holding snapshots.
   // - Never dump the whole MWS database.
   const snapshotTargets: string[] = [];
@@ -568,6 +580,10 @@ export async function loadMwsDataBlock(
   const missingDefinite: string[] = [];
   const seenCanonical = new Set<string>();
 
+  const definiteReported = new Set([
+    ...extractedEarly.definite.map((t) => t.toUpperCase()),
+    ...fromFocus,
+  ]);
   for (const ticker of toLoad) {
     const row = snapshots.get(ticker);
     if (row) {
@@ -576,7 +592,7 @@ export async function loadMwsDataBlock(
       seenCanonical.add(canonical);
       appendTickerBlock(lines, canonical, row.table, row.data);
       loaded.push(canonical);
-    } else if (definite.includes(ticker)) {
+    } else if (definiteReported.has(ticker)) {
       missingDefinite.push(ticker);
     }
   }

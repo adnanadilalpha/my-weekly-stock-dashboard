@@ -243,8 +243,12 @@ export function questionWantsVisual(question: string): boolean {
 /**
  * If the model forgot to call tools but the user clearly asked for a visual,
  * infer widgets from the question so the chat still feels native.
+ * @param fallbackTickers prior-turn focus (e.g. MMM after "chart of mmm") for "quadrant of it"
  */
-export function inferWidgetsFromQuestion(question: string): ChatWidget[] {
+export function inferWidgetsFromQuestion(
+  question: string,
+  fallbackTickers: string[] = [],
+): ChatWidget[] {
   const q = question.trim();
   if (!q) return [];
   const lower = q.toLowerCase();
@@ -256,6 +260,8 @@ export function inferWidgetsFromQuestion(question: string): ChatWidget[] {
     'YOU', 'SHOW', 'CHART', 'CREATE', 'BUILD', 'MAKE', 'PLOT', 'PLEASE', 'HELP',
     'EXPLAIN', 'WEEKLY', 'DAILY', 'MWS', 'ETF', 'EMA', 'EMAS', 'SEE', 'LOOK',
     'THIS', 'THAT', 'THESE', 'THOSE', 'CAN', 'WILL', 'JUST', 'GIVE', 'GET',
+    'NOW', 'THEN', 'ALSO', 'AGAIN', 'SAME', 'HERE', 'THERE', 'THEM', 'ITS',
+    'QUADRANT', 'ANALYSIS', 'PRICE', 'CANDLE', 'CANDLES', 'SCREEN', 'SCREENER',
   ]);
 
   // Case-insensitive ticker tokens ($mmm, MMM, mmm) — users type lowercase a lot.
@@ -281,7 +287,7 @@ export function inferWidgetsFromQuestion(question: string): ChatWidget[] {
     meta: 'META',
     google: 'GOOGL',
   };
-  const resolved = [...tickers];
+  let resolved = [...tickers];
   for (const [name, sym] of Object.entries(aliases)) {
     if (new RegExp(`\\b${name}\\b`, 'i').test(lower) && !resolved.includes(sym)) {
       resolved.push(sym);
@@ -296,6 +302,11 @@ export function inferWidgetsFromQuestion(question: string): ChatWidget[] {
     /\b(chart|price\s*chart|candles?|ema\s*chart|how\s+it\s+looks?|show\s+me\s+.+\s+chart)\b/i.test(
       q,
     );
+
+  // "show me the quadrant of it" — reuse last chart/quadrant tickers.
+  if (resolved.length === 0 && (wantsQuadrant || wantsChart) && fallbackTickers.length > 0) {
+    resolved = uniqTickers(fallbackTickers, MAX_QUADRANT_TICKERS);
+  }
 
   if (wantsQuadrant && resolved.length > 0) {
     return [{ type: 'quadrant', tickers: resolved.slice(0, MAX_QUADRANT_TICKERS) }];

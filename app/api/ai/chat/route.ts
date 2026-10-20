@@ -64,9 +64,13 @@ export async function POST(request: Request) {
   }
 
   const contextRef: ChatContextRef = body.contextRef ?? {};
+  const focusTickers = [
+    ...(contextRef.focusTickers ?? []),
+    ...(contextRef.ticker ? [contextRef.ticker] : []),
+  ];
   const t0 = Date.now();
-  // Widgets are pure local inference (show_price_chart / show_quadrant need no model tools).
-  const widgets: ChatWidget[] = inferWidgetsFromQuestion(message);
+  // Widgets are pure local inference; focusTickers cover "quadrant of it" follow-ups.
+  const widgets: ChatWidget[] = inferWidgetsFromQuestion(message, focusTickers);
 
   const mwsData = await loadMwsDataBlock(auth.client, contextRef, message, auth.user.id);
   const tContext = Date.now() - t0;
