@@ -74,7 +74,12 @@ export function RelativeStrengthDialog({
   const searchRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<MwsPickerTickerRow[]>([]);
   const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
+  /** Tickers added via search / initial seed (not via a preset chip). */
+  const [manualTickers, setManualTickers] = useState<string[]>([]);
+  /** Explicitly toggled presets — chart membership derives from these, not subset inference. */
+  const [activePresets, setActivePresets] = useState<Set<PresetId>>(() => new Set());
+  /** Tickers removed with X while still covered by an active preset. */
+  const [excludedTickers, setExcludedTickers] = useState<Set<string>>(() => new Set());
   const [points, setPoints] = useState<RelativeStrengthPoint[]>([]);
   const [loadingUniverse, setLoadingUniverse] = useState(false);
   const [loadingChart, setLoadingChart] = useState(false);
@@ -113,6 +118,24 @@ export function RelativeStrengthDialog({
     [universeBuckets, watchlistTickers, portfolioTickers],
   );
 
+  const selected = useMemo(() => {
+    const next = new Set(manualTickers);
+    for (const id of activePresets) {
+      for (const t of presetTickers[id]) {
+        if (!excludedTickers.has(t)) next.add(t);
+      }
+    }
+    return [...next];
+  }, [manualTickers, activePresets, excludedTickers, presetTickers]);
+
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const selectedKey = useMemo(() => [...selected].sort().join(','), [selected]);
+
+  const chartPoints = useMemo(
+    () => points.filter((p) => selectedSet.has(p.ticker.toUpperCase())),
+    [points, selectedSet],
+  );
+
   const nameByTicker = useMemo(() => {
     const map = new Map<string, string>();
     for (const row of rows) map.set(row.ticker.toUpperCase(), row.name);
@@ -126,7 +149,10 @@ export function RelativeStrengthDialog({
   useEffect(() => {
     if (!open) return;
     const init = seedKey ? seedKey.split(',') : [];
-    setSelected(init);
+    setManualTickers(init);
+    setActivePresets(new Set());
+    setExcludedTickers(new Set());
+    setPoints([]);
     setSearch('');
     setError(null);
     setGuideOpen(false);
@@ -173,14 +199,16 @@ export function RelativeStrengthDialog({
 
   useEffect(() => {
     if (!open) return;
-    if (selected.length === 0) {
+    const list = selectedKey ? selectedKey.split(',') : [];
+    if (list.length === 0) {
       setPoints([]);
+      setLoadingChart(false);
       return;
     }
     let cancelled = false;
     setLoadingChart(true);
     setError(null);
-    fetchTickersRelativeStrength(selected)
+    fetchTickersRelativeStrength(list)
       .then((pts) => {
         if (!cancelled) setPoints(pts);
       })
@@ -193,9 +221,7 @@ export function RelativeStrengthDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, selected]);
-
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  }, [open, selectedKey]);
 
   const searchHits = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -213,50 +239,68 @@ export function RelativeStrengthDialog({
 
   const addTicker = useCallback((ticker: string) => {
     const key = ticker.toUpperCase();
-    setSelected((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    setManualTickers((prev) => (prev.includes(key) ? prev : [...prev, key]));
+    setExcludedTickers((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
     setSearch('');
   }, []);
 
-  const removeTicker = useCallback((ticker: string) => {
-    const key = ticker.toUpperCase();
-    setSelected((prev) => prev.filter((t) => t !== key));
-  }, []);
+  const removeTicker = useCallback(
+    (ticker: string) => {
+      const key = ticker.toUpperCase();
+      setManualTickers((prev) => prev.filter((t) => t !== key));
+      const coveredByActivePreset = PRESET_META.some(
+        (meta) => activePresets.has(meta.id) && presetTickers[meta.id].includes(key),
+      );
+      if (coveredByActivePreset) {
+        setExcludedTickers((prev) => {
+          if (prev.has(key)) return prev;
+          const next = new Set(prev);
+          next.add(key);
+          return next;
+        });
+      }
+    },
+    [activePresets, presetTickers],
+  );
 
   const togglePreset = useCallback(
     (id: PresetId) => {
       const tickers = presetTickers[id];
       if (tickers.length === 0) return;
-      const set = new Set(tickers);
-      const allActive = tickers.every((t) => selectedSet.has(t));
-      if (allActive) {
-        const keep = new Set<string>();
-        for (const meta of PRESET_META) {
-          if (meta.id === id) continue;
-          const other = presetTickers[meta.id];
-          if (other.length > 0 && other.every((t) => selectedSet.has(t))) {
-            for (const t of other) keep.add(t);
-          }
+      setActivePresets((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+          activity?.trackEvent({
+            eventType: 'feature_use',
+            eventName: 'relative_strength_preset_remove',
+            metadata: { preset: id, count: tickers.length },
+          });
+        } else {
+          next.add(id);
+          setExcludedTickers((ex) => {
+            let changed = false;
+            const cleaned = new Set(ex);
+            for (const t of tickers) {
+              if (cleaned.delete(t)) changed = true;
+            }
+            return changed ? cleaned : ex;
+          });
+          activity?.trackEvent({
+            eventType: 'feature_use',
+            eventName: 'relative_strength_preset_add',
+            metadata: { preset: id, count: tickers.length },
+          });
         }
-        setSelected((prev) => prev.filter((t) => !set.has(t) || keep.has(t)));
-        activity?.trackEvent({
-          eventType: 'feature_use',
-          eventName: 'relative_strength_preset_remove',
-          metadata: { preset: id, count: tickers.length },
-        });
-      } else {
-        setSelected((prev) => {
-          const next = new Set(prev);
-          for (const t of tickers) next.add(t);
-          return [...next];
-        });
-        activity?.trackEvent({
-          eventType: 'feature_use',
-          eventName: 'relative_strength_preset_add',
-          metadata: { preset: id, count: tickers.length },
-        });
-      }
+        return next;
+      });
     },
-    [presetTickers, selectedSet, activity],
+    [presetTickers, activity],
   );
 
   return (
@@ -363,8 +407,7 @@ export function RelativeStrengthDialog({
                   {PRESET_META.map((preset) => {
                     const tickers = presetTickers[preset.id];
                     const empty = tickers.length === 0;
-                    const active =
-                      !empty && tickers.every((t) => selectedSet.has(t));
+                    const active = !empty && activePresets.has(preset.id);
                     return (
                       <button
                         key={preset.id}
@@ -517,7 +560,7 @@ export function RelativeStrengthDialog({
             ) : (
               <div className="min-h-0 flex-1">
                 <RelativeStrengthScatter
-                  points={points}
+                  points={chartPoints}
                   fill
                   showBrief
                   onSelectTicker={onSelectTicker}
