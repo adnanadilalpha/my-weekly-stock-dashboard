@@ -23,8 +23,18 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const MOBILE_DEEP_LINK = 'mws://auth-callback';
 
+/** App Store / Play Store review accounts — mobile only; never skip on web. */
+const MOBILE_STORE_REVIEW_EMAILS = new Set([
+  'weeklystockapple@icloud.com',
+  'weeklystockgoogle@gmail.com',
+]);
+
 function isMobileRedirect(value: string): boolean {
   return value === MOBILE_DEEP_LINK || value.startsWith(`${MOBILE_DEEP_LINK}?`);
+}
+
+function isMobileStoreReviewEmail(email: string): boolean {
+  return MOBILE_STORE_REVIEW_EMAILS.has(email.toLowerCase().trim());
 }
 
 /** Mobile deep-link or same-site auth callback only — never arbitrary redirects. */
@@ -91,29 +101,41 @@ export async function POST(request: Request) {
     }
 
     const emailLower = email.toLowerCase().trim();
+    const requestedRedirectEarly =
+      typeof requestedRedirect === 'string' ? requestedRedirect.trim() : '';
+    const isMobileAuthRequest = isMobileRedirect(requestedRedirectEarly);
 
-    // Check if email is authorized. Prefer service-role so this does not depend
-    // on public/anon read policies for authorized_users.
-    const authClient = supabaseAdmin ?? supabase;
-    const { data: authorizedUsers, error: checkError } = await authClient
-      .from('authorized_users')
-      .select('email, role')
-      .ilike('email', emailLower)
-      .limit(1);
+    // App Store / Play review accounts may sign in on mobile without authorized_users.
+    // Web dashboard still requires the allowlist for every email (including these).
+    const skipAuthorizedUsersCheck =
+      isMobileAuthRequest && isMobileStoreReviewEmail(emailLower);
 
-    if (checkError) {
-      console.error('Error checking authorization:', checkError);
-      return NextResponse.json(
-        { error: 'Unable to verify authorization' },
-        { status: 500 }
-      );
-    }
+    if (!skipAuthorizedUsersCheck) {
+      // Check if email is authorized. Prefer service-role so this does not depend
+      // on public/anon read policies for authorized_users.
+      const authClient = supabaseAdmin ?? supabase;
+      const { data: authorizedUsers, error: checkError } = await authClient
+        .from('authorized_users')
+        .select('email, role')
+        .ilike('email', emailLower)
+        .limit(1);
 
-    if (!authorizedUsers || authorizedUsers.length === 0) {
-      return NextResponse.json(
-        { error: 'Email not authorized' },
-        { status: 403 }
-      );
+      if (checkError) {
+        console.error('Error checking authorization:', checkError);
+        return NextResponse.json(
+          { error: 'Unable to verify authorization' },
+          { status: 500 }
+        );
+      }
+
+      if (!authorizedUsers || authorizedUsers.length === 0) {
+        return NextResponse.json(
+          { error: 'Email not authorized' },
+          { status: 403 }
+        );
+      }
+    } else {
+      console.log('Skipping authorized_users check for mobile store review email');
     }
 
     // Generate magic link with Supabase

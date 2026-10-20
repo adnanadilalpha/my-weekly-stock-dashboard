@@ -53,14 +53,27 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const message = String(body?.message ?? '').trim();
-    const contextTicker = body?.ticker ? String(body.ticker).toUpperCase() : null;
+    const incomingRef =
+      body?.contextRef && typeof body.contextRef === 'object' ? body.contextRef : {};
+    const focusFromBody = Array.isArray(incomingRef.focusTickers)
+      ? incomingRef.focusTickers.map((t: unknown) => String(t).toUpperCase()).filter(Boolean)
+      : [];
+    const contextTicker = body?.ticker
+      ? String(body.ticker).toUpperCase()
+      : incomingRef.ticker
+        ? String(incomingRef.ticker).toUpperCase()
+        : focusFromBody[0] ?? null;
     if (!message) return json({ error: 'message_required' }, 400);
 
     // Prefer the same Platform Chat API as web when PUBLIC_WEB_APP_URL is set.
     const webBase = (Deno.env.get('PUBLIC_WEB_APP_URL') || Deno.env.get('MWS_WEB_API_URL') || '').replace(/\/$/, '');
     if (webBase) {
       try {
-        const contextRef = body?.contextRef ?? (contextTicker ? { ticker: contextTicker } : {});
+        const contextRef = {
+          ...incomingRef,
+          ...(contextTicker ? { ticker: contextTicker } : {}),
+          ...(focusFromBody.length ? { focusTickers: focusFromBody } : {}),
+        };
         const proxied = await fetch(`${webBase}/api/ai/chat`, {
           method: 'POST',
           headers: {
@@ -124,6 +137,13 @@ Deno.serve(async (req) => {
   }
 });
 
+const LEGACY_STOP = new Set([
+  'OPEN', 'CLOSED', 'HOLDING', 'HOLDINGS', 'PORTFOLIO', 'BOOK', 'MWS', 'STATE',
+  'WHAT', 'IS', 'HOW', 'DO', 'THE', 'AND', 'FOR', 'MY', 'ME', 'A', 'AN', 'OF',
+  'CHART', 'QUADRANT', 'ANALYSIS', 'WEEK', 'DAY', 'DAILY', 'WEEKLY', 'SHOW',
+  'SUMMARIZE', 'EXPLAIN', 'USE', 'IT', 'THIS', 'THAT', 'WITH', 'FROM',
+]);
+
 async function loadRelevantTickers(
   client: ReturnType<typeof createClient>,
   message: string,
@@ -131,7 +151,12 @@ async function loadRelevantTickers(
 ): Promise<TickerRow[]> {
   const wanted = new Set<string>();
   if (contextTicker) wanted.add(contextTicker);
+  // Prefer $-prefixed intentional tickers; skip English filler (e.g. "open holdings").
+  for (const m of message.matchAll(/\$([A-Za-z]{1,5})\b/g)) {
+    wanted.add(m[1].toUpperCase());
+  }
   for (const m of message.toUpperCase().matchAll(/\b[A-Z]{2,5}\b/g)) {
+    if (LEGACY_STOP.has(m[0])) continue;
     wanted.add(m[0]);
   }
 
@@ -198,8 +223,23 @@ function buildFallback(message: string, tickers: TickerRow[]): string {
 async function callModel(message: string, dataBlock: string): Promise<string | null> {
   const googleKey = Deno.env.get('GOOGLE_STUDIO_AI_API_KEY');
   const googleModel = Deno.env.get('GOOGLE_STUDIO_AI_MODEL') ?? 'gemini-2.0-flash';
-  const system =
-    'You are MWS Intelligence. Explain only the supplied MWS DATA. Never give buy/sell advice. Keep answers to 2-5 short sentences.';
+  // Keep aligned with web `SYSTEM_PROMPT` in lib/intelligence/chat/context.ts (fallback path only).
+  const system = `You are MWS Intelligence for My Weekly Stock.
+
+How this chat works:
+- Concept / how-to questions are text-only. Never ask for a ticker unless they named one.
+- When ticker rows are supplied below, use those fields only. Never invent numbers.
+- Portfolio questions: if there are no holdings, say so plainly — do not invent holdings.
+
+User-facing language:
+- Speak in product terms (Rating, Outlook, Daily/Weekly, Quadrant). Never mention internal plumbing: "snapshots", "MWS DATA", "loaded", or similar.
+
+Quadrant Analysis:
+- X = % vs 21-day EMA, Y = % vs 30-week EMA.
+- Synced Uptrend / Pullback / Turning / Broken Trend — trend alignment read, not a buy/sell signal.
+
+Rules:
+- Never give buy/sell/hold advice. Keep answers to 2–4 short sentences or tight bullets.`;
 
   if (googleKey) {
     try {
