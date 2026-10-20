@@ -87,6 +87,10 @@ supabase/.temp/
 supabase/.branches/
 .supabase/
 
+# local edge-function deploy scratch (never commit)
+.tmp_deploy_collect.json
+.tmp_deploy_parts/
+
 # cursor / claude local
 .claude/
 .cursor/
