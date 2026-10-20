@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import {
   buildChatMessages,
   buildRefusal,
+  callChatModel,
   checkRateLimit,
   createUserClientFromAuthHeader,
   isChatModelConfigured,
@@ -9,14 +10,14 @@ import {
   looksLikeAdviceRequest,
   type ChatContextRef,
 } from '@/lib/intelligence/chat/context';
-import { callChatModelWithTools } from '@/lib/intelligence/chat/tool-loop';
 import {
   inferWidgetsFromQuestion,
-  mergeWidgets,
   type ChatWidget,
 } from '@/lib/intelligence/chat/tools';
 
 export const runtime = 'nodejs';
+/** Keep chat under Vercel’s practical limit; clients also raised timeouts. */
+export const maxDuration = 60;
 
 /**
  * Platform Chat API — used by web and mobile.
@@ -63,7 +64,8 @@ export async function POST(request: Request) {
   const mwsData = await loadMwsDataBlock(auth.client, contextRef, message, auth.user.id);
 
   let assistantText: string;
-  let widgets: ChatWidget[] = [];
+  // Widgets are inferred server-side (no multi-round tool loop) — big latency win.
+  let widgets: ChatWidget[] = inferWidgetsFromQuestion(message);
 
   if (looksLikeAdviceRequest(message)) {
     assistantText = buildRefusal(
@@ -71,7 +73,8 @@ export async function POST(request: Request) {
     );
   } else {
     const messages = buildChatMessages(mwsData, message);
-    const result = await callChatModelWithTools(messages);
+    // Fast single-shot model call (no tool rounds). Charts/quadrants attach via inferWidgets.
+    const result = await callChatModel(messages);
     if (!result.ok) {
       console.error('[chat] all providers failed', result.provider, result.status, result.error);
       assistantText =
@@ -88,17 +91,20 @@ export async function POST(request: Request) {
       }
     } else {
       assistantText = result.text;
-      widgets = mergeWidgets(result.widgets ?? [], inferWidgetsFromQuestion(message));
     }
   }
 
+  const userId = auth.user.id;
+  const client = auth.client;
   let sessionId = body.sessionId ?? null;
+
+  // One quick session upsert so the client keeps continuity; message rows persist in after().
   try {
     if (!sessionId) {
-      const { data: sessionRow, error } = await auth.client
+      const { data: sessionRow, error } = await client
         .from('ai_chat_sessions')
         .insert({
-          user_id: auth.user.id,
+          user_id: userId,
           title: message.slice(0, 80),
           context_ref: contextRef,
         })
@@ -107,32 +113,29 @@ export async function POST(request: Request) {
       if (error) throw error;
       sessionId = sessionRow.id as string;
     } else {
-      await auth.client
+      void client
         .from('ai_chat_sessions')
         .update({ updated_at: new Date().toISOString(), context_ref: contextRef })
         .eq('id', sessionId)
-        .eq('user_id', auth.user.id);
+        .eq('user_id', userId);
     }
-
-    const rows: Record<string, unknown>[] = [
-      {
-        session_id: sessionId,
-        user_id: auth.user.id,
-        role: 'user',
-        content: message,
-      },
-      {
-        session_id: sessionId,
-        user_id: auth.user.id,
-        role: 'assistant',
-        content: assistantText,
-      },
-    ];
-    const { error: insertErr } = await auth.client.from('ai_chat_messages').insert(rows);
-    if (insertErr) throw insertErr;
   } catch (e) {
-    console.error('chat persist error', e);
+    console.error('chat session error', e);
   }
+
+  const persistSessionId = sessionId;
+  after(async () => {
+    if (!persistSessionId) return;
+    try {
+      const { error: insertErr } = await client.from('ai_chat_messages').insert([
+        { session_id: persistSessionId, user_id: userId, role: 'user', content: message },
+        { session_id: persistSessionId, user_id: userId, role: 'assistant', content: assistantText },
+      ]);
+      if (insertErr) throw insertErr;
+    } catch (e) {
+      console.error('chat persist error', e);
+    }
+  });
 
   if (body.stream) {
     const encoder = new TextEncoder();
@@ -176,5 +179,36 @@ export async function POST(request: Request) {
     content: assistantText,
     widgets,
     contextRef,
+  });
+}
+
+/** Lightweight probe — confirms deploy + preferred provider without a model call. */
+export async function GET() {
+  const explicit = (process.env.MWS_CHAT_PROVIDER ?? 'auto').trim().toLowerCase();
+  const modal = Boolean(
+    (process.env.MODAL_PROXY_TOKEN_ID && process.env.MODAL_PROXY_TOKEN_SECRET) ||
+      (process.env.MODAL_CHAT_URL && process.env.MODAL_CHAT_API_KEY),
+  );
+  const google = Boolean(process.env.GOOGLE_STUDIO_AI_API_KEY?.trim());
+  const preferred =
+    explicit === 'google' || explicit === 'google_studio' || explicit === 'gemini'
+      ? google
+        ? 'google_studio'
+        : null
+      : explicit === 'modal'
+        ? modal
+          ? 'modal'
+          : null
+        : modal
+          ? 'modal'
+          : google
+            ? 'google_studio'
+            : null;
+  return NextResponse.json({
+    ok: true,
+    preferred,
+    modal,
+    google,
+    explicit,
   });
 }

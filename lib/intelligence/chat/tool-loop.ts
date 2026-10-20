@@ -410,12 +410,13 @@ function resolvePreferredProvider(): ChatProvider | null {
   if (explicit === 'google' || explicit === 'google_studio' || explicit === 'gemini') {
     return isGoogleConfigured() ? 'google_studio' : null;
   }
-  if (isGoogleConfigured()) return 'google_studio';
+  // auto: Modal first (faster), Google Studio backup
   if (isModalConfigured()) return 'modal';
+  if (isGoogleConfigured()) return 'google_studio';
   return null;
 }
 
-/** Tool-aware chat dispatch (Google free → Modal). */
+/** Tool-aware chat dispatch (Modal → Google Studio). */
 export async function callChatModelWithTools(
   messages: ChatMessage[],
 ): Promise<ChatWithToolsResult> {

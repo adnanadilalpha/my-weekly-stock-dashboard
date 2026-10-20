@@ -11,45 +11,17 @@ export type ChatContextRef = {
   userPortfolioId?: string;
 };
 
-const SYSTEM_PROMPT = `You are MWS Intelligence — the assistant for My Weekly Stock (MWS), a market momentum analysis product.
+const SYSTEM_PROMPT = `You are MWS Intelligence for My Weekly Stock.
 
-ROLE
-- Explain supplied MWS DATA and teach MWS concepts.
-- Never recalculate or “correct” Trend Score, Rating, Outlook, EMAs, returns, or portfolio KPIs.
-- Never invent missing fields. Say not available.
-- Never give buy/sell/hold advice, price targets, or predictions.
-
-VISUAL TOOLS (built into this chat)
-- You can render native visuals inside the chat by calling tools. Always use them when helpful — do not say you cannot show charts.
-- show_price_chart: interactive price + EMA chart for one ticker. Use for “show chart”, “how does it look”, EMA walkthroughs, daily vs weekly chart asks.
-- show_quadrant: interactive Quadrant Analysis scatter for 1–24 tickers. Use for “quadrant”, “relative strength plot”, “screener of these names”, multi-ticker comparisons.
-- Call tools first when the user wants a visual; then explain briefly using MWS DATA. You may call multiple tools in one turn.
-- Prefer daily charts unless the user asks weekly. For quadrant, include every ticker they named (within limits).
-
-MWS DATA RULES
-- Treat every field in the MWS DATA block as authoritative for this turn.
-- Prefer packaged narratives (daily_trend_description, weekly_trend_description, daily_performance_description / summary) when present.
-- Every number you cite must appear in the supplied MWS DATA (or be an explicit methodology teaching note).
-- Daily and Weekly are concurrent timeframe analyses from the same update — not “previous vs current” and not calendar day/week P&L.
-- Performance strength ≠ Rating. 1M and 3M are different lookbacks, never sequential stages.
-- Outlook qualifies state within a Rating band; it does not replace Rating.
-- Quadrant Analysis is first-class: when quadrant_position is present on a ticker, lead with that label (Synced Uptrend / Pullback / Turning / Broken Trend) and the EMA relationship. Use daily_price_vs_21ema (X) and weekly_price_vs_30ema (Y) only as supporting distances — do not invent a different framework.
-
-ANSWERING “TODAY” / “THIS WEEK” / “LAST WEEK”
-- MWS does not store calendar “today %”, “week-to-date %”, or prior-week Rating history.
-- For “today / day / intraday” questions: use Daily MWS fields (daily_rating, daily_outlook, daily_trend_score, daily_* narratives, 1m/3m, distance).
-- For “this week / weekly” questions: use Weekly MWS fields (weekly_rating, weekly_outlook, weekly_trend_score, weekly_* narratives).
-- For “last week” / prior-period Rating questions: say MWS does not archive prior Ratings; only the current concurrent Daily and Weekly snapshots are available.
-- Always clarify briefly that you are reporting MWS Daily/Weekly momentum state, not live session or calendar-week return, when the user asked for today/this week/last week.
-- Any ticker in the MWS universe may appear in MWS DATA when asked about — not only portfolio holdings.
-
-STYLE
-- Keep answers short, clean, and scannable. Default to 2–5 short sentences or a tight bullet list — not essays.
-- Lead with the direct answer in the first sentence, then only the MWS points that matter.
-- When a chart or quadrant is shown, narrate what the user is looking at (axes, EMAs, quadrant labels) in plain language.
-- Prefer **bold** for tickers/ratings, short "- " bullets, and blank lines between tickers. No ### headings, no *** stars, no tables, no code fences.
-- Do not dump the whole holdings list unless asked. Do not restate the full MWS DATA block.
-- If a ticker the user asked about is missing from MWS DATA, say it is not in the MWS universe (or inactive) — do not substitute other holdings unless the user asked about the portfolio.`;
+Rules:
+- Use ONLY the supplied MWS DATA. Never invent numbers or missing fields.
+- Never recalculate Rating, Score, Outlook, EMAs, or returns. Never give buy/sell/hold advice.
+- Daily and Weekly are concurrent MWS timeframe snapshots — not calendar day/week P&L.
+- If quadrant_position is present, lead with it (Synced Uptrend / Pullback / Turning / Broken Trend).
+- For “today” use Daily fields; for “this week” use Weekly; for “last week” say prior Ratings are not archived.
+- Charts/quadrants may already appear in the UI — narrate them; never say you cannot show visuals.
+- Keep answers short: 2–5 sentences or tight bullets. Bold tickers/ratings. No tables or code fences.
+- If a asked ticker is missing from MWS DATA, say it is not in the MWS universe.`;
 
 const ADVICE_RE =
   /\b(buy|sell|hold|accumulate|short|long|price target|should i (buy|sell)|recommend(ed|ation)?)\b/i;
@@ -125,6 +97,8 @@ const TICKER_STOPWORDS = new Set([
 ]);
 
 const TICKER_TABLES = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'] as const;
+/** Single-ticker chat lookup — most names live in other_stocks / mega_caps. */
+const SINGLE_TICKER_LOOKUP = ['other_stocks', 'mega_caps', 'sectors', 'market_segments'] as const;
 
 /** Narrow select — common columns across ticker tables (avoids select('*') egress). */
 const TICKER_SELECT =
@@ -342,22 +316,38 @@ async function fetchTickerSnapshotsBatch(
   const map = new Map<string, { table: string; data: Record<string, unknown> }>();
   if (uniq.length === 0) return map;
 
-  // Exactly 4 parallel queries (one per universe table), then merge in web-app order.
-  const settled = await Promise.all(
-    TICKER_TABLES.map(async (table) => {
-      const { data, error } = await client.from(table).select(TICKER_SELECT).in('ticker', uniq);
+  // Single-ticker: probe tables in web order and stop early (avoids 4 cold REST round-trips).
+  // Multi-ticker: keep 4-way parallel.
+  if (uniq.length === 1) {
+    for (const table of SINGLE_TICKER_LOOKUP) {
+      const { data, error } = await client.from(table).select(TICKER_SELECT).eq('ticker', uniq[0]).limit(1);
       if (error) {
         console.error(`[chat] ticker snapshot query failed on ${table}:`, error.message ?? error);
+        continue;
       }
-      return { table, rows: error ? [] : ((data ?? []) as Record<string, unknown>[]) };
-    }),
-  );
+      const row = (data ?? [])[0] as Record<string, unknown> | undefined;
+      if (row?.ticker) {
+        map.set(String(row.ticker).toUpperCase(), { table, data: row });
+        break;
+      }
+    }
+  } else {
+    const settled = await Promise.all(
+      TICKER_TABLES.map(async (table) => {
+        const { data, error } = await client.from(table).select(TICKER_SELECT).in('ticker', uniq);
+        if (error) {
+          console.error(`[chat] ticker snapshot query failed on ${table}:`, error.message ?? error);
+        }
+        return { table, rows: error ? [] : ((data ?? []) as Record<string, unknown>[]) };
+      }),
+    );
 
-  for (const table of TICKER_TABLES) {
-    const block = settled.find((s) => s.table === table);
-    for (const row of block?.rows ?? []) {
-      const t = String(row.ticker ?? '').toUpperCase();
-      if (t && !map.has(t)) map.set(t, { table, data: row });
+    for (const table of TICKER_TABLES) {
+      const block = settled.find((s) => s.table === table);
+      for (const row of block?.rows ?? []) {
+        const t = String(row.ticker ?? '').toUpperCase();
+        if (t && !map.has(t)) map.set(t, { table, data: row });
+      }
     }
   }
 
@@ -466,8 +456,21 @@ export async function loadMwsDataBlock(
     exit_price: number | null;
   };
 
-  // ---- User portfolio (this user only): 1 portfolio + 1 holdings query ----
-  if (userId) {
+  const extractedEarly = message
+    ? extractTickersDetailed(message)
+    : { definite: [] as string[], candidates: [] as string[] };
+  const namedEarly = [
+    ...extractedEarly.definite,
+    ...extractedEarly.candidates,
+    ...(context.ticker ? [context.ticker] : []),
+  ].map((t) => t.toUpperCase());
+  const asksPortfolioEarly = messageAsksAboutPortfolio(message);
+  // Skip the book for pure ticker questions (even on the portfolio page).
+  const wantsPortfolioContext =
+    Boolean(userId) &&
+    (asksPortfolioEarly || (Boolean(context.userPortfolioId) && namedEarly.length === 0));
+
+  if (wantsPortfolioContext && userId) {
     let pq = adminOrUserClient
       .from('user_portfolios')
       .select('id, name, base_currency')
@@ -550,16 +553,13 @@ export async function loadMwsDataBlock(
     }
   }
 
-  const extracted = message
-    ? extractTickersDetailed(message)
-    : { definite: [] as string[], candidates: [] as string[] };
   const definite = [
-    ...extracted.definite.map((t) => t.toUpperCase()),
+    ...extractedEarly.definite.map((t) => t.toUpperCase()),
     ...(context.ticker ? [context.ticker.toUpperCase()] : []),
   ];
-  const candidates = extracted.candidates.map((t) => t.toUpperCase());
+  const candidates = extractedEarly.candidates.map((t) => t.toUpperCase());
 
-  const asksPortfolio = messageAsksAboutPortfolio(message) || (!message && holdingTickers.length > 0);
+  const asksPortfolio = asksPortfolioEarly || (!message && holdingTickers.length > 0);
   const namedInQuestion = [...new Set([...definite, ...candidates])];
 
   // Snapshot policy (egress-aware):
@@ -728,8 +728,8 @@ export async function callModalChat(messages: ChatMessage[]): Promise<ChatModelR
     const completion = await client.chat.completions.create({
       model: cfg.model,
       messages: openaiMessages,
-      temperature: 0.25,
-      max_tokens: 768,
+      temperature: 0.2,
+      max_tokens: 512,
       top_p: 0.9,
       stream: false,
       // DeepSeek Modal endpoint: disable extra reasoning for deterministic MWS answers.
@@ -796,8 +796,8 @@ export async function callGoogleStudioChat(messages: ChatMessage[]): Promise<Cha
   const body: Record<string, unknown> = {
     contents,
     generationConfig: {
-      temperature: 0.25,
-      maxOutputTokens: 768,
+      temperature: 0.2,
+      maxOutputTokens: 512,
     },
   };
   if (systemParts.length > 0) {
@@ -880,7 +880,7 @@ function isQuotaOrLimitError(result: ChatModelResult): boolean {
 }
 
 /**
- * Prefer Google free tier when available; own Modal model is the fallback.
+ * Prefer own Modal model (much faster in practice); Google Studio as fallback.
  * Explicit MWS_CHAT_PROVIDER=modal|google_studio still forces one provider.
  */
 function resolvePreferredProvider(): ChatProvider | null {
@@ -889,9 +889,9 @@ function resolvePreferredProvider(): ChatProvider | null {
   if (explicit === 'google' || explicit === 'google_studio' || explicit === 'gemini') {
     return isGoogleConfigured() ? 'google_studio' : null;
   }
-  // auto (default): Google free first, Modal own model as backup
-  if (isGoogleConfigured()) return 'google_studio';
+  // auto (default): Modal first (~2–5s), Google Studio as backup
   if (isModalConfigured()) return 'modal';
+  if (isGoogleConfigured()) return 'google_studio';
   return null;
 }
 
@@ -901,8 +901,8 @@ export function isChatModelConfigured(): boolean {
 
 /**
  * Dispatch with silent failover:
- * 1) Google Studio (free) while quota works
- * 2) Own Modal model if Google hits limits or fails
+ * 1) Own Modal model (fast path)
+ * 2) Google Studio if Modal fails
  * User-facing route should not surface provider/limit errors when either succeeds.
  */
 export async function callChatModel(messages: ChatMessage[]): Promise<ChatModelResult> {
@@ -916,7 +916,6 @@ export async function callChatModel(messages: ChatMessage[]): Promise<ChatModelR
     };
   }
 
-  // Default / auto: Google free tier first, then own Modal model.
   if (preferred === 'google_studio') {
     const google = await callGoogleStudioChat(messages);
     if (google.ok) return google;
@@ -933,7 +932,7 @@ export async function callChatModel(messages: ChatMessage[]): Promise<ChatModelR
     return google;
   }
 
-  // preferred === 'modal'
+  // preferred === 'modal' (default auto)
   const modal = await callModalChat(messages);
   if (modal.ok) return modal;
 
