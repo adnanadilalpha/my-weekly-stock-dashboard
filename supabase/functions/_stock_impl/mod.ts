@@ -2167,9 +2167,9 @@ async function upsertPriceHistory(
     const weeklyRows = closesToRows(ticker, history.weeklyCloses, 'weekly', anchor, 78);
     const rows = [...dailyRows, ...weeklyRows];
     if (rows.length === 0) return;
-    const { error } = await db
-      .from('price_history')
-      .upsert(rows, { onConflict: 'ticker,bar_date,interval', ignoreDuplicates: false });
+    // Conditional upsert: conflict updates only when close actually changes
+    // (avoids rewriting unchanged bars + their index/WAL work on every collect).
+    const { error } = await db.rpc('upsert_price_history', { p_rows: rows });
     if (error) {
       console.warn('[price_history] upsert error', { ticker, error: error.message });
     }
