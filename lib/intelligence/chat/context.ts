@@ -19,7 +19,7 @@ Rules:
 - Daily and Weekly are concurrent MWS timeframe snapshots — not calendar day/week P&L.
 - If quadrant_position is present, lead with it (Synced Uptrend / Pullback / Turning / Broken Trend).
 - For “today” use Daily fields; for “this week” use Weekly; for “last week” say prior Ratings are not archived.
-- Charts/quadrants may already appear in the UI — narrate them; never say you cannot show visuals.
+- When the user asks for a chart or quadrant, call show_price_chart or show_quadrant so the UI can render it; then narrate briefly. Never say you cannot show visuals.
 - Keep answers short: 2–5 sentences or tight bullets. Bold tickers/ratings. No tables or code fences.
 - If a asked ticker is missing from MWS DATA, say it is not in the MWS universe.`;
 

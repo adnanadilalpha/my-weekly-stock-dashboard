@@ -10,8 +10,11 @@ import {
   looksLikeAdviceRequest,
   type ChatContextRef,
 } from '@/lib/intelligence/chat/context';
+import { callChatModelWithTools } from '@/lib/intelligence/chat/tool-loop';
 import {
   inferWidgetsFromQuestion,
+  mergeWidgets,
+  questionWantsVisual,
   type ChatWidget,
 } from '@/lib/intelligence/chat/tools';
 
@@ -64,8 +67,10 @@ export async function POST(request: Request) {
   const mwsData = await loadMwsDataBlock(auth.client, contextRef, message, auth.user.id);
 
   let assistantText: string;
-  // Widgets are inferred server-side (no multi-round tool loop) — big latency win.
-  let widgets: ChatWidget[] = inferWidgetsFromQuestion(message);
+  // Always infer widgets for chart/quadrant asks (covers lowercase tickers like "mmm").
+  const inferredWidgets = inferWidgetsFromQuestion(message);
+  let widgets: ChatWidget[] = inferredWidgets;
+  const wantsVisual = questionWantsVisual(message) || inferredWidgets.length > 0;
 
   if (looksLikeAdviceRequest(message)) {
     assistantText = buildRefusal(
@@ -73,8 +78,10 @@ export async function POST(request: Request) {
     );
   } else {
     const messages = buildChatMessages(mwsData, message);
-    // Fast single-shot model call (no tool rounds). Charts/quadrants attach via inferWidgets.
-    const result = await callChatModel(messages);
+    // Visual asks: tool loop (Modal-first) + infer fallback. Text-only: single-shot for speed.
+    const result = wantsVisual
+      ? await callChatModelWithTools(messages)
+      : await callChatModel(messages);
     if (!result.ok) {
       console.error('[chat] all providers failed', result.provider, result.status, result.error);
       assistantText =
@@ -91,6 +98,9 @@ export async function POST(request: Request) {
       }
     } else {
       assistantText = result.text;
+      if (wantsVisual && 'widgets' in result) {
+        widgets = mergeWidgets(result.widgets ?? [], inferredWidgets);
+      }
     }
   }
 

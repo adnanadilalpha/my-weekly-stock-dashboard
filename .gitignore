@@ -97,3 +97,4 @@ supabase/.branches/
 
 # optional large local dumps (already partially present locally)
 portfolio sheets/
+.env*

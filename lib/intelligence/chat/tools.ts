@@ -227,6 +227,19 @@ export function collectWidgets(executions: ToolExecution[]): ChatWidget[] {
   return out;
 }
 
+/** True when the user is asking for an inline chart or quadrant visual. */
+export function questionWantsVisual(question: string): boolean {
+  const q = question.trim();
+  if (!q) return false;
+  return (
+    /\b(quadrant|relative\s*strength|screener|scatter|plot\s+(these|them|these\s+names))\b/i.test(
+      q,
+    ) ||
+    /\b(create|build|make|show|display|render|plot)\b.+\b(quadrant|screener|chart)\b/i.test(q) ||
+    /\b(chart|price\s*chart|candles?|ema\s*chart|how\s+it\s+looks?)\b/i.test(q)
+  );
+}
+
 /**
  * If the model forgot to call tools but the user clearly asked for a visual,
  * infer widgets from the question so the chat still feels native.
@@ -241,13 +254,15 @@ export function inferWidgetsFromQuestion(question: string): ChatWidget[] {
     'HOW', 'IF', 'IN', 'IS', 'IT', 'ME', 'MY', 'NO', 'NOT', 'OF', 'OK', 'ON', 'OR',
     'SO', 'THE', 'TO', 'UP', 'US', 'VS', 'WE', 'WHAT', 'WHEN', 'WHO', 'WHY', 'WITH',
     'YOU', 'SHOW', 'CHART', 'CREATE', 'BUILD', 'MAKE', 'PLOT', 'PLEASE', 'HELP',
-    'EXPLAIN', 'WEEKLY', 'DAILY', 'MWS', 'ETF', 'EMA', 'EMAS',
+    'EXPLAIN', 'WEEKLY', 'DAILY', 'MWS', 'ETF', 'EMA', 'EMAS', 'SEE', 'LOOK',
+    'THIS', 'THAT', 'THESE', 'THOSE', 'CAN', 'WILL', 'JUST', 'GIVE', 'GET',
   ]);
 
+  // Case-insensitive ticker tokens ($mmm, MMM, mmm) — users type lowercase a lot.
   const tickers = uniqTickers(
     [
       ...q.matchAll(/\$([A-Za-z][A-Za-z0-9.\-]{0,11})/g),
-      ...q.matchAll(/\b([A-Z]{1,5}(?:[.\-][A-Z0-9]{1,4})?)\b/g),
+      ...q.matchAll(/\b([A-Za-z]{1,5}(?:[.\-][A-Za-z0-9]{1,4})?)\b/g),
     ]
       .flatMap((m) => m[1])
       .filter((t) => !STOP.has(t.toUpperCase())),
