@@ -79,27 +79,44 @@ export async function POST(request: Request) {
   } else {
     const messages = buildChatMessages(mwsData, message);
     // Visual asks: tool loop (Modal-first) + infer fallback. Text-only: single-shot for speed.
-    const result = wantsVisual
-      ? await callChatModelWithTools(messages)
-      : await callChatModel(messages);
-    if (!result.ok) {
-      console.error('[chat] all providers failed', result.provider, result.status, result.error);
-      assistantText =
-        'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
-      if (!isChatModelConfigured()) {
-        return NextResponse.json(
-          {
-            error: 'chat_unavailable',
-            message: assistantText,
-            fallback: true,
-          },
-          { status: 503 },
-        );
+    if (wantsVisual) {
+      const result = await callChatModelWithTools(messages);
+      if (!result.ok) {
+        console.error('[chat] all providers failed', result.provider, result.status, result.error);
+        assistantText =
+          'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
+        if (!isChatModelConfigured()) {
+          return NextResponse.json(
+            {
+              error: 'chat_unavailable',
+              message: assistantText,
+              fallback: true,
+            },
+            { status: 503 },
+          );
+        }
+      } else {
+        assistantText = result.text;
+        widgets = mergeWidgets(result.widgets, inferredWidgets);
       }
     } else {
-      assistantText = result.text;
-      if (wantsVisual && 'widgets' in result) {
-        widgets = mergeWidgets(result.widgets ?? [], inferredWidgets);
+      const result = await callChatModel(messages);
+      if (!result.ok) {
+        console.error('[chat] all providers failed', result.provider, result.status, result.error);
+        assistantText =
+          'I could not reach the chat model just now. Please try again in a moment, or use MWS Brief on the page for Rating, Performance, and Quadrant Analysis explanations.';
+        if (!isChatModelConfigured()) {
+          return NextResponse.json(
+            {
+              error: 'chat_unavailable',
+              message: assistantText,
+              fallback: true,
+            },
+            { status: 503 },
+          );
+        }
+      } else {
+        assistantText = result.text;
       }
     }
   }
