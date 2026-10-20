@@ -72,9 +72,11 @@ export function RelativeStrengthDialog({
   const activity = useActivity();
   const { prefs } = useMwsHubPreferences();
   const searchRef = useRef<HTMLInputElement>(null);
+  /** Apply every non-empty preset once after open + data load; skip if user already toggled. */
+  const pendingDefaultPresetsRef = useRef(false);
   const [rows, setRows] = useState<MwsPickerTickerRow[]>([]);
   const [search, setSearch] = useState('');
-  /** Tickers added via search / initial seed (not via a preset chip). */
+  /** Tickers added via search (not via a preset chip). */
   const [manualTickers, setManualTickers] = useState<string[]>([]);
   /** Explicitly toggled presets — chart membership derives from these, not subset inference. */
   const [activePresets, setActivePresets] = useState<Set<PresetId>>(() => new Set());
@@ -149,7 +151,8 @@ export function RelativeStrengthDialog({
 
   useEffect(() => {
     if (!open) return;
-    // Always open empty — chart only fills when the user turns on a preset or searches.
+    // Reset; all non-empty presets turn on once bucket data finishes loading.
+    pendingDefaultPresetsRef.current = true;
     setManualTickers([]);
     setActivePresets(new Set());
     setExcludedTickers(new Set());
@@ -184,6 +187,22 @@ export function RelativeStrengthDialog({
           megaCaps: buckets.megaCaps,
         });
         setPortfolioTickers(holdings);
+        // Default: every non-empty preset on (unless user already toggled).
+        if (pendingDefaultPresetsRef.current) {
+          pendingDefaultPresetsRef.current = false;
+          const byId: Record<PresetId, string[]> = {
+            segments: buckets.segments,
+            sectors: buckets.sectors,
+            large: buckets.megaCaps,
+            watchlist: watchlistTickers,
+            portfolio: holdings,
+          };
+          const all = new Set<PresetId>();
+          for (const meta of PRESET_META) {
+            if (byId[meta.id].length > 0) all.add(meta.id);
+          }
+          setActivePresets(all);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load tickers');
@@ -197,7 +216,7 @@ export function RelativeStrengthDialog({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, watchlistTickers]);
 
   useEffect(() => {
     if (!open) return;
@@ -274,6 +293,7 @@ export function RelativeStrengthDialog({
     (id: PresetId) => {
       const tickers = presetTickers[id];
       if (tickers.length === 0) return;
+      pendingDefaultPresetsRef.current = false;
       setActivePresets((prev) => {
         const next = new Set(prev);
         if (next.has(id)) {
