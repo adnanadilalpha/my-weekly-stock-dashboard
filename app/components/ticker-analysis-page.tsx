@@ -865,20 +865,6 @@ export function TickerAnalysisPage({
                     {ticker}
                   </span>
                   <span className="h-3.5 w-px bg-border" aria-hidden />
-                  <span
-                    className={`rounded-md px-2 py-0.5 text-xs font-semibold ${ratingBadgeClassName(activeRatingLabel, ratingLabelRows)}`}
-                    style={ratingBadgeInlineStyle(activeRatingLabel, ratingLabelRows)}
-                  >
-                    {activeRatingLabel}
-                  </span>
-                  <span
-                    className={TREND_OUTLOOK_PILL_CLASS}
-                    title={trendOutlookAriaLabel(activeTrend.outlook, activeTrend.score, trendThresholds)}
-                  >
-                    <span className={trendOutlookDotClass(activeTrend.outlook)} aria-hidden />
-                    {activeTrend.outlook}
-                  </span>
-                  <span className="h-3.5 w-px bg-border" aria-hidden />
                   <span>Updated {data.lastUpdated}</span>
                 </div>
               </div>
