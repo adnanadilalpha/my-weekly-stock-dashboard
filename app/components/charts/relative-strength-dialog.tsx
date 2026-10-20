@@ -119,12 +119,13 @@ export function RelativeStrengthDialog({
   );
 
   const selected = useMemo(() => {
-    const next = new Set(manualTickers);
+    const next = new Set<string>();
     for (const id of activePresets) {
       for (const t of presetTickers[id]) {
         if (!excludedTickers.has(t)) next.add(t);
       }
     }
+    for (const t of manualTickers) next.add(t);
     return [...next];
   }, [manualTickers, activePresets, excludedTickers, presetTickers]);
 
@@ -148,18 +149,19 @@ export function RelativeStrengthDialog({
 
   useEffect(() => {
     if (!open) return;
-    const init = seedKey ? seedKey.split(',') : [];
-    setManualTickers(init);
+    // Always open empty — chart only fills when the user turns on a preset or searches.
+    setManualTickers([]);
     setActivePresets(new Set());
     setExcludedTickers(new Set());
     setPoints([]);
+    setLoadingChart(false);
     setSearch('');
     setError(null);
     setGuideOpen(false);
     activity?.trackEvent({
       eventType: 'feature_use',
       eventName: 'relative_strength_open',
-      metadata: { seedCount: init.length },
+      metadata: { seedCount: seedKey ? seedKey.split(',').length : 0 },
     });
   }, [open, seedKey, activity]);
 
@@ -276,6 +278,12 @@ export function RelativeStrengthDialog({
         const next = new Set(prev);
         if (next.has(id)) {
           next.delete(id);
+          // Last preset off → fully empty chart (no leftovers).
+          if (next.size === 0) {
+            setManualTickers([]);
+            setExcludedTickers(new Set());
+            setPoints([]);
+          }
           activity?.trackEvent({
             eventType: 'feature_use',
             eventName: 'relative_strength_preset_remove',
