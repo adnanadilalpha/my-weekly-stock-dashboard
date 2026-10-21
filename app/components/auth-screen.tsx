@@ -180,6 +180,15 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
         </Card>
         <p className="mt-6 text-center text-xs text-slate-500 sm:text-sm">
           <a
+            href="/support"
+            className="font-medium text-slate-600 underline-offset-2 transition-colors hover:text-slate-900 hover:underline"
+          >
+            Support
+          </a>
+          <span className="mx-2 text-slate-300" aria-hidden>
+            ·
+          </span>
+          <a
             href="/privacy"
             className="font-medium text-slate-600 underline-offset-2 transition-colors hover:text-slate-900 hover:underline"
           >

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 const LAST_UPDATED = 'October 21, 2026';
-const CONTACT_EMAIL = 'privacy@myweeklystock.com';
+const CONTACT_EMAIL = 'contact@myweeklystock.com';
 
 const SECTIONS: { id: string; title: string; body: ReactNode }[] = [
   {
@@ -392,6 +392,9 @@ export default function PrivacyPage() {
         <div className="mx-auto flex max-w-3xl flex-col gap-2 px-5 py-6 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <span>© {new Date().getFullYear()} My Weekly Stock</span>
           <div className="flex gap-4">
+            <Link href="/support" className="hover:text-slate-800">
+              Support
+            </Link>
             <Link href="/privacy" className="hover:text-slate-800">
               Privacy
             </Link>
