@@ -178,6 +178,14 @@ export function AuthScreen({ onAuthSuccess }: AuthScreenProps) {
             )}
           </CardContent>
         </Card>
+        <p className="mt-6 text-center text-xs text-slate-500 sm:text-sm">
+          <a
+            href="/privacy"
+            className="font-medium text-slate-600 underline-offset-2 transition-colors hover:text-slate-900 hover:underline"
+          >
+            Privacy Policy
+          </a>
+        </p>
       </div>
     </div>
   );
