@@ -2,6 +2,8 @@
  * Chat visual tools — model calls these; the web UI renders native chart/quadrant cards.
  */
 
+import { suggestTickerCorrection } from '@/lib/intelligence/chat/ticker-resolve';
+
 export type ChatPriceChartWidget = {
   type: 'price_chart';
   ticker: string;
@@ -25,7 +27,8 @@ function normTicker(raw: unknown): string | null {
   const t = raw.trim().toUpperCase().replace(/\s+/g, '');
   if (!t || t.length > 12) return null;
   if (!/^[A-Z][A-Z0-9.\-]*$/.test(t)) return null;
-  return t;
+  // Match Ask text: APPL → AAPL, apple → AAPL, etc. (widgets previously kept the typo).
+  return suggestTickerCorrection(t) ?? t;
 }
 
 function uniqTickers(raw: unknown, max: number): string[] {
@@ -231,9 +234,12 @@ const VISUAL_ALIASES: Record<string, string> = {
   silver: 'SLV',
   gold: 'GLD',
   apple: 'AAPL',
+  appl: 'AAPL',
+  aaple: 'AAPL',
   microsoft: 'MSFT',
   amazon: 'AMZN',
   nvidia: 'NVDA',
+  nvd: 'NVDA',
   tesla: 'TSLA',
   meta: 'META',
   google: 'GOOGL',
