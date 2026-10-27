@@ -69,6 +69,41 @@ export function eventTypeLabel(eventType: string): string {
     search: 'Search',
     filter: 'Filter',
     sign_out: 'Signed out',
+    feature_use: 'Feature',
   };
   return labels[eventType] ?? eventType;
+}
+
+const FEATURE_LABELS: Record<string, string> = {
+  ai_chat_send: 'Ask MWS · message',
+  ai_chat_widgets: 'Ask MWS · widgets',
+  relative_strength_open: 'Quadrant Analysis',
+  relative_strength_preset_add: 'Quadrant · preset on',
+  relative_strength_preset_remove: 'Quadrant · preset off',
+  quadrant_screener_open: 'Quadrant Screener',
+  brief_open: 'Quick read',
+  my_portfolio_create: 'Create book',
+  my_portfolio_add_holding: 'Add holding',
+  my_portfolio_close_holding: 'Close holding',
+  home: 'Home',
+  pulse: 'Pulse',
+  portfolios: 'Portfolios',
+  ask: 'Ask',
+  search: 'Search',
+  'ticker-detail': 'Ticker detail',
+};
+
+export function featureUsageLabel(eventName: string | undefined): string {
+  if (!eventName) return 'Feature';
+  return FEATURE_LABELS[eventName] ?? eventName.replace(/_/g, ' ');
+}
+
+export type ActivityPlatform = 'web' | 'ios' | 'android';
+
+export function normalizeActivityPlatform(raw: unknown): ActivityPlatform {
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase();
+  if (s === 'ios' || s === 'android' || s === 'web') return s;
+  return 'web';
 }

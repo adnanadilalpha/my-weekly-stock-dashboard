@@ -36,12 +36,15 @@ export type DashboardStats = {
   runsLast24h: number;
   successLast24h: number;
   /**
-   * Approximate “active” accounts from Supabase Auth `last_sign_in_at`
-   * (updates when users authenticate, not per-request).
+   * Auth last_sign_in_at only (login, not real use). Prefer usageDau / activeNow.
    */
   activeSignIn15m: number;
   activeSignIn24h: number;
   totalAuthAccounts: number;
+  /** Distinct users with a heartbeat in the last 24h (real use). */
+  usageDau: number;
+  /** Distinct users with a heartbeat in the last 3 minutes. */
+  activeNow: number;
   /** Average of Returns % (column_9) across recap portfolio rows, for KPI. */
   recapAvgReturnDisplay: string;
   portfolioRecapWeekly: PortfolioRecapRowDisplay[];
@@ -337,6 +340,7 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
       macroEtfRes,
       macro3xRes,
       authAct,
+      usageSessionsRes,
     ] = await Promise.all([
       admin.from('authorized_users').select('id', { count: 'exact', head: true }),
       admin.from('authorized_users').select('id', { count: 'exact', head: true }).gte('created_at', sinceWeek),
@@ -347,6 +351,11 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
       admin.from('macro_etf').select('*').order('row_index', { ascending: true }),
       admin.from('macro_3x_etf').select('*').order('row_index', { ascending: true }),
       authSignInActivity(admin),
+      admin
+        .from('user_activity_sessions')
+        .select('user_id, last_seen_at')
+        .gte('last_seen_at', since24h)
+        .limit(5000),
     ]);
 
     if (usersRes.error) return err('Failed to load user count.', 'db_error');
@@ -362,6 +371,19 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
     const { weekly: portfolioRecapWeekly, etf: portfolioRecapEtf, recapAvgReturnDisplay } =
       processPerformanceRecap(recapRows, momentumSummaryRows, macroEtfSheetRows, macro3xSheetRows);
 
+    const nowMs = Date.now();
+    const ACTIVE_NOW_MS = 3 * 60 * 1000;
+    const usageRows = usageSessionsRes.data ?? [];
+    const usageDau = new Set(usageRows.map((s) => s.user_id)).size;
+    const activeNow = new Set(
+      usageRows
+        .filter((s) => {
+          const t = new Date(s.last_seen_at).getTime();
+          return !Number.isNaN(t) && nowMs - t <= ACTIVE_NOW_MS;
+        })
+        .map((s) => s.user_id),
+    ).size;
+
     const stats: DashboardStats = {
       totalUsers: usersRes.count ?? 0,
       admins: adminsRes.count ?? 0,
@@ -371,6 +393,8 @@ export async function loadDashboardStatsAction(accessToken: string): Promise<Act
       activeSignIn15m: authAct.activeSignIn15m,
       activeSignIn24h: authAct.activeSignIn24h,
       totalAuthAccounts: authAct.totalAuthAccounts,
+      usageDau,
+      activeNow,
       recapAvgReturnDisplay,
       portfolioRecapWeekly,
       portfolioRecapEtf,

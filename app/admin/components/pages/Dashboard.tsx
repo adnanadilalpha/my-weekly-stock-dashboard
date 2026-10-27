@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, ArrowUpRight, TrendingUp, Users, type LucideIcon } from 'lucide-react';
+import { Activity, ArrowUpRight, Radio, TrendingUp, Users, type LucideIcon } from 'lucide-react';
 import DashboardActivityTab from './DashboardActivityTab';
 import { useAdmin } from '../../_lib/admin-context';
 import { useLiveAdminRefresh } from '../../_lib/use-live-admin-refresh';
@@ -162,9 +162,9 @@ export default function Dashboard({ dataActive = true }: DashboardProps) {
 
       {dashTab === 'overview' && (
         <>
-          <section className="flex flex-col gap-4 sm:flex-row sm:gap-5">
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              className="min-w-0 flex-1 sm:basis-0"
+              className="min-w-0"
               icon={Users}
               label="Total Users"
               value={loading ? '—' : numberFmt(totalUsers)}
@@ -172,7 +172,19 @@ export default function Dashboard({ dataActive = true }: DashboardProps) {
               positive
             />
             <KpiCard
-              className="min-w-0 flex-1 sm:basis-0"
+              className="min-w-0"
+              icon={Radio}
+              label="Daily active (DAU)"
+              value={loading ? '—' : numberFmt(stats?.usageDau ?? 0)}
+              delta={
+                loading
+                  ? '—'
+                  : `${stats?.activeNow ?? 0} active now · usage, not login`
+              }
+              positive
+            />
+            <KpiCard
+              className="min-w-0"
               icon={Activity}
               label="New users (7d)"
               value={loading ? '—' : numberFmt(joinedThisWeek)}
@@ -180,7 +192,7 @@ export default function Dashboard({ dataActive = true }: DashboardProps) {
               positive
             />
             <KpiCard
-              className="min-w-0 flex-1 sm:basis-0"
+              className="min-w-0"
               icon={TrendingUp}
               label="Avg recap return"
               value={loading ? '—' : avgRecapReturn}

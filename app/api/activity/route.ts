@@ -14,6 +14,7 @@ const ALLOWED_EVENT_TYPES = new Set([
   'search',
   'filter',
   'sign_out',
+  'feature_use',
 ]);
 
 function trimMeta(meta: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -41,7 +42,8 @@ export async function POST(request: Request) {
     }
 
     const asUser = getSupabaseAsUser(token);
-    const { data: userRes, error: userErr } = await asUser.auth.getUser();
+    // Pass JWT explicitly — more reliable than relying on client session state.
+    const { data: userRes, error: userErr } = await asUser.auth.getUser(token);
     if (userErr || !userRes?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

@@ -69,6 +69,10 @@ export function ActivityProvider({ enabled, context, children }: ActivityProvide
 
       const ctx = contextRef.current;
       const currentPage = resolveActivityPage(ctx);
+      const eventsWithPlatform = opts.events?.map((e) => ({
+        ...e,
+        metadata: { platform: 'web', ...(e.metadata ?? {}) },
+      }));
       const body = {
         sessionKey: sessionKeyRef.current,
         heartbeat: opts.heartbeat
@@ -76,10 +80,13 @@ export function ActivityProvider({ enabled, context, children }: ActivityProvide
               sessionKey: sessionKeyRef.current,
               appMode: ctx.appMode,
               currentPage,
-              metadata: ctx.portfolioPage ? { portfolioPage: ctx.portfolioPage } : {},
+              metadata: {
+                platform: 'web',
+                ...(ctx.portfolioPage ? { portfolioPage: ctx.portfolioPage } : {}),
+              },
             }
           : undefined,
-        events: opts.events,
+        events: eventsWithPlatform,
       };
 
       const headers = {
