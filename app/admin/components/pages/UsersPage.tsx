@@ -8,12 +8,15 @@ import {
   createAdminWithPasswordAction,
   createUserAction,
   deleteUserAction,
+  getStoreReviewSettingsAction,
   listUsersAction,
+  setStoreReviewLoginEnabledAction,
   updateAuthorizedUserPasswordAction,
   updateUserRoleAction,
   type AdminUserRow,
   type BulkCreateRowInput,
   type BulkCreateUserResultItem,
+  type StoreReviewSettings,
   type UserStats,
 } from '../../_actions/users';
 import { useAdmin } from '../../_lib/admin-context';
@@ -53,6 +56,8 @@ export default function UsersPage() {
   const [passwordUser, setPasswordUser] = useState<AdminUserRow | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<AdminUserRow | null>(null);
   const [busy, setBusy] = useState(false);
+  const [storeReview, setStoreReview] = useState<StoreReviewSettings | null>(null);
+  const [storeReviewBusy, setStoreReviewBusy] = useState(false);
 
   const listKey = `${debouncedSearch}|${roleFilter}`;
   const lastListKeyRef = useRef<string | null>(null);
@@ -62,12 +67,15 @@ export default function UsersPage() {
     setError(null);
     try {
       const token = await getAccessToken();
-      const res = await listUsersAction(token, {
-        page,
-        pageSize: PAGE_SIZE,
-        search: debouncedSearch,
-        roleFilter,
-      });
+      const [res, reviewRes] = await Promise.all([
+        listUsersAction(token, {
+          page,
+          pageSize: PAGE_SIZE,
+          search: debouncedSearch,
+          roleFilter,
+        }),
+        getStoreReviewSettingsAction(token),
+      ]);
       if (res.ok) {
         setUsers(res.data.users);
         setStats(res.data.stats);
@@ -75,12 +83,29 @@ export default function UsersPage() {
       } else {
         setError(res.error);
       }
+      if (reviewRes.ok) setStoreReview(reviewRes.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
       setLoading(false);
     }
   }, [getAccessToken, page, debouncedSearch, roleFilter]);
+
+  const toggleStoreReview = useCallback(async () => {
+    if (!storeReview || storeReviewBusy) return;
+    setStoreReviewBusy(true);
+    setError(null);
+    try {
+      const token = await getAccessToken();
+      const res = await setStoreReviewLoginEnabledAction(token, !storeReview.enabled);
+      if (res.ok) setStoreReview(res.data);
+      else setError(res.error);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update store review setting.');
+    } finally {
+      setStoreReviewBusy(false);
+    }
+  }, [getAccessToken, storeReview, storeReviewBusy]);
 
   useEffect(() => {
     if (lastListKeyRef.current !== listKey) {
@@ -137,6 +162,63 @@ export default function UsersPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-base font-semibold tracking-tight text-foreground">
+              Store review sign-in
+            </h3>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              Instant mobile login for Apple / Google review accounts (no magic-link email). Turn this{' '}
+              <span className="font-medium text-foreground">off</span> after App Store / Play review so
+              those emails cannot bypass the allowlist.
+            </p>
+            <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
+              {(storeReview?.emails ?? [
+                'weeklystockapple@icloud.com',
+                'weeklystockgoogle@gmail.com',
+              ]).map((email) => (
+                <li key={email} className="font-mono">
+                  {email}
+                </li>
+              ))}
+            </ul>
+            {storeReview?.updatedAt && (
+              <p className="pt-1 text-[11px] text-muted-foreground">
+                Last changed{' '}
+                {formatDate(storeReview.updatedAt)}
+                {storeReview.updatedBy ? ` · ${storeReview.updatedBy}` : ''}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={storeReview?.enabled ?? true}
+              disabled={storeReviewBusy || loading || storeReview == null}
+              onClick={() => void toggleStoreReview()}
+              className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                storeReview?.enabled
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-600/90'
+                  : 'border border-border bg-card text-foreground hover:bg-muted/50'
+              }`}
+            >
+              {storeReviewBusy
+                ? 'Saving…'
+                : storeReview?.enabled
+                  ? 'Enabled — tap to turn off'
+                  : 'Disabled — tap to turn on'}
+            </button>
+            <p className="text-center text-[11px] text-muted-foreground sm:text-right">
+              {storeReview?.enabled
+                ? 'Reviewers can sign in instantly on mobile'
+                : 'Review emails require allowlist + normal magic link'}
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseConfig } from '@/lib/supabase-env';
+import { isStoreReviewEmail, isStoreReviewLoginEnabled } from '@/lib/server/store-review';
 
 /**
  * Mobile App Store / Play Store review sign-in.
@@ -8,12 +9,8 @@ import { getSupabaseConfig } from '@/lib/supabase-env';
  * session via admin generateLink + verifyOtp (no email sent).
  *
  * Web must not use this. Only the listed review emails are accepted.
+ * Kill switch: admin → Users → “Store review sign-in”.
  */
-
-const STORE_REVIEW_EMAILS = new Set([
-  'weeklystockapple@icloud.com',
-  'weeklystockgoogle@gmail.com',
-]);
 
 export async function POST(request: Request) {
   try {
@@ -22,8 +19,15 @@ export async function POST(request: Request) {
       .toLowerCase()
       .trim();
 
-    if (!emailLower || !STORE_REVIEW_EMAILS.has(emailLower)) {
+    if (!emailLower || !isStoreReviewEmail(emailLower)) {
       return NextResponse.json({ error: 'Not a store review account' }, { status: 403 });
+    }
+
+    if (!(await isStoreReviewLoginEnabled())) {
+      return NextResponse.json(
+        { error: 'Store review sign-in is disabled. Use a normal magic link account.' },
+        { status: 403 },
+      );
     }
 
     const { url, anonKey, serviceRoleKey } = getSupabaseConfig();

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseConfig } from '@/lib/supabase-env';
+import { isStoreReviewEmail, isStoreReviewLoginEnabled } from '@/lib/server/store-review';
 
 const {
   url: supabaseUrl,
@@ -23,18 +24,8 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const MOBILE_DEEP_LINK = 'mws://auth-callback';
 
-/** App Store / Play Store review accounts — mobile only; never skip on web. */
-const MOBILE_STORE_REVIEW_EMAILS = new Set([
-  'weeklystockapple@icloud.com',
-  'weeklystockgoogle@gmail.com',
-]);
-
 function isMobileRedirect(value: string): boolean {
   return value === MOBILE_DEEP_LINK || value.startsWith(`${MOBILE_DEEP_LINK}?`);
-}
-
-function isMobileStoreReviewEmail(email: string): boolean {
-  return MOBILE_STORE_REVIEW_EMAILS.has(email.toLowerCase().trim());
 }
 
 /** Mobile deep-link or same-site auth callback only — never arbitrary redirects. */
@@ -105,10 +96,12 @@ export async function POST(request: Request) {
       typeof requestedRedirect === 'string' ? requestedRedirect.trim() : '';
     const isMobileAuthRequest = isMobileRedirect(requestedRedirectEarly);
 
-    // App Store / Play review accounts may sign in on mobile without authorized_users.
-    // Web dashboard still requires the allowlist for every email (including these).
+    // App Store / Play review accounts may sign in on mobile without authorized_users
+    // when the admin kill switch is on. Web always requires the allowlist.
     const skipAuthorizedUsersCheck =
-      isMobileAuthRequest && isMobileStoreReviewEmail(emailLower);
+      isMobileAuthRequest &&
+      isStoreReviewEmail(emailLower) &&
+      (await isStoreReviewLoginEnabled());
 
     if (!skipAuthorizedUsersCheck) {
       // Check if email is authorized. Prefer service-role so this does not depend

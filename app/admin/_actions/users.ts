@@ -438,3 +438,82 @@ export async function updateAuthorizedUserPasswordAction(
     return ok({ ok: true });
   });
 }
+
+export type StoreReviewSettings = {
+  enabled: boolean;
+  emails: string[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
+const STORE_REVIEW_EMAILS_LIST = [
+  'weeklystockapple@icloud.com',
+  'weeklystockgoogle@gmail.com',
+] as const;
+
+/** Load App Store / Play review instant-login kill switch. */
+export async function getStoreReviewSettingsAction(
+  accessToken: string,
+): Promise<ActionResult<StoreReviewSettings>> {
+  return withAdmin(accessToken, async () => {
+    const admin = getAdminSupabase();
+    const { data, error } = await admin
+      .from('app_settings')
+      .select('store_review_login_enabled, updated_at, updated_by')
+      .eq('id', 1)
+      .maybeSingle();
+
+    if (error) {
+      const msg = (error.message ?? '').toLowerCase();
+      if (msg.includes('relation') || msg.includes('does not exist') || msg.includes('schema cache')) {
+        return ok({
+          enabled: true,
+          emails: [...STORE_REVIEW_EMAILS_LIST],
+          updatedAt: null,
+          updatedBy: null,
+        });
+      }
+      return err('Failed to load store review settings.', 'db_error');
+    }
+
+    return ok({
+      enabled: data?.store_review_login_enabled !== false,
+      emails: [...STORE_REVIEW_EMAILS_LIST],
+      updatedAt: data?.updated_at ?? null,
+      updatedBy: data?.updated_by ?? null,
+    });
+  });
+}
+
+/** Enable / disable mobile store-review instant sign-in (Apple + Google review emails). */
+export async function setStoreReviewLoginEnabledAction(
+  accessToken: string,
+  enabled: boolean,
+): Promise<ActionResult<StoreReviewSettings>> {
+  return withAdmin(accessToken, async (ctx) => {
+    const admin = getAdminSupabase();
+    const now = new Date().toISOString();
+    const { data, error } = await admin
+      .from('app_settings')
+      .upsert(
+        {
+          id: 1,
+          store_review_login_enabled: Boolean(enabled),
+          updated_at: now,
+          updated_by: ctx.email ?? null,
+        },
+        { onConflict: 'id' },
+      )
+      .select('store_review_login_enabled, updated_at, updated_by')
+      .single();
+
+    if (error) return err(`Failed to update store review setting: ${error.message}`, 'db_error');
+
+    return ok({
+      enabled: data.store_review_login_enabled !== false,
+      emails: [...STORE_REVIEW_EMAILS_LIST],
+      updatedAt: data.updated_at ?? now,
+      updatedBy: data.updated_by ?? null,
+    });
+  });
+}
