@@ -45,6 +45,12 @@ const IMPORT_BATCH_SIZE = 20;
 const COLLECTION_BATCH_SIZE = 20;
 const RUN_BUDGET_MS = 110_000; // keep well below ~150s gateway limits on free plan
 const RUN_BUDGET_RESERVE_MS = 12_000;
+const COLLECT_LOCK_JOB = 'collect-stock-data';
+/** Steal lock only if the holder has not heartbeated (crashed worker). */
+const COLLECT_LOCK_STALE_SECONDS = 180;
+/** Columns used to detect no-op ticker updates (skip wide-row WAL writes). */
+const TICKER_COMPARE_COLS =
+  'daily_current_price, daily_trend_score, weekly_trend_score, daily_rating, weekly_rating';
 
 // Minimum candles required to produce meaningful indicators.
 // Fewer than this and we still write price + what we can, but log a warning.
@@ -232,6 +238,8 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
   // Only tickers with updated_at < sessionStartedAt are eligible for this session,
   // ensuring the chain stops naturally once all stale tickers are refreshed.
   let sessionStartedAt: string = new Date().toISOString();
+  let collectSessionId: string | null = null;
+  let holdsCollectLock = false;
   let targetTickers: string[] | null = null;
 
   // --- Auth -----------------------------------------------------------------
@@ -276,6 +284,10 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     if (typeof (body as { session_started_at?: unknown }).session_started_at === 'string') {
       const v = String((body as { session_started_at: string }).session_started_at).trim();
       if (v) sessionStartedAt = v;
+    }
+    if (typeof (body as { collect_session_id?: unknown }).collect_session_id === 'string') {
+      const v = String((body as { collect_session_id: string }).collect_session_id).trim();
+      if (v) collectSessionId = v.slice(0, 80);
     }
     importFromCandidatesMode = Boolean((body as { import_from_candidates?: unknown }).import_from_candidates);
     if (Array.isArray((body as { target_tickers?: unknown }).target_tickers)) {
@@ -513,8 +525,81 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     }
   }
 
+  // --- Collect mutex (prevent overlapping hourly sessions thrashing Disk IO) -
+  // Cron was starting a new full-universe session every hour while prior chains
+  // were still running (observed concurrency 2–3), rewriting ~2k tickers nonstop.
+  const needsCollectLock = !importMode && !importFromCandidatesMode && !targetTickers;
+  if (needsCollectLock) {
+    if (triggeredBy === 'chain') {
+      if (!collectSessionId) {
+        return new Response(JSON.stringify({ error: 'collect_session_id required for chain.' }), { status: 400 });
+      }
+      const hb = await heartbeatCollectLock(db, collectSessionId);
+      if (!hb) {
+        console.warn('[collect-lock] lost lock, aborting chain', { collectSessionId });
+        return new Response(JSON.stringify({ status: 'skipped', reason: 'collect_lock_lost' }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      holdsCollectLock = true;
+    } else {
+      collectSessionId = collectSessionId || crypto.randomUUID();
+      const acquired = await tryAcquireCollectLock(db, collectSessionId, {
+        triggered_by: triggeredBy,
+        session_started_at: sessionStartedAt,
+      });
+      if (!acquired) {
+        console.warn('[collect-lock] skipped — another collect session is active', { triggeredBy });
+        await logRun(db, {
+          provider: primary.name,
+          status: 'ok',
+          error: 'skipped: collect session already running (disk IO guard)',
+          triggeredBy,
+          durationMs: Date.now() - started,
+          tickersUpdated: 0,
+          tickersFailed: 0,
+        });
+        return new Response(
+          JSON.stringify({ status: 'skipped', reason: 'collect_session_active' }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      }
+      holdsCollectLock = true;
+    }
+
+    // One api_health_log row per session (not per chained batch).
+    if (!runLogId) {
+      runLogId = await createRunLog(db, {
+        provider: primary.name,
+        triggeredBy,
+        status: 'partial',
+        error: `__progress__${JSON.stringify({
+          type: 'progress',
+          mode: 'collect',
+          phase: 'session-start',
+          done: 0,
+          total: 0,
+          percent: 0,
+          heartbeat_at: Date.now(),
+          collect_session_id: collectSessionId,
+          session_started_at: sessionStartedAt,
+        })}`,
+      });
+    }
+  }
+
   // --- Load tickers ---------------------------------------------------------
-  type Row = { id: string; ticker: string; updated_at?: string | null; sector_etf?: string | null };
+  type Row = {
+    id: string;
+    ticker: string;
+    updated_at?: string | null;
+    sector_etf?: string | null;
+    daily_current_price?: number | null;
+    daily_trend_score?: string | null;
+    weekly_trend_score?: string | null;
+    daily_rating?: string | null;
+    weekly_rating?: string | null;
+  };
   const tickers: { table: TickerTable; rows: Row[] }[] = [];
   let totalLoaded = 0;
 
@@ -524,8 +609,8 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     for (const table of TICKER_TABLES) {
       const selectCols =
         table === 'mega_caps' || table === 'other_stocks'
-          ? 'id, ticker, updated_at, sector_etf'
-          : 'id, ticker, updated_at';
+          ? `id, ticker, updated_at, sector_etf, ${TICKER_COMPARE_COLS}`
+          : `id, ticker, updated_at, ${TICKER_COMPARE_COLS}`;
       const { data, error } = await db
         .from(table)
         .select(selectCols)
@@ -541,8 +626,8 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
       const remaining = MAX_TICKERS_PER_RUN - totalLoaded;
       const selectCols =
         table === 'mega_caps' || table === 'other_stocks'
-          ? 'id, ticker, updated_at, sector_etf'
-          : 'id, ticker, updated_at';
+          ? `id, ticker, updated_at, sector_etf, ${TICKER_COMPARE_COLS}`
+          : `id, ticker, updated_at, ${TICKER_COMPARE_COLS}`;
       const { data, error } = await db
         .from(table)
         .select(selectCols)
@@ -575,6 +660,7 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
 
   let updated = 0;
   let failed = 0;
+  let skippedUnchanged = 0;
   let missingHistory = 0;
   let fallbackUsed = 0;
   let stoppedForBudget = false;
@@ -604,6 +690,9 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
             failed += 1;
             errors.push(`${bucket.table}/${row.ticker}: quote_unavailable`);
             console.warn('[collect:fail] QUOTE_UNAVAILABLE', { table: bucket.table, ticker: row.ticker });
+            // Advance updated_at so failed tickers don't permanently block the
+            // oldest-first queue and get retried on every chained batch.
+            await touchTickerUpdatedAt(db, bucket.table, row.id);
             processed += 1;
             continue;
           }
@@ -648,14 +737,30 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
             const etf = MEGA_CAP_SECTOR_ETF[row.ticker];
             if (etf) (patch as Record<string, unknown>).sector_etf = etf;
           }
-          const { error: upErr } = await db.from(bucket.table).update(patch).eq('id', row.id);
-          if (upErr) {
-            failed += 1;
-            errors.push(`${bucket.table}/${row.ticker}: ${upErr.message}`);
-          } else {
-            updated += 1;
+
+          const unchanged = isTickerPatchUnchanged(row, patch);
+          let upErr: { message: string } | null = null;
+          if (unchanged) {
+            // Advance session cursor with a tiny write; skip wide-row WAL rewrite.
+            skippedUnchanged += 1;
+            await touchTickerUpdatedAt(db, bucket.table, row.id);
+            // Still refresh today's history bars; RPC no-ops unchanged closes.
             if (result.history) {
               await upsertPriceHistory(db, row.ticker, result.history);
+            }
+            updated += 1;
+          } else {
+            const write = await db.from(bucket.table).update(patch).eq('id', row.id);
+            upErr = write.error;
+            if (upErr) {
+              failed += 1;
+              errors.push(`${bucket.table}/${row.ticker}: ${upErr.message}`);
+              await touchTickerUpdatedAt(db, bucket.table, row.id);
+            } else {
+              updated += 1;
+              if (result.history) {
+                await upsertPriceHistory(db, row.ticker, result.history);
+              }
             }
           }
           // Detailed per-ticker log so you can see exactly what was fetched and computed.
@@ -677,14 +782,25 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
             weeklyRating: patch.weekly_rating ?? null,
             spyComparison: patch.daily_vs_spy_comparison ?? null,
             qqqComparison: patch.daily_vs_benchmark_comparison ?? null,
+            skippedUnchanged: unchanged,
             dbWriteOk: !upErr,
           });
         } catch (e) {
           failed += 1;
           errors.push(`${bucket.table}/${row.ticker}: ${e instanceof Error ? e.message : String(e)}`);
+          await touchTickerUpdatedAt(db, bucket.table, row.id);
         }
         processed += 1;
         await sleep(callDelayMs);
+      }
+      if (holdsCollectLock && collectSessionId) {
+        await heartbeatCollectLock(db, collectSessionId, {
+          phase: `collecting-${bucket.table}`,
+          processed,
+          updated,
+          failed,
+          skipped_unchanged: skippedUnchanged,
+        });
       }
       await updateRunProgress(db, {
         runLogId,
@@ -706,7 +822,7 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
   const status: 'ok' | 'partial' | 'error' = failed === 0 ? 'ok' : updated === 0 ? 'error' : 'partial';
   const runDiag =
     [
-      `diag:missing_history=${missingHistory},fallback_used=${fallbackUsed},stopped_for_budget=${stoppedForBudget ? 1 : 0}`,
+      `diag:missing_history=${missingHistory},fallback_used=${fallbackUsed},stopped_for_budget=${stoppedForBudget ? 1 : 0},skipped_unchanged=${skippedUnchanged}`,
       errors.slice(0, 3).join(' | ') || null,
       importMode ? `imported=${imported},skipped=${skipped}` : null,
     ]
@@ -727,8 +843,13 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
   // A full batch (totalLoaded === MAX_TICKERS_PER_RUN) means there may be more.
   // Pass session_started_at so the next batch uses the same staleness cutoff
   // and the chain stops automatically when all stale tickers are processed.
+  // Overlap lock prevents a new hourly cron from starting while this chain runs.
   const willChain = !targetTickers && (stoppedForBudget || totalLoaded >= MAX_TICKERS_PER_RUN);
   if (!willChain) {
+    if (holdsCollectLock && collectSessionId) {
+      await releaseCollectLock(db, collectSessionId);
+      holdsCollectLock = false;
+    }
     await notifyAdminTickerSessionComplete(db, {
       kind: 'collect_session',
       provider: primary.name,
@@ -754,6 +875,7 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
       body: JSON.stringify({
         triggered_by: 'chain',
         session_started_at: sessionStartedAt,
+        collect_session_id: collectSessionId,
         run_log_id: runLogId ?? undefined,
       }),
     }).catch((e) => console.warn('[chain] self-invoke failed', e));
@@ -764,13 +886,28 @@ export function startStockDataEdge(forcedMode: StockEdgeForcedMode = 'auto') {
     } catch {
       // Fallback: fire-and-forget (request is still sent at network level)
     }
-    console.info('[chain] next batch triggered', { sessionStartedAt, triggeredBy });
+    console.info('[chain] next batch triggered', { sessionStartedAt, triggeredBy, collectSessionId });
   } else {
-    console.info('[chain] session complete — all stale tickers processed', { sessionStartedAt, triggeredBy });
+    console.info('[chain] session complete — all stale tickers processed', {
+      sessionStartedAt,
+      triggeredBy,
+      skippedUnchanged,
+    });
   }
 
   return new Response(
-    JSON.stringify({ status, updated, failed, imported, skipped, durationMs: Date.now() - started, chaining: willChain, sessionStartedAt }),
+    JSON.stringify({
+      status,
+      updated,
+      failed,
+      imported,
+      skipped,
+      skippedUnchanged,
+      durationMs: Date.now() - started,
+      chaining: willChain,
+      sessionStartedAt,
+      collectSessionId,
+    }),
     { headers: { 'content-type': 'application/json' } }
   );
   });
@@ -1930,8 +2067,130 @@ function trendTemplateOutlookKey(
 }
 
 // -----------------------------------------------------------------------------
-// Run logging
+// Collect lock + run logging
 // -----------------------------------------------------------------------------
+
+async function tryAcquireCollectLock(
+  db: ReturnType<typeof createClient>,
+  sessionId: string,
+  meta: Record<string, unknown> = {},
+): Promise<boolean> {
+  const { data, error } = await db.rpc('try_acquire_edge_job_lock', {
+    p_job: COLLECT_LOCK_JOB,
+    p_session_id: sessionId,
+    p_stale_after_seconds: COLLECT_LOCK_STALE_SECONDS,
+    p_meta: meta,
+  });
+  if (error) {
+    console.warn('[collect-lock] acquire failed', error.message);
+    // Fail closed: do not start another overlapping full collect.
+    return false;
+  }
+  return Boolean(data);
+}
+
+async function heartbeatCollectLock(
+  db: ReturnType<typeof createClient>,
+  sessionId: string,
+  meta: Record<string, unknown> | null = null,
+): Promise<boolean> {
+  const { data, error } = await db.rpc('heartbeat_edge_job_lock', {
+    p_job: COLLECT_LOCK_JOB,
+    p_session_id: sessionId,
+    p_meta: meta,
+  });
+  if (error) {
+    console.warn('[collect-lock] heartbeat failed', error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+async function releaseCollectLock(
+  db: ReturnType<typeof createClient>,
+  sessionId: string,
+): Promise<void> {
+  const { error } = await db.rpc('release_edge_job_lock', {
+    p_job: COLLECT_LOCK_JOB,
+    p_session_id: sessionId,
+  });
+  if (error) console.warn('[collect-lock] release failed', error.message);
+}
+
+async function createRunLog(
+  db: ReturnType<typeof createClient>,
+  r: {
+    provider: string;
+    triggeredBy: string;
+    status: 'ok' | 'partial' | 'error';
+    error: string | null;
+  },
+): Promise<number | null> {
+  const { data, error } = await db
+    .from('api_health_log')
+    .insert({
+      provider: r.provider,
+      status: r.status,
+      error_message: r.error,
+      triggered_by: r.triggeredBy,
+      duration_ms: null,
+      tickers_updated: 0,
+      tickers_failed: 0,
+      run_at: new Date().toISOString(),
+    })
+    .select('id')
+    .maybeSingle();
+  if (error) {
+    console.warn('[api_health_log] createRunLog failed', error.message);
+    return null;
+  }
+  const id = Number((data as { id?: unknown } | null)?.id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function touchTickerUpdatedAt(
+  db: ReturnType<typeof createClient>,
+  table: TickerTable,
+  id: string,
+): Promise<void> {
+  try {
+    await db.from(table).update({ updated_at: new Date().toISOString() }).eq('id', id);
+  } catch (e) {
+    console.warn('[collect] touch updated_at failed', { table, id, err: String(e) });
+  }
+}
+
+function numClose(a: unknown, b: unknown): boolean {
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-6;
+  if (a == null && b == null) return true;
+  return a === b;
+}
+
+function strClose(a: unknown, b: unknown): boolean {
+  const left = a == null ? null : String(a);
+  const right = b == null ? null : String(b);
+  return left === right;
+}
+
+/** True when core quote/signal fields match — skip rewriting the wide ticker row. */
+function isTickerPatchUnchanged(
+  existing: {
+    daily_current_price?: number | null;
+    daily_trend_score?: string | null;
+    weekly_trend_score?: string | null;
+    daily_rating?: string | null;
+    weekly_rating?: string | null;
+  },
+  patch: Record<string, unknown>,
+): boolean {
+  return (
+    numClose(existing.daily_current_price, patch.daily_current_price) &&
+    strClose(existing.daily_trend_score, patch.daily_trend_score) &&
+    strClose(existing.weekly_trend_score, patch.weekly_trend_score) &&
+    strClose(existing.daily_rating, patch.daily_rating) &&
+    strClose(existing.weekly_rating, patch.weekly_rating)
+  );
+}
 
 async function logRun(
   db: ReturnType<typeof createClient>,
