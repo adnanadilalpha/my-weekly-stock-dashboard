@@ -517,3 +517,256 @@ export async function setStoreReviewLoginEnabledAction(
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Subscriber CSV reconcile
+// ---------------------------------------------------------------------------
+
+const MAX_DIFF_EMAILS = 5000;
+const MAX_RECONCILE_ADD = 500;
+const MAX_RECONCILE_REMOVE = 500;
+const ALLOWLIST_PAGE = 1000;
+
+export type SubscriberDiffToAdd = { email: string };
+export type SubscriberDiffToRemove = {
+  id: string;
+  email: string;
+  role: 'Admin' | 'User' | null;
+};
+
+export type SubscriberDiffResult = {
+  toAdd: SubscriberDiffToAdd[];
+  toRemove: SubscriberDiffToRemove[];
+  matchedCount: number;
+  protectedAdminCount: number;
+  uploadedCount: number;
+  systemCount: number;
+};
+
+async function loadAllAuthorizedUsers(
+  admin: AdminClient
+): Promise<{ rows: Pick<AdminUserRow, 'id' | 'email' | 'role'>[]; error?: string }> {
+  const rows: Pick<AdminUserRow, 'id' | 'email' | 'role'>[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await admin
+      .from('authorized_users')
+      .select('id, email, role')
+      .order('email', { ascending: true })
+      .range(from, from + ALLOWLIST_PAGE - 1);
+    if (error) return { rows, error: error.message };
+    const batch = (data ?? []) as Pick<AdminUserRow, 'id' | 'email' | 'role'>[];
+    rows.push(...batch);
+    if (batch.length < ALLOWLIST_PAGE) break;
+    from += ALLOWLIST_PAGE;
+  }
+  return { rows };
+}
+
+/** Compare uploaded subscriber emails to authorized_users. Does not mutate. */
+export async function diffSubscribersAction(
+  accessToken: string,
+  input: { emails: string[] }
+): Promise<ActionResult<SubscriberDiffResult>> {
+  return withAdmin(accessToken, async () => {
+    const raw = Array.isArray(input.emails) ? input.emails : [];
+    if (raw.length === 0) return err('Upload at least one subscriber email.', 'validation');
+    if (raw.length > MAX_DIFF_EMAILS) {
+      return err(`Too many emails (max ${MAX_DIFF_EMAILS}). Split the export.`, 'validation');
+    }
+
+    const uploaded = new Set<string>();
+    for (const v of raw) {
+      const email = normalizeEmail(v);
+      if (email) uploaded.add(email);
+    }
+    if (uploaded.size === 0) return err('No valid emails found in the upload.', 'validation');
+
+    const admin = getAdminSupabase();
+    const loaded = await loadAllAuthorizedUsers(admin);
+    if (loaded.error) return err('Failed to load authorized users.', 'db_error');
+
+    const systemByEmail = new Map<string, Pick<AdminUserRow, 'id' | 'email' | 'role'>>();
+    for (const row of loaded.rows) {
+      const email = normalizeEmail(row.email) ?? row.email.trim().toLowerCase();
+      if (!email) continue;
+      systemByEmail.set(email, { id: row.id, email, role: row.role });
+    }
+
+    const toAdd: SubscriberDiffToAdd[] = [];
+    for (const email of uploaded) {
+      if (!systemByEmail.has(email)) toAdd.push({ email });
+    }
+    toAdd.sort((a, b) => a.email.localeCompare(b.email));
+
+    const toRemove: SubscriberDiffToRemove[] = [];
+    let protectedAdminCount = 0;
+    let matchedCount = 0;
+    for (const [email, row] of systemByEmail) {
+      if (uploaded.has(email)) {
+        matchedCount += 1;
+        continue;
+      }
+      if (row.role === 'Admin') {
+        protectedAdminCount += 1;
+        continue;
+      }
+      toRemove.push({ id: row.id, email: row.email, role: row.role });
+    }
+    toRemove.sort((a, b) => a.email.localeCompare(b.email));
+
+    return ok({
+      toAdd,
+      toRemove,
+      matchedCount,
+      protectedAdminCount,
+      uploadedCount: uploaded.size,
+      systemCount: systemByEmail.size,
+    });
+  });
+}
+
+export type ReconcileAddResultItem = {
+  email: string;
+  status: 'created' | 'duplicate' | 'invalid' | 'db_error';
+  message?: string;
+};
+
+export type ReconcileAddResult = {
+  results: ReconcileAddResultItem[];
+  summary: {
+    created: number;
+    duplicate: number;
+    invalid: number;
+    dbErrors: number;
+  };
+};
+
+/** Batch-add missing subscribers as User. One withAdmin for the whole batch. */
+export async function reconcileAddUsersAction(
+  accessToken: string,
+  input: { emails: string[] }
+): Promise<ActionResult<ReconcileAddResult>> {
+  return withAdmin(accessToken, async () => {
+    const raw = Array.isArray(input.emails) ? input.emails : [];
+    if (raw.length === 0) return err('No emails to add.', 'validation');
+    if (raw.length > MAX_RECONCILE_ADD) {
+      return err(`Add at most ${MAX_RECONCILE_ADD} users per request.`, 'validation');
+    }
+
+    const admin = getAdminSupabase();
+    const seen = new Set<string>();
+    const results: ReconcileAddResultItem[] = [];
+
+    for (const v of raw) {
+      const email = normalizeEmail(v);
+      if (!email) {
+        results.push({
+          email: typeof v === 'string' ? v.trim().slice(0, 254) : '(empty)',
+          status: 'invalid',
+          message: 'Invalid email address.',
+        });
+        continue;
+      }
+      if (seen.has(email)) {
+        results.push({ email, status: 'duplicate', message: 'Duplicate in this batch.' });
+        continue;
+      }
+      seen.add(email);
+
+      const outcome = await insertAuthorizedUserAndInvite(admin, email, 'User');
+      if (!outcome.ok) {
+        if (outcome.code === 'duplicate') {
+          results.push({ email, status: 'duplicate' });
+        } else {
+          results.push({
+            email,
+            status: 'db_error',
+            message: outcome.message ?? 'Database error.',
+          });
+        }
+        continue;
+      }
+      results.push({ email, status: 'created' });
+    }
+
+    return ok({
+      results,
+      summary: {
+        created: results.filter((r) => r.status === 'created').length,
+        duplicate: results.filter((r) => r.status === 'duplicate').length,
+        invalid: results.filter((r) => r.status === 'invalid').length,
+        dbErrors: results.filter((r) => r.status === 'db_error').length,
+      },
+    });
+  });
+}
+
+export type ReconcileRemoveResult = {
+  removed: number;
+  skipped: number;
+  skippedReasons: string[];
+  removedIds: string[];
+};
+
+/** Batch-remove allowlist users not in the subscriber set. Skips Admins and self. No Auth scan. */
+export async function reconcileRemoveUsersAction(
+  accessToken: string,
+  input: { ids: string[] }
+): Promise<ActionResult<ReconcileRemoveResult>> {
+  return withAdmin(accessToken, async (ctx) => {
+    const idsIn = Array.isArray(input.ids) ? input.ids.filter((id) => typeof id === 'string' && id.length >= 10) : [];
+    if (idsIn.length === 0) return err('No users to remove.', 'validation');
+    if (idsIn.length > MAX_RECONCILE_REMOVE) {
+      return err(`Remove at most ${MAX_RECONCILE_REMOVE} users per request.`, 'validation');
+    }
+
+    const admin = getAdminSupabase();
+    const uniqueIds = [...new Set(idsIn)];
+    const { data: targets, error: loadErr } = await admin
+      .from('authorized_users')
+      .select('id, email, role')
+      .in('id', uniqueIds);
+    if (loadErr) return err('Failed to load users to remove.', 'db_error');
+
+    const removable: string[] = [];
+    const skippedReasons: string[] = [];
+    let skipped = 0;
+
+    for (const row of (targets ?? []) as Pick<AdminUserRow, 'id' | 'email' | 'role'>[]) {
+      const email = (row.email ?? '').toLowerCase();
+      if (email === ctx.email) {
+        skipped += 1;
+        skippedReasons.push(`${row.email}: cannot remove your own account`);
+        continue;
+      }
+      if (row.role === 'Admin') {
+        skipped += 1;
+        skippedReasons.push(`${row.email}: admins are protected`);
+        continue;
+      }
+      removable.push(row.id);
+    }
+
+    if (removable.length === 0) {
+      return ok({ removed: 0, skipped, skippedReasons, removedIds: [] });
+    }
+
+    // Chunk deletes for PostgREST .in() limits
+    const CHUNK = 100;
+    const removedIds: string[] = [];
+    for (let i = 0; i < removable.length; i += CHUNK) {
+      const chunk = removable.slice(i, i + CHUNK);
+      const { error: delErr } = await admin.from('authorized_users').delete().in('id', chunk);
+      if (delErr) return err(`Failed to remove users: ${delErr.message}`, 'db_error');
+      removedIds.push(...chunk);
+    }
+
+    return ok({
+      removed: removedIds.length,
+      skipped,
+      skippedReasons: skippedReasons.slice(0, 20),
+      removedIds,
+    });
+  });
+}

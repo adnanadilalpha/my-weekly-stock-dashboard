@@ -43,6 +43,15 @@ import {
 } from '../../_actions/formulas';
 import { useAdmin } from '../../_lib/admin-context';
 import {
+  AdminAlert,
+  AdminGhostButton,
+  AdminPrimaryButton,
+  adminField,
+  adminPageStack,
+  adminSurface,
+  adminSurfacePad,
+} from '../ui/admin-ui';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -150,8 +159,9 @@ const SCORE_KEY_BY_TIER: Record<FormulaRatingTier, 'score_strong' | 'score_mixed
   strong_bear: 'score_weak',
 };
 
-const FIELD_STYLE =
-  'block rounded-lg border border-input bg-input-background px-3 py-2 text-sm text-foreground shadow-sm outline-none ring-offset-background transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30 dark:scheme-dark';
+/** adminField without forced full width (callers set width). */
+const FIELD_STYLE = adminField.replace('w-full ', '');
+const TEXTAREA_STYLE = `${adminField.replace('h-10 ', '')} min-h-28 py-2`;
 
 function normalizeHexColor(input: string, fallback: string): string {
   const val = input.trim();
@@ -651,7 +661,7 @@ export default function FormulaManager() {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-6">
+    <div className={adminPageStack}>
       <AlertDialog open={Boolean(resetConfirm)} onOpenChange={(open) => !open && setResetConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -685,18 +695,13 @@ export default function FormulaManager() {
               ? 'No unsaved changes.'
               : `${changedKeys.length} unsaved numeric change${changedKeys.length === 1 ? '' : 's'}.`}
         </p>
-        <button
-          type="button"
-          onClick={openHistory}
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-        >
-          <History size={16} />
+        <AdminGhostButton icon={History} onClick={openHistory}>
           History
-        </button>
+        </AdminGhostButton>
       </div>
 
-      {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
-      {flash && <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-100">{flash}</div>}
+      {error && <AdminAlert>{error}</AdminAlert>}
+      {flash && <AdminAlert tone="success">{flash}</AdminAlert>}
 
       <div className="grid min-h-0 min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
         <aside className="flex min-w-0 flex-col gap-3">
@@ -709,8 +714,8 @@ export default function FormulaManager() {
                 key={m.id}
                 type="button"
                 onClick={() => setActiveNav(m.id)}
-                className={`w-full rounded-xl border px-4 py-4 text-left transition-colors ${
-                  isActive ? 'border-primary/40 bg-primary/5' : 'border-border bg-card hover:bg-muted/40'
+                className={`w-full rounded-2xl border px-4 py-4 text-left transition-colors ${
+                  isActive ? 'border-primary/40 bg-primary/5' : 'border-border/80 bg-card hover:bg-muted/40'
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -729,19 +734,19 @@ export default function FormulaManager() {
 
         </aside>
 
-        <section className="min-h-0 min-w-0 rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <h3 className="text-xl font-semibold tracking-tight text-foreground">{NAV_META.find((n) => n.id === activeNav)?.title}</h3>
+        <section className={`${adminSurface} ${adminSurfacePad} min-h-0 min-w-0`}>
+          <h3 className="text-lg font-semibold tracking-tight text-foreground">{NAV_META.find((n) => n.id === activeNav)?.title}</h3>
 
           {loading && <p className="mt-4 text-sm text-muted-foreground">Loading…</p>}
 
           {!loading && activeNav === 'rating_labels' && (
             <div className="mt-4 space-y-4">
-              <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
+              <div className="inline-flex rounded-xl border border-border/80 bg-card p-1">
                 <button
                   type="button"
                   onClick={() => setRatingSubtab('chart_trend')}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    ratingSubtab === 'chart_trend' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    ratingSubtab === 'chart_trend' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   Chart Trend Labels
@@ -749,8 +754,8 @@ export default function FormulaManager() {
                 <button
                   type="button"
                   onClick={() => setRatingSubtab('performance')}
-                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
-                    ratingSubtab === 'performance' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                    ratingSubtab === 'performance' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   Performance Labels
@@ -760,14 +765,14 @@ export default function FormulaManager() {
               {ratingSubtab === 'chart_trend' && (
                 <div className="space-y-6">
                   <div className="min-w-0 overflow-x-auto">
-                    <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
+                    <table className="w-full min-w-180 border-separate border-spacing-0 text-sm">
                       <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                         <tr>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Score rule</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Label</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Description</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Updated</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3 text-right">Actions</th>
+                          <th className="border-b border-border/80 px-4 py-3">Score rule</th>
+                          <th className="border-b border-border/80 px-4 py-3">Label</th>
+                          <th className="border-b border-border/80 px-4 py-3">Description</th>
+                          <th className="border-b border-border/80 px-4 py-3">Updated</th>
+                          <th className="border-b border-border/80 px-4 py-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -778,7 +783,7 @@ export default function FormulaManager() {
                           const labelText = row?.label?.trim() || '—';
                           const desc = row?.description ?? '';
                           return (
-                            <tr key={tier} className="border-b border-border text-sm transition-colors hover:bg-muted/30">
+                            <tr key={tier} className="border-b border-border/60 text-sm transition-colors hover:bg-muted/30">
                               <td className="px-4 py-4 font-mono text-sm font-semibold text-foreground">
                                 {scoreRuleText(tier, scoreParams)}
                               </td>
@@ -803,7 +808,7 @@ export default function FormulaManager() {
                                 <button
                                   type="button"
                                   onClick={() => openRatingEditModal(tier)}
-                                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                                  className="inline-flex items-center gap-2 rounded-xl border border-border/80 bg-card px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted/50"
                                 >
                                   <PencilLine size={14} />
                                   Edit
@@ -819,15 +824,15 @@ export default function FormulaManager() {
                     <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Trend Title + Description Templates (Weekly + Daily)
                     </p>
-                    <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+                    <table className="w-full min-w-245 border-separate border-spacing-0 text-sm">
                       <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                         <tr>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Tier</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Label</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Outlook</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Weekly</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3">Daily</th>
-                          <th className="border-b border-border bg-muted/50 px-4 py-3 text-right">Actions</th>
+                          <th className="border-b border-border/80 px-4 py-3">Tier</th>
+                          <th className="border-b border-border/80 px-4 py-3">Label</th>
+                          <th className="border-b border-border/80 px-4 py-3">Outlook</th>
+                          <th className="border-b border-border/80 px-4 py-3">Weekly</th>
+                          <th className="border-b border-border/80 px-4 py-3">Daily</th>
+                          <th className="border-b border-border/80 px-4 py-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -839,7 +844,7 @@ export default function FormulaManager() {
                             );
                             const ratingLabel = ratingRows.find((x) => x.tier === row.tier)?.label ?? row.tier;
                             return (
-                              <tr key={`${row.tier}:${row.outlook}`} className="border-b border-border text-sm transition-colors hover:bg-muted/30">
+                              <tr key={`${row.tier}:${row.outlook}`} className="border-b border-border/60 text-sm transition-colors hover:bg-muted/30">
                                 <td className="px-4 py-4 font-semibold text-foreground">{row.tier}</td>
                                 <td className="px-4 py-4 text-foreground">{ratingLabel}</td>
                                 <td className="px-4 py-4 text-foreground">{row.outlook}</td>
@@ -855,7 +860,7 @@ export default function FormulaManager() {
                                   <button
                                     type="button"
                                     onClick={() => openTrendEditModal(row.tier, row.outlook)}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                                    className="inline-flex items-center gap-2 rounded-xl border border-border/80 bg-card px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted/50"
                                   >
                                     <PencilLine size={14} />
                                     Edit
@@ -872,22 +877,22 @@ export default function FormulaManager() {
 
               {ratingSubtab === 'performance' && (
                 <div className="min-w-0 overflow-x-auto">
-                  <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
+                  <table className="w-full min-w-180 border-separate border-spacing-0 text-sm">
                     <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                       <tr>
-                        <th className="border-b border-border bg-muted/50 px-4 py-3">Strength</th>
-                        <th className="border-b border-border bg-muted/50 px-4 py-3">Distance to Highs</th>
-                        <th className="border-b border-border bg-muted/50 px-4 py-3">Benchmark Relation</th>
-                        <th className="border-b border-border bg-muted/50 px-4 py-3">Performance Label</th>
-                        <th className="border-b border-border bg-muted/50 px-4 py-3">Description Template</th>
-                        <th className="border-b border-border bg-muted/50 px-4 py-3">Updated</th>
-                        <th className="border-b border-border bg-muted/50 px-4 py-3 text-right">Actions</th>
+                        <th className="border-b border-border/80 px-4 py-3">Strength</th>
+                        <th className="border-b border-border/80 px-4 py-3">Distance to Highs</th>
+                        <th className="border-b border-border/80 px-4 py-3">Benchmark Relation</th>
+                        <th className="border-b border-border/80 px-4 py-3">Performance Label</th>
+                        <th className="border-b border-border/80 px-4 py-3">Description Template</th>
+                        <th className="border-b border-border/80 px-4 py-3">Updated</th>
+                        <th className="border-b border-border/80 px-4 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {performanceRows.map((row) => {
                         return (
-                          <tr key={`${row.strength}:${row.distance_to_highs}:${row.benchmark_relation}`} className="border-b border-border text-sm transition-colors hover:bg-muted/30">
+                          <tr key={`${row.strength}:${row.distance_to_highs}:${row.benchmark_relation}`} className="border-b border-border/60 text-sm transition-colors hover:bg-muted/30">
                             <td className="px-4 py-4 font-semibold text-foreground">{row.strength}</td>
                             <td className="px-4 py-4 text-foreground">{row.distance_to_highs}</td>
                             <td className="px-4 py-4 text-foreground">{row.benchmark_relation}</td>
@@ -903,7 +908,7 @@ export default function FormulaManager() {
                               <button
                                 type="button"
                                 onClick={() => openPerformanceEditModal(row.strength, row.distance_to_highs, row.benchmark_relation)}
-                                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                                className="inline-flex items-center gap-2 rounded-xl border border-border/80 bg-card px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted/50"
                               >
                                 <PencilLine size={14} />
                                 Edit
@@ -927,24 +932,24 @@ export default function FormulaManager() {
 
           {!loading && activeNav === 'scoring_weights' && (
             <div className="mt-4 space-y-4">
-              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-4 dark:border-emerald-500/20 dark:bg-emerald-500/15">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900 dark:text-emerald-100">Trend score formula</p>
-                <p className="mt-2 font-mono text-sm text-emerald-900 dark:text-emerald-100 md:text-base">
+              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-foreground">Trend score formula</p>
+                <p className="mt-2 font-mono text-sm text-foreground md:text-base">
                   SUMPRODUCT( weights[], component_scores[] ) ÷ 3 × 5
                 </p>
-                <p className="mt-2 text-xs text-emerald-900/90 dark:text-emerald-100/90">
+                <p className="mt-2 text-xs text-muted-foreground">
                   Each component scores 0, 1, or 3 from the client threshold bands. Icons: ✅ bullish (3), ⚪️ neutral (1), ❌ bearish (0).
                   Weights below apply to <span className="font-medium">daily and weekly trend scores only</span> — not the separate performance block.
                 </p>
               </div>
               <h4 className="text-base font-semibold text-foreground">Component weights</h4>
               <div className="min-w-0 overflow-x-auto">
-                <table className="w-full min-w-[560px] border-separate border-spacing-0 text-sm">
+                <table className="w-full min-w-140 border-separate border-spacing-0 text-sm">
                   <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                     <tr>
-                      <th className="border-b border-border bg-muted/50 px-4 py-3">Component</th>
-                      <th className="border-b border-border bg-muted/50 px-4 py-3">Description</th>
-                      <th className="border-b border-border bg-muted/50 px-4 py-3 text-right">Weight</th>
+                      <th className="border-b border-border/80 px-4 py-3">Component</th>
+                      <th className="border-b border-border/80 px-4 py-3">Description</th>
+                      <th className="border-b border-border/80 px-4 py-3 text-right">Weight</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -965,7 +970,7 @@ export default function FormulaManager() {
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 type="button"
-                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                                className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/80 bg-card text-foreground transition-colors hover:bg-muted/50"
                                 onClick={() => bumpWeight(s.key, -0.1)}
                               >
                                 <Minus size={16} />
@@ -978,7 +983,7 @@ export default function FormulaManager() {
                               />
                               <button
                                 type="button"
-                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                                className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/80 bg-card text-foreground transition-colors hover:bg-muted/50"
                                 onClick={() => bumpWeight(s.key, 0.1)}
                               >
                                 <Plus size={16} />
@@ -996,14 +1001,14 @@ export default function FormulaManager() {
 
           {!loading && activeNav !== 'rating_labels' && activeNav !== 'scoring_weights' && (
             <div className="mt-4 min-w-0 overflow-x-auto">
-              <table className="w-full min-w-[720px]">
+              <table className="w-full min-w-180">
                 <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                   <tr>
-                    <th className="border-b border-border bg-muted/50 px-4 py-4">Parameter</th>
-                    <th className="border-b border-border bg-muted/50 px-4 py-4">Description</th>
-                    <th className="border-b border-border bg-muted/50 px-4 py-4">Default</th>
-                    <th className="border-b border-border bg-muted/50 px-4 py-4">Value</th>
-                    <th className="border-b border-border bg-muted/50 px-4 py-4">Updated</th>
+                    <th className="border-b border-border/80 px-4 py-4">Parameter</th>
+                    <th className="border-b border-border/80 px-4 py-4">Description</th>
+                    <th className="border-b border-border/80 px-4 py-4">Default</th>
+                    <th className="border-b border-border/80 px-4 py-4">Value</th>
+                    <th className="border-b border-border/80 px-4 py-4">Updated</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1020,7 +1025,7 @@ export default function FormulaManager() {
                             : null;
                     const changed = Number.isFinite(draftNum) && draftNum !== Number(s.value);
                     return (
-                      <tr key={s.key} className="border-b border-border text-sm transition-colors hover:bg-muted/30">
+                      <tr key={s.key} className="border-b border-border/60 text-sm transition-colors hover:bg-muted/30">
                         <td className="px-4 py-4 text-foreground">
                           <div className="font-semibold">{s.label}</div>
                           <div className="font-mono text-xs text-muted-foreground">{s.key}</div>
@@ -1030,7 +1035,7 @@ export default function FormulaManager() {
                         <td className="px-4 py-4">
                           <input
                             className={`${FIELD_STYLE} h-10 w-28 ${
-                              invalid ? 'border-destructive/70' : changed ? 'border-emerald-500/70' : ''
+                              invalid ? 'border-destructive/70' : changed ? 'border-primary/70' : ''
                             }`}
                             value={draft}
                             onChange={(e) => setDrafts((d) => ({ ...d, [s.key]: e.target.value }))}
@@ -1052,25 +1057,13 @@ export default function FormulaManager() {
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
             {activeNav !== 'rating_labels' && (
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={saving || !canSave}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Save size={16} />
+              <AdminPrimaryButton icon={Save} onClick={onSave} disabled={saving || !canSave}>
                 {saving ? 'Saving…' : 'Save Changes'}
-              </button>
+              </AdminPrimaryButton>
             )}
-            <button
-              type="button"
-              onClick={onReset}
-              disabled={saving}
-              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-            >
-              <Undo2 size={16} />
+            <AdminGhostButton icon={Undo2} onClick={onReset} disabled={saving}>
               Reset to Default
-            </button>
+            </AdminGhostButton>
             <p className="flex w-full items-center gap-2 text-xs text-amber-800 dark:text-amber-200 lg:ml-auto lg:w-auto">
               <span aria-hidden>⚠️</span>
               Changes apply to live calculations on the next Edge Function run.
@@ -1086,8 +1079,8 @@ export default function FormulaManager() {
           aria-modal="true"
           aria-labelledby="rating-edit-title"
         >
-          <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border bg-muted/40 px-6 py-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border/80 bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border/80 px-6 py-4">
               <h4 id="rating-edit-title" className="text-base font-semibold text-foreground">
                 Edit rating label — {LEGEND.find((l) => l.tier === ratingEditTier)?.label ?? ratingEditTier}
               </h4>
@@ -1102,7 +1095,7 @@ export default function FormulaManager() {
             </div>
             <div className="space-y-4 px-6 py-5">
               {ratingModalError && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{ratingModalError}</div>
+                <AdminAlert>{ratingModalError}</AdminAlert>
               )}
               <div className="space-y-1.5">
                 <label htmlFor="rating-modal-label" className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1113,7 +1106,7 @@ export default function FormulaManager() {
                   value={ratingModalLabel}
                   onChange={(e) => setRatingModalLabel(e.target.value)}
                   maxLength={100}
-                  className={`${FIELD_STYLE} w-full max-w-none`}
+                  className={adminField}
                   placeholder="Display label"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">1–80 characters (saved trimmed).</p>
@@ -1131,7 +1124,7 @@ export default function FormulaManager() {
                   onChange={(e) => setRatingModalDescription(e.target.value)}
                   rows={4}
                   maxLength={520}
-                  className={`${FIELD_STYLE} mt-1 min-h-[7rem] w-full max-w-none py-2`}
+                  className={`${TEXTAREA_STYLE} mt-1`}
                   placeholder="Short explanation shown in admin / reports"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">Up to 500 characters (saved trimmed).</p>
@@ -1150,7 +1143,7 @@ export default function FormulaManager() {
                     step="0.01"
                     value={ratingModalThreshold}
                     onChange={(e) => setRatingModalThreshold(e.target.value)}
-                    className={`${FIELD_STYLE} w-full max-w-none`}
+                    className={adminField}
                   />
                   <p className="text-xs text-muted-foreground">
                     {ratingEditTier === 'strong_bear'
@@ -1181,7 +1174,7 @@ export default function FormulaManager() {
                     <input
                       value={ratingModalColor}
                       onChange={(e) => setRatingModalColor(e.target.value)}
-                      className={`${FIELD_STYLE} h-10 w-full max-w-none font-mono`}
+                      className={`${adminField} font-mono`}
                       placeholder="#22c55e"
                     />
                   </div>
@@ -1208,24 +1201,13 @@ export default function FormulaManager() {
                 </div>
               </div>
             </div>
-            <div className="flex flex-wrap justify-end gap-2 border-t border-border px-6 py-4">
-              <button
-                type="button"
-                onClick={closeRatingEditModal}
-                disabled={ratingModalSaving}
-                className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-              >
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border/80 px-6 py-4">
+              <AdminGhostButton onClick={closeRatingEditModal} disabled={ratingModalSaving}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveRatingEditModal}
-                disabled={ratingModalSaving}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Save size={16} />
+              </AdminGhostButton>
+              <AdminPrimaryButton icon={Save} onClick={saveRatingEditModal} disabled={ratingModalSaving}>
                 {ratingModalSaving ? 'Saving…' : 'Save'}
-              </button>
+              </AdminPrimaryButton>
             </div>
           </div>
         </div>
@@ -1238,8 +1220,8 @@ export default function FormulaManager() {
           aria-modal="true"
           aria-labelledby="trend-edit-title"
         >
-          <div className="w-full max-w-3xl rounded-xl border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border bg-muted/40 px-6 py-4">
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-border/80 bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border/80 px-6 py-4">
               <h4 id="trend-edit-title" className="text-base font-semibold text-foreground">
                 Edit trend template — {trendEditKey.tier} / {trendEditKey.outlook}
               </h4>
@@ -1254,9 +1236,7 @@ export default function FormulaManager() {
             </div>
             <div className="space-y-4 px-6 py-5">
               {trendModalError && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {trendModalError}
-                </div>
+                <AdminAlert>{trendModalError}</AdminAlert>
               )}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div className="space-y-1.5">
@@ -1268,7 +1248,7 @@ export default function FormulaManager() {
                     value={trendModalWeeklyTitle}
                     onChange={(e) => setTrendModalWeeklyTitle(e.target.value)}
                     maxLength={120}
-                    className={`${FIELD_STYLE} w-full max-w-none`}
+                    className={adminField}
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -1280,7 +1260,7 @@ export default function FormulaManager() {
                     value={trendModalDailyTitle}
                     onChange={(e) => setTrendModalDailyTitle(e.target.value)}
                     maxLength={120}
-                    className={`${FIELD_STYLE} w-full max-w-none`}
+                    className={adminField}
                   />
                 </div>
               </div>
@@ -1293,7 +1273,7 @@ export default function FormulaManager() {
                   value={trendModalWeekly}
                   onChange={(e) => setTrendModalWeekly(e.target.value)}
                   rows={4}
-                  className={`${FIELD_STYLE} min-h-[7rem] w-full max-w-none py-2`}
+                  className={TEXTAREA_STYLE}
                 />
               </div>
               <div className="space-y-1.5">
@@ -1305,28 +1285,17 @@ export default function FormulaManager() {
                   value={trendModalDaily}
                   onChange={(e) => setTrendModalDaily(e.target.value)}
                   rows={4}
-                  className={`${FIELD_STYLE} min-h-[7rem] w-full max-w-none py-2`}
+                  className={TEXTAREA_STYLE}
                 />
               </div>
             </div>
-            <div className="flex flex-wrap justify-end gap-2 border-t border-border px-6 py-4">
-              <button
-                type="button"
-                onClick={closeTrendEditModal}
-                disabled={trendModalSaving}
-                className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-              >
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border/80 px-6 py-4">
+              <AdminGhostButton onClick={closeTrendEditModal} disabled={trendModalSaving}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={saveTrendEditModal}
-                disabled={trendModalSaving}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Save size={16} />
+              </AdminGhostButton>
+              <AdminPrimaryButton icon={Save} onClick={saveTrendEditModal} disabled={trendModalSaving}>
                 {trendModalSaving ? 'Saving…' : 'Save'}
-              </button>
+              </AdminPrimaryButton>
             </div>
           </div>
         </div>
@@ -1339,8 +1308,8 @@ export default function FormulaManager() {
           aria-modal="true"
           aria-labelledby="performance-edit-title"
         >
-          <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border bg-muted/40 px-6 py-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border/80 bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border/80 px-6 py-4">
               <h4 id="performance-edit-title" className="text-base font-semibold text-foreground">
                 Edit performance text — {performanceEditKey.strength} / {performanceEditKey.distance_to_highs} / {performanceEditKey.benchmark_relation}
               </h4>
@@ -1355,9 +1324,7 @@ export default function FormulaManager() {
             </div>
             <div className="space-y-4 px-6 py-5">
               {performanceModalError && (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {performanceModalError}
-                </div>
+                <AdminAlert>{performanceModalError}</AdminAlert>
               )}
               <div className="space-y-1.5">
                 <label htmlFor="performance-modal-label" className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1368,7 +1335,7 @@ export default function FormulaManager() {
                   value={performanceModalLabel}
                   onChange={(e) => setPerformanceModalLabel(e.target.value)}
                   maxLength={100}
-                  className={`${FIELD_STYLE} w-full max-w-none`}
+                  className={adminField}
                   placeholder="e.g. Strong performer"
                 />
               </div>
@@ -1382,7 +1349,7 @@ export default function FormulaManager() {
                   onChange={(e) => setPerformanceModalDescription(e.target.value)}
                   rows={4}
                   maxLength={520}
-                  className={`${FIELD_STYLE} min-h-[7rem] w-full max-w-none py-2`}
+                  className={TEXTAREA_STYLE}
                   placeholder="This ticker is currently showing strong performance and is {{distance}}."
                 />
                 <p className="text-xs text-muted-foreground">
@@ -1390,24 +1357,13 @@ export default function FormulaManager() {
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap justify-end gap-2 border-t border-border px-6 py-4">
-              <button
-                type="button"
-                onClick={closePerformanceEditModal}
-                disabled={performanceModalSaving}
-                className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-              >
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border/80 px-6 py-4">
+              <AdminGhostButton onClick={closePerformanceEditModal} disabled={performanceModalSaving}>
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={savePerformanceEditModal}
-                disabled={performanceModalSaving}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Save size={16} />
+              </AdminGhostButton>
+              <AdminPrimaryButton icon={Save} onClick={savePerformanceEditModal} disabled={performanceModalSaving}>
                 {performanceModalSaving ? 'Saving…' : 'Save'}
-              </button>
+              </AdminPrimaryButton>
             </div>
           </div>
         </div>
@@ -1415,8 +1371,8 @@ export default function FormulaManager() {
 
       {showHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-xl">
-            <div className="flex items-center justify-between border-b border-border bg-muted/40 px-6 py-4">
+          <div className="w-full max-w-2xl overflow-hidden rounded-2xl border border-border/80 bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b border-border/80 px-6 py-4">
               <div className="flex items-center gap-3">
                 <Clock size={16} className="text-muted-foreground" />
                 <h4 className="text-base font-semibold text-foreground">Formula Change History</h4>
@@ -1432,16 +1388,16 @@ export default function FormulaManager() {
                 <table className="w-full border-separate border-spacing-0">
                   <thead>
                     <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                      <th className="border-b border-border bg-muted/50 px-6 py-3">When</th>
-                      <th className="border-b border-border bg-muted/50 px-6 py-3">Who</th>
-                      <th className="border-b border-border bg-muted/50 px-6 py-3">Parameter</th>
-                      <th className="border-b border-border bg-muted/50 px-6 py-3">Old → New</th>
-                      <th className="border-b border-border bg-muted/50 px-6 py-3">Note</th>
+                      <th className="border-b border-border/80 px-6 py-3">When</th>
+                      <th className="border-b border-border/80 px-6 py-3">Who</th>
+                      <th className="border-b border-border/80 px-6 py-3">Parameter</th>
+                      <th className="border-b border-border/80 px-6 py-3">Old → New</th>
+                      <th className="border-b border-border/80 px-6 py-3">Note</th>
                     </tr>
                   </thead>
                   <tbody>
                     {history.map((h) => (
-                      <tr key={h.id} className="border-b border-border text-sm transition-colors hover:bg-muted/30">
+                      <tr key={h.id} className="border-b border-border/60 text-sm transition-colors hover:bg-muted/30">
                         <td className="px-6 py-4 text-muted-foreground">{formatDateTime(h.changed_at)}</td>
                         <td className="px-6 py-4 text-muted-foreground">{h.changed_by}</td>
                         <td className="px-6 py-4 font-mono text-xs text-foreground">{h.key}</td>

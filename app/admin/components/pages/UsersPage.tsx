@@ -1,27 +1,34 @@
 'use client';
 
-import { Edit2, FileSpreadsheet, Filter, KeyRound, Search, Shield, Trash2, UserPlus, X } from 'lucide-react';
+import { Edit2, KeyRound, ListChecks, RefreshCw, Shield, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
 import {
-  bulkCreateUsersAction,
+  AdminAlert,
+  AdminGhostButton,
+  AdminIconButton,
+  AdminKpi,
+  AdminOutlineButton,
+  AdminPageHeader,
+  AdminSearchInput,
+  adminPageStack,
+  adminSelect,
+  adminSurface,
+  adminTd,
+  adminTh,
+} from '../ui/admin-ui';
+import {
   createAdminWithPasswordAction,
-  createUserAction,
   deleteUserAction,
-  getStoreReviewSettingsAction,
   listUsersAction,
-  setStoreReviewLoginEnabledAction,
   updateAuthorizedUserPasswordAction,
   updateUserRoleAction,
   type AdminUserRow,
-  type BulkCreateRowInput,
-  type BulkCreateUserResultItem,
-  type StoreReviewSettings,
   type UserStats,
 } from '../../_actions/users';
 import { useAdmin } from '../../_lib/admin-context';
 import { useDebouncedValue } from '../../_lib/use-debounced-value';
 import { useLiveAdminRefresh } from '../../_lib/use-live-admin-refresh';
+import ReconcileSubscribersModal from './ReconcileSubscribersModal';
 
 const PAGE_SIZE = 50;
 
@@ -37,7 +44,9 @@ function formatDate(iso: string | null) {
   }
 }
 
-export default function UsersPage() {
+const USERS_REALTIME = [{ schema: 'public', table: 'authorized_users' }] as const;
+
+export default function UsersPage({ dataActive = true }: { dataActive?: boolean }) {
   const { admin, getAccessToken } = useAdmin();
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
@@ -45,37 +54,35 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const debouncedSearch = useDebouncedValue(searchQuery.trim(), 250);
+  const liveSearch = searchQuery.trim();
+  const debouncedSearch = useDebouncedValue(liveSearch, 150);
+  const isSearchPending = liveSearch !== debouncedSearch;
+  const searchBusy = isSearchPending || (loading && Boolean(liveSearch));
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
-  const [showAddModal, setShowAddModal] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
+  const [showReconcileModal, setShowReconcileModal] = useState(false);
   const [editing, setEditing] = useState<AdminUserRow | null>(null);
   const [passwordUser, setPasswordUser] = useState<AdminUserRow | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<AdminUserRow | null>(null);
   const [busy, setBusy] = useState(false);
-  const [storeReview, setStoreReview] = useState<StoreReviewSettings | null>(null);
-  const [storeReviewBusy, setStoreReviewBusy] = useState(false);
 
   const listKey = `${debouncedSearch}|${roleFilter}`;
   const lastListKeyRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const token = await getAccessToken();
-      const [res, reviewRes] = await Promise.all([
-        listUsersAction(token, {
-          page,
-          pageSize: PAGE_SIZE,
-          search: debouncedSearch,
-          roleFilter,
-        }),
-        getStoreReviewSettingsAction(token),
-      ]);
+      const res = await listUsersAction(token, {
+        page,
+        pageSize: PAGE_SIZE,
+        search: debouncedSearch,
+        roleFilter,
+      });
       if (res.ok) {
         setUsers(res.data.users);
         setStats(res.data.stats);
@@ -83,29 +90,12 @@ export default function UsersPage() {
       } else {
         setError(res.error);
       }
-      if (reviewRes.ok) setStoreReview(reviewRes.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [getAccessToken, page, debouncedSearch, roleFilter]);
-
-  const toggleStoreReview = useCallback(async () => {
-    if (!storeReview || storeReviewBusy) return;
-    setStoreReviewBusy(true);
-    setError(null);
-    try {
-      const token = await getAccessToken();
-      const res = await setStoreReviewLoginEnabledAction(token, !storeReview.enabled);
-      if (res.ok) setStoreReview(res.data);
-      else setError(res.error);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to update store review setting.');
-    } finally {
-      setStoreReviewBusy(false);
-    }
-  }, [getAccessToken, storeReview, storeReviewBusy]);
 
   useEffect(() => {
     if (lastListKeyRef.current !== listKey) {
@@ -119,218 +109,139 @@ export default function UsersPage() {
   }, [load, listKey, page]);
 
   useLiveAdminRefresh({
+    enabled: dataActive,
     channelName: 'admin-users-live',
     getAccessToken,
-    refresh: load,
-    pollingMs: 30_000,
-    throttleMs: 3_000,
-    realtime: [{ schema: 'public', table: 'authorized_users' }],
+    refresh: () => void load({ silent: true }),
+    pollingMs: 60_000,
+    throttleMs: 8_000,
+    realtime: [...USERS_REALTIME],
   });
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const canPrev = page > 0;
   const canNext = page + 1 < totalPages;
 
+  const visibleUsers = (() => {
+    if (!liveSearch) return users;
+    if (isSearchPending || loading) {
+      const q = liveSearch.toLowerCase();
+      return users.filter((u) => u.email.toLowerCase().includes(q));
+    }
+    return users;
+  })();
+
   const statCards = [
-    { label: 'Total Users', value: stats?.total ?? 0, extra: `${stats?.admins ?? 0} admin${(stats?.admins ?? 0) === 1 ? '' : 's'}` },
-    { label: 'Admins', value: stats?.admins ?? 0, extra: 'Full access' },
-    { label: 'Added This Week', value: stats?.addedThisWeek ?? 0, extra: 'Last 7 days' },
+    { label: 'Total Users', value: stats?.total ?? 0 },
+    { label: 'Admins', value: stats?.admins ?? 0 },
+    { label: 'Added This Week', value: stats?.addedThisWeek ?? 0 },
   ];
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-5 sm:gap-6">
+    <div className={adminPageStack}>
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-5 md:grid-cols-3">
-        {statCards.map((s, i) => (
-          <div
-            key={s.label}
-            className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6"
-          >
-            <div className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-              {loading ? '—' : s.value}
-            </div>
-            <div className="mt-2 text-sm font-medium text-muted-foreground">{s.label}</div>
-            <div
-              className={`mt-2 text-xs font-semibold ${
-                i === 0
-                  ? 'text-violet-600 dark:text-violet-400'
-                  : i === 1
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-sky-600 dark:text-sky-400'
-              }`}
-            >
-              {s.extra}
-            </div>
-          </div>
+        {statCards.map((s) => (
+          <AdminKpi key={s.label} label={s.label} value={loading ? '—' : s.value} />
         ))}
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1">
-            <h3 className="text-base font-semibold tracking-tight text-foreground">
-              Store review sign-in
-            </h3>
-            <p className="max-w-2xl text-sm text-muted-foreground">
-              Instant mobile login for Apple / Google review accounts (no magic-link email). Turn this{' '}
-              <span className="font-medium text-foreground">off</span> after App Store / Play review so
-              those emails cannot bypass the allowlist.
-            </p>
-            <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
-              {(storeReview?.emails ?? [
-                'weeklystockapple@icloud.com',
-                'weeklystockgoogle@gmail.com',
-              ]).map((email) => (
-                <li key={email} className="font-mono">
-                  {email}
-                </li>
-              ))}
-            </ul>
-            {storeReview?.updatedAt && (
-              <p className="pt-1 text-[11px] text-muted-foreground">
-                Last changed{' '}
-                {formatDate(storeReview.updatedAt)}
-                {storeReview.updatedBy ? ` · ${storeReview.updatedBy}` : ''}
-              </p>
-            )}
-          </div>
-          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={storeReview?.enabled ?? true}
-              disabled={storeReviewBusy || loading || storeReview == null}
-              onClick={() => void toggleStoreReview()}
-              className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                storeReview?.enabled
-                  ? 'bg-emerald-600 text-white hover:bg-emerald-600/90'
-                  : 'border border-border bg-card text-foreground hover:bg-muted/50'
-              }`}
-            >
-              {storeReviewBusy
-                ? 'Saving…'
-                : storeReview?.enabled
-                  ? 'Enabled — tap to turn off'
-                  : 'Disabled — tap to turn on'}
-            </button>
-            <p className="text-center text-[11px] text-muted-foreground sm:text-right">
-              {storeReview?.enabled
-                ? 'Reviewers can sign in instantly on mobile'
-                : 'Review emails require allowlist + normal magic link'}
-            </p>
-          </div>
-        </div>
-      </div>
+      <div className={`${adminSurface} min-h-0 min-w-0 flex-1`}>
+        <div className="flex flex-col gap-4 px-4 pt-5 pb-4 sm:px-6 sm:pt-6">
+          <AdminPageHeader
+            title="User List"
+            description="Only listed emails can log in via magic link."
+            actions={
+              <>
+                <AdminOutlineButton icon={ListChecks} onClick={() => setShowReconcileModal(true)}>
+                  Subscribers
+                </AdminOutlineButton>
+                <AdminGhostButton icon={Shield} onClick={() => setShowAdminModal(true)}>
+                  Add Admin
+                </AdminGhostButton>
+              </>
+            }
+          />
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="border-b border-border bg-muted/40 px-4 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
-          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">Authorized Users</h3>
-              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Only listed emails can log in via magic link.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-              >
-                <UserPlus size={16} />
-                Add Users
-              </button>
-              <button
-                onClick={() => setShowAdminModal(true)}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-              >
-                <Shield size={16} />
-                Add Admin
-              </button>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="relative w-full max-w-xs">
-              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by email…"
-                className="h-10 w-full rounded-lg border border-border bg-card py-2 pl-9 pr-4 text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+            <AdminSearchInput
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by email…"
+              busy={searchBusy}
+              hint={
+                liveSearch && !searchBusy
+                  ? totalCount === 0
+                    ? 'No matches'
+                    : `${totalCount.toLocaleString()} match${totalCount === 1 ? '' : 'es'}`
+                  : null
+              }
+              onClear={() => setSearchQuery('')}
+            />
             <div className="flex items-center gap-2">
               <select
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}
-                className="h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground shadow-sm"
+                className={`${adminSelect} sm:w-40`}
               >
                 <option value="all">All Roles</option>
                 <option value="admin">Admin</option>
                 <option value="user">User</option>
               </select>
-              <button
-                onClick={load}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-              >
-                <Filter size={15} />
+              <AdminGhostButton icon={RefreshCw} onClick={() => void load()}>
                 Refresh
-              </button>
+              </AdminGhostButton>
             </div>
           </div>
         </div>
 
         {error && (
-          <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive md:px-6 dark:border-destructive/30 dark:bg-destructive/15">
-            {error}
+          <div className="px-4 pb-4 sm:px-6">
+            <AdminAlert tone="error">{error}</AdminAlert>
           </div>
         )}
 
         <div className="hidden min-w-0 overflow-x-auto md:block">
-          <table className="w-full min-w-[780px] border-separate border-spacing-0 text-sm">
+          <table className="w-full min-w-195 border-separate border-spacing-0 text-sm">
             <thead>
               <tr className="text-left">
-                <th className="whitespace-nowrap border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
-                  Email
-                </th>
-                <th className="whitespace-nowrap border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
-                  Role
-                </th>
-                <th className="whitespace-nowrap border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
-                  Joined
-                </th>
-                <th className="whitespace-nowrap border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
-                  Updated
-                </th>
-                <th className="whitespace-nowrap border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
-                  Actions
-                </th>
+                <th className={adminTh}>Email</th>
+                <th className={adminTh}>Role</th>
+                <th className={adminTh}>Joined</th>
+                <th className={adminTh}>Updated</th>
+                <th className={adminTh}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {loading && (
+              {loading && !liveSearch && users.length === 0 && (
                 <tr>
-                  <td className="px-4 py-8 text-sm text-muted-foreground sm:px-6" colSpan={5}>
+                  <td className={`${adminTd} py-8 text-muted-foreground`} colSpan={5}>
                     Loading…
                   </td>
                 </tr>
               )}
-              {!loading && users.length === 0 && (
+              {searchBusy && visibleUsers.length === 0 && (
                 <tr>
-                  <td className="px-4 py-8 text-sm text-muted-foreground sm:px-6" colSpan={5}>
-                    No users match.
+                  <td className={`${adminTd} py-8 text-muted-foreground`} colSpan={5}>
+                    Searching…
                   </td>
                 </tr>
               )}
-              {users.map((u) => {
+              {!searchBusy && !loading && visibleUsers.length === 0 && (
+                <tr>
+                  <td className={`${adminTd} py-8 text-muted-foreground`} colSpan={5}>
+                    {liveSearch ? 'No matches.' : 'No users match.'}
+                  </td>
+                </tr>
+              )}
+              {visibleUsers.map((u) => {
                 const isSelf = u.email.toLowerCase() === admin?.email;
                 return (
-                  <tr
-                    key={u.id}
-                    className="border-b border-border transition-colors last:border-b-0 hover:bg-muted/30"
-                  >
-                    <td className="px-4 py-3.5 sm:px-6 sm:py-4">
+                  <tr key={u.id} className="transition-colors hover:bg-muted/30">
+                    <td className={adminTd}>
                       <div className="font-medium text-foreground">{u.email}</div>
                       {isSelf && <div className="text-xs text-muted-foreground">(you)</div>}
                     </td>
-                    <td className="px-4 py-3.5 sm:px-6 sm:py-4">
+                    <td className={adminTd}>
                       <span
                         className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
                           u.role === 'Admin'
@@ -341,35 +252,19 @@ export default function UsersPage() {
                         <Shield size={12} /> {u.role ?? 'User'}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-muted-foreground sm:px-6 sm:py-4">{formatDate(u.created_at)}</td>
-                    <td className="px-4 py-3.5 text-muted-foreground sm:px-6 sm:py-4">{formatDate(u.updated_at)}</td>
-                    <td className="px-4 py-3.5 sm:px-6 sm:py-4">
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <button
-                          type="button"
-                          onClick={() => setEditing(u)}
-                          className="rounded-lg p-2 text-foreground transition-colors hover:bg-muted"
-                          title="Edit role"
-                        >
-                          <Edit2 size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPasswordUser(u)}
-                          className="rounded-lg p-2 text-foreground transition-colors hover:bg-muted"
-                          title="Set password"
-                        >
-                          <KeyRound size={15} />
-                        </button>
-                        <button
-                          type="button"
+                    <td className={`${adminTd} text-muted-foreground`}>{formatDate(u.created_at)}</td>
+                    <td className={`${adminTd} text-muted-foreground`}>{formatDate(u.updated_at)}</td>
+                    <td className={adminTd}>
+                      <div className="flex items-center gap-1.5">
+                        <AdminIconButton icon={Edit2} onClick={() => setEditing(u)} title="Edit role" />
+                        <AdminIconButton icon={KeyRound} onClick={() => setPasswordUser(u)} title="Set password" />
+                        <AdminIconButton
+                          icon={Trash2}
+                          tone="danger"
                           onClick={() => setConfirmingDelete(u)}
                           disabled={isSelf}
-                          className="rounded-lg p-2 text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-30 dark:text-rose-400"
                           title={isSelf ? 'Cannot delete your own account' : 'Delete user'}
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        />
                       </div>
                     </td>
                   </tr>
@@ -380,21 +275,25 @@ export default function UsersPage() {
         </div>
 
         <div className="space-y-3 p-4 md:hidden">
-          {loading && (
-            <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
+          {loading && !liveSearch && users.length === 0 && (
+            <div className="rounded-xl border border-border/80 p-4 text-sm text-muted-foreground">
               Loading…
             </div>
           )}
-          {!loading && users.length === 0 && (
-            <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
-              No users match.
+          {searchBusy && visibleUsers.length === 0 && (
+            <div className="rounded-xl border border-border/80 p-4 text-sm text-muted-foreground">
+              Searching…
             </div>
           )}
-          {!loading &&
-            users.map((u) => {
+          {!searchBusy && !loading && visibleUsers.length === 0 && (
+            <div className="rounded-xl border border-border/80 p-4 text-sm text-muted-foreground">
+              {liveSearch ? 'No matches.' : 'No users match.'}
+            </div>
+          )}
+          {visibleUsers.map((u) => {
               const isSelf = u.email.toLowerCase() === admin?.email;
               return (
-                <div key={u.id} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+                <div key={u.id} className="rounded-xl border border-border/80 bg-card p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-foreground">{u.email}</div>
@@ -420,62 +319,42 @@ export default function UsersPage() {
                       <Shield size={12} /> {u.role ?? 'User'}
                     </span>
                   </div>
-                  <div className="mt-3 flex items-center justify-end gap-1 text-muted-foreground">
-                    <button
-                      type="button"
-                      onClick={() => setEditing(u)}
-                      className="rounded-lg p-2 text-foreground transition-colors hover:bg-muted"
-                      title="Edit role"
-                    >
-                      <Edit2 size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPasswordUser(u)}
-                      className="rounded-lg p-2 text-foreground transition-colors hover:bg-muted"
-                      title="Set password"
-                    >
-                      <KeyRound size={15} />
-                    </button>
-                    <button
-                      type="button"
+                  <div className="mt-3 flex items-center justify-end gap-1.5">
+                    <AdminIconButton icon={Edit2} onClick={() => setEditing(u)} title="Edit role" />
+                    <AdminIconButton icon={KeyRound} onClick={() => setPasswordUser(u)} title="Set password" />
+                    <AdminIconButton
+                      icon={Trash2}
+                      tone="danger"
                       onClick={() => setConfirmingDelete(u)}
                       disabled={isSelf}
-                      className="rounded-lg p-2 text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-30 dark:text-rose-400"
                       title={isSelf ? 'Cannot delete your own account' : 'Delete user'}
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    />
                   </div>
                 </div>
               );
             })}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-border px-4 py-4 text-sm md:flex-row md:items-center md:justify-between md:px-6">
+        <div className="flex flex-col gap-2 border-t border-border/60 px-4 py-4 text-sm md:flex-row md:items-center md:justify-between md:px-6">
           <div className="text-muted-foreground">
             Page <span className="font-semibold text-foreground">{page + 1}</span> of{' '}
             <span className="font-semibold text-foreground">{totalPages}</span> · Showing{' '}
-            <span className="font-semibold text-foreground">{users.length}</span> of{' '}
+            <span className="font-semibold text-foreground">{visibleUsers.length}</span> of{' '}
             <span className="font-semibold text-foreground">{totalCount.toLocaleString()}</span> matching
           </div>
           <div className="flex gap-2">
-            <button
-              type="button"
+            <AdminGhostButton
               disabled={!canPrev || loading}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
-              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-40"
             >
               Previous
-            </button>
-            <button
-              type="button"
+            </AdminGhostButton>
+            <AdminOutlineButton
               disabled={!canNext || loading}
               onClick={() => setPage((p) => p + 1)}
-              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
             >
               Next
-            </button>
+            </AdminOutlineButton>
           </div>
         </div>
       </div>
@@ -492,15 +371,12 @@ export default function UsersPage() {
         />
       )}
 
-      {showAddModal && (
-        <AddUserModal
-          onClose={() => setShowAddModal(false)}
-          onFinished={async () => {
-            setShowAddModal(false);
-            await load();
+      {showReconcileModal && (
+        <ReconcileSubscribersModal
+          onClose={() => setShowReconcileModal(false)}
+          onChanged={async () => {
+            await load({ silent: true });
           }}
-          busy={busy}
-          setBusy={setBusy}
         />
       )}
 
@@ -551,446 +427,6 @@ type ModalBaseProps = {
   busy: boolean;
   setBusy: (b: boolean) => void;
 };
-
-type AddTab = 'emails' | 'spreadsheet';
-
-function AddUserModal({
-  onClose,
-  onFinished,
-  busy,
-  setBusy,
-}: ModalBaseProps & { onFinished: () => Promise<void> }) {
-  const { getAccessToken } = useAdmin();
-  const [tab, setTab] = useState<AddTab>('emails');
-  const [emailText, setEmailText] = useState('');
-  const defaultRole: Role = 'User';
-  const [error, setError] = useState<string | null>(null);
-  const [bulkResults, setBulkResults] = useState<BulkCreateUserResultItem[] | null>(null);
-  const [bulkSummary, setBulkSummary] = useState<{
-    created: number;
-    duplicate: number;
-    duplicateInFile: number;
-    invalid: number;
-    dbErrors: number;
-    inviteFailed: number;
-  } | null>(null);
-
-  const [sheetPreview, setSheetPreview] = useState<BulkCreateRowInput[]>([]);
-  const [sheetFileName, setSheetFileName] = useState<string | null>(null);
-  const [sheetParseError, setSheetParseError] = useState<string | null>(null);
-  const lastSheetFileRef = useRef<File | null>(null);
-
-  const resetSheetPreview = () => {
-    lastSheetFileRef.current = null;
-    setSheetPreview([]);
-    setSheetFileName(null);
-    setSheetParseError(null);
-  };
-
-  const downloadSampleXlsx = () => {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([
-      ['email'],
-      ['colleague@example.com'],
-      ['another@example.com'],
-    ]);
-    XLSX.utils.book_append_sheet(wb, ws, 'Users');
-    XLSX.writeFile(wb, 'authorized-users-import-sample.xlsx');
-  };
-
-  const parseSpreadsheetFile = useCallback(async (file: File) => {
-    setSheetParseError(null);
-    setSheetPreview([]);
-    setSheetFileName(file.name);
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const sheetName = wb.SheetNames[0];
-      if (!sheetName) {
-        setSheetParseError('The workbook has no sheets.');
-        return;
-      }
-      const ws = wb.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-      const parsed = sheetJsonToBulkRows(rows, defaultRole);
-      if (parsed.rows.length === 0) {
-        setSheetParseError(parsed.error ?? 'No rows with a valid email were found.');
-        return;
-      }
-      if (parsed.error) setSheetParseError(parsed.error);
-      setSheetPreview(parsed.rows);
-    } catch (e) {
-      setSheetParseError(e instanceof Error ? e.message : 'Could not read that file.');
-    }
-  }, [defaultRole]);
-
-  useEffect(() => {
-    const f = lastSheetFileRef.current;
-    if (f && tab === 'spreadsheet') void parseSpreadsheetFile(f);
-  }, [defaultRole, tab, parseSpreadsheetFile]);
-
-  const runBulk = async (rows: BulkCreateRowInput[]) => {
-    setError(null);
-    setBulkResults(null);
-    setBulkSummary(null);
-    if (rows.length === 0) {
-      setError('Add at least one email.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const token = await getAccessToken();
-      const res = await bulkCreateUsersAction(token, { rows });
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      setBulkResults(res.data.results);
-      setBulkSummary(res.data.summary);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unknown error.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const addFromEmails = async () => {
-    const emails = parseEmailList(emailText);
-    if (emails.length === 0) {
-      setError('Enter one or more email addresses (comma, space, or newline separated).');
-      return;
-    }
-    if (emails.length === 1) {
-      setError(null);
-      setBusy(true);
-      try {
-        const token = await getAccessToken();
-        const res = await createUserAction(token, { email: emails[0], role: defaultRole });
-        if (!res.ok) {
-          setError(res.error);
-          return;
-        }
-        await onFinished();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Unknown error.');
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
-    const rows = emails.map((email) => ({ email, role: defaultRole }));
-    await runBulk(rows);
-  };
-
-  const addFromSpreadsheet = async () => {
-    await runBulk(sheetPreview);
-  };
-
-  const summaryLine =
-    bulkSummary &&
-    [
-      bulkSummary.created ? `${bulkSummary.created} added` : null,
-      bulkSummary.duplicate ? `${bulkSummary.duplicate} already existed` : null,
-      bulkSummary.duplicateInFile ? `${bulkSummary.duplicateInFile} duplicate in file` : null,
-      bulkSummary.invalid ? `${bulkSummary.invalid} invalid` : null,
-      bulkSummary.dbErrors ? `${bulkSummary.dbErrors} failed` : null,
-      bulkSummary.inviteFailed ? `${bulkSummary.inviteFailed} invite email issue` : null,
-    ]
-      .filter(Boolean)
-      .join(' · ');
-
-  return (
-    <ModalShell title="Add users" onClose={onClose} busy={busy} wide>
-      {!bulkResults && (
-        <>
-          <p className="text-sm text-muted-foreground">
-            Whitelist emails for magic-link login. Use multiple addresses at once, or import a spreadsheet.
-          </p>
-          <div className="mt-4 flex gap-1 rounded-xl border border-border bg-muted/50 p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setTab('emails');
-                resetSheetPreview();
-              }}
-              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                tab === 'emails' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Emails
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('spreadsheet')}
-              className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
-                tab === 'spreadsheet' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Spreadsheet
-            </button>
-          </div>
-
-          {/* Role is always User here — use "Add Admin" button for admin accounts */}
-
-          {tab === 'emails' && (
-            <label className="mt-4 block">
-              <span className="text-sm font-semibold text-foreground">Email addresses</span>
-              <textarea
-                value={emailText}
-                onChange={(e) => setEmailText(e.target.value)}
-                placeholder={'one@example.com, two@example.com\nor one address per line'}
-                rows={6}
-                className="mt-2 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm font-mono text-foreground shadow-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-                autoFocus
-              />
-            </label>
-          )}
-
-          {tab === 'spreadsheet' && (
-            <div className="mt-4 space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={downloadSampleXlsx}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-                >
-                  <FileSpreadsheet size={16} />
-                  Download sample .xlsx
-                </button>
-                <span className="text-xs text-muted-foreground">
-                  First sheet: columns <code className="rounded bg-muted px-1 font-mono text-foreground">email</code>{' '}
-                  (required) and <code className="rounded bg-muted px-1 font-mono text-foreground">role</code> (optional:
-                  Admin or User).
-                </span>
-              </div>
-              <label className="block">
-                <span className="text-sm font-semibold text-foreground">Upload .xlsx</span>
-                <input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="mt-2 block w-full cursor-pointer rounded-lg border border-dashed border-border bg-card px-3 py-4 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = '';
-                    if (f) {
-                      lastSheetFileRef.current = f;
-                      void parseSpreadsheetFile(f);
-                    }
-                  }}
-                />
-              </label>
-              {sheetParseError && (
-                <p className="text-sm text-amber-800 dark:text-amber-200">{sheetParseError}</p>
-              )}
-              {sheetPreview.length > 0 && (
-                <div className="max-h-40 overflow-auto rounded-lg border border-border">
-                  <table className="w-full text-left text-xs">
-                    <thead className="sticky top-0 bg-muted/50">
-                      <tr className="text-muted-foreground">
-                        <th className="border-b border-border px-3 py-2 font-semibold">email</th>
-                        <th className="border-b border-border px-3 py-2 font-semibold">role</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sheetPreview.slice(0, 50).map((r, i) => (
-                        <tr key={`${r.email}-${i}`} className="border-b border-border last:border-b-0">
-                          <td className="px-3 py-1.5 font-mono text-foreground">{r.email}</td>
-                          <td className="px-3 py-1.5 text-foreground">{r.role}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {sheetPreview.length > 50 && (
-                    <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                      Showing first 50 of {sheetPreview.length} rows.
-                    </div>
-                  )}
-                </div>
-              )}
-              {sheetFileName && sheetPreview.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {sheetFileName}: <span className="font-medium text-foreground">{sheetPreview.length}</span> users ready
-                  to import.
-                </p>
-              )}
-            </div>
-          )}
-
-          {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-          <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-border pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            {tab === 'emails' ? (
-              <button
-                type="button"
-                onClick={() => void addFromEmails()}
-                disabled={busy}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                {busy ? 'Working…' : 'Add users'}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void addFromSpreadsheet()}
-                disabled={busy || sheetPreview.length === 0}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                {busy ? 'Working…' : `Import ${sheetPreview.length || ''} users`.trim()}
-              </button>
-            )}
-          </div>
-        </>
-      )}
-
-      {bulkResults && bulkSummary && (
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-foreground">Import finished</p>
-          {summaryLine && <p className="text-sm text-muted-foreground">{summaryLine}.</p>}
-          <div className="max-h-56 overflow-auto rounded-lg border border-border">
-            <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 bg-muted/50">
-                <tr className="text-muted-foreground">
-                  <th className="border-b border-border px-3 py-2 font-semibold">email</th>
-                  <th className="border-b border-border px-3 py-2 font-semibold">result</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bulkResults.map((r, i) => (
-                  <tr key={`${r.email}-${i}`} className="border-b border-border last:border-b-0">
-                    <td className="px-3 py-1.5 font-mono text-foreground">{r.email}</td>
-                    <td className="px-3 py-1.5">
-                      <span
-                        className={
-                          r.status === 'created'
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : r.status === 'created_invite_failed'
-                              ? 'text-amber-700 dark:text-amber-300'
-                              : 'text-muted-foreground'
-                        }
-                      >
-                        {bulkStatusLabel(r)}
-                      </span>
-                      {r.message && <div className="mt-0.5 text-[11px] text-muted-foreground">{r.message}</div>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex justify-end gap-3 border-t border-border pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onClick={() => void onFinished()}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
-    </ModalShell>
-  );
-}
-
-function bulkStatusLabel(r: BulkCreateUserResultItem): string {
-  switch (r.status) {
-    case 'created':
-      return 'Added';
-    case 'created_invite_failed':
-      return 'Added (invite email failed)';
-    case 'duplicate':
-      return 'Already exists';
-    case 'duplicate_in_file':
-      return 'Duplicate in file';
-    case 'invalid':
-      return 'Invalid';
-    case 'db_error':
-      return 'Error';
-    default:
-      return r.status;
-  }
-}
-
-function parseEmailList(raw: string): string[] {
-  const parts = raw
-    .split(/[\s,;]+/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const p of parts) {
-    const lower = p.toLowerCase();
-    if (seen.has(lower)) continue;
-    seen.add(lower);
-    out.push(p);
-  }
-  return out;
-}
-
-function normalizeSheetHeader(v: unknown): string {
-  return String(v ?? '')
-    .trim()
-    .toLowerCase();
-}
-
-function findColumnKey(sampleRow: Record<string, unknown>, target: string): string | undefined {
-  for (const k of Object.keys(sampleRow)) {
-    if (normalizeSheetHeader(k) === target) return k;
-  }
-  return undefined;
-}
-
-function sheetJsonToBulkRows(
-  json: Record<string, unknown>[],
-  defaultRole: Role
-): { rows: BulkCreateRowInput[]; error?: string } {
-  if (json.length === 0) return { rows: [] };
-  const emailKey = findColumnKey(json[0], 'email');
-  if (!emailKey) {
-    return { rows: [], error: 'Missing required column header: email' };
-  }
-  const roleKey = findColumnKey(json[0], 'role');
-  const rows: BulkCreateRowInput[] = [];
-  let badRoles = 0;
-
-  for (const row of json) {
-    const email = String(row[emailKey] ?? '').trim();
-    if (!email) continue;
-    const roleCell = roleKey ? String(row[roleKey] ?? '').trim() : '';
-    const coerced = coerceRoleCell(roleCell, defaultRole);
-    if (coerced === null) {
-      badRoles += 1;
-      continue;
-    }
-    rows.push({ email, role: coerced });
-  }
-
-  const errorParts: string[] = [];
-  if (badRoles) errorParts.push(`${badRoles} row(s) skipped: role must be Admin or User (or leave blank for default).`);
-  return { rows, error: errorParts.length ? errorParts.join(' ') : undefined };
-}
-
-function coerceRoleCell(raw: string, fallback: Role): 'Admin' | 'User' | null {
-  if (!raw) return fallback;
-  const t = raw.trim().toLowerCase();
-  if (t === 'admin') return 'Admin';
-  if (t === 'user') return 'User';
-  return null;
-}
 
 function SetPasswordModal({
   user,

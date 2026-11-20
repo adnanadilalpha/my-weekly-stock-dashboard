@@ -131,42 +131,73 @@ export async function listTickerCandidatesAction(
   });
 }
 
+let candidateStatsCache: { at: number; value: TickerCandidateStats } | null = null;
+const CANDIDATE_STATS_TTL_MS = 20_000;
+
+function invalidateTickerCandidateStatsCache() {
+  candidateStatsCache = null;
+}
+
 export async function getTickerCandidateStatsAction(
   accessToken: string
 ): Promise<ActionResult<TickerCandidateStats>> {
   return withAdmin(accessToken, async () => {
-    const admin = getAdminSupabase();
-    // Source-of-truth stats from raw rows so UI stays correct even if legacy rows
-    // have mismatched flags from older import logic.
-    const rows: Pick<TickerCandidate, 'provider_status' | 'import_status' | 'is_in_system'>[] = [];
-    let from = 0;
-    const chunk = 1000;
-    while (true) {
-      const { data: page, error: pageErr } = await admin
-        .from('ticker_import_candidates')
-        .select('provider_status, import_status, is_in_system')
-        .range(from, from + chunk - 1);
-      if (pageErr) return err('Failed to load candidate stats.', 'db_error');
-      const batch = (page ?? []) as typeof rows;
-      rows.push(...batch);
-      if (batch.length < chunk) break;
-      from += chunk;
+    if (candidateStatsCache && Date.now() - candidateStatsCache.at < CANDIDATE_STATS_TTL_MS) {
+      return ok(candidateStatsCache.value);
     }
-    const inSystemEffective = (r: Pick<TickerCandidate, 'import_status' | 'is_in_system'>) =>
-      Boolean(r.is_in_system) || r.import_status === 'imported';
 
-    return ok({
-      total: rows.length,
-      pending_scan: rows.filter((r) => r.provider_status === 'pending').length,
-      found: rows.filter((r) => r.provider_status === 'found').length,
-      not_found: rows.filter((r) => r.provider_status === 'not_found').length,
-      in_system: rows.filter((r) => inSystemEffective(r)).length,
-      imported: rows.filter((r) => r.import_status === 'imported').length,
-      skipped: rows.filter((r) => r.import_status === 'skipped').length,
-      ready_to_import: rows.filter(
-        (r) => r.provider_status === 'found' && !inSystemEffective(r) && r.import_status === 'pending'
-      ).length,
-    });
+    const admin = getAdminSupabase();
+    const table = () => admin.from('ticker_import_candidates');
+    // Head counts in parallel — avoids paging the whole candidates table on every load.
+    const [
+      totalRes,
+      pendingRes,
+      foundRes,
+      notFoundRes,
+      importedRes,
+      skippedRes,
+      inSystemRes,
+      readyRes,
+    ] = await Promise.all([
+      table().select('id', { count: 'exact', head: true }),
+      table().select('id', { count: 'exact', head: true }).eq('provider_status', 'pending'),
+      table().select('id', { count: 'exact', head: true }).eq('provider_status', 'found'),
+      table().select('id', { count: 'exact', head: true }).eq('provider_status', 'not_found'),
+      table().select('id', { count: 'exact', head: true }).eq('import_status', 'imported'),
+      table().select('id', { count: 'exact', head: true }).eq('import_status', 'skipped'),
+      table().select('id', { count: 'exact', head: true }).or('is_in_system.eq.true,import_status.eq.imported'),
+      table()
+        .select('id', { count: 'exact', head: true })
+        .eq('provider_status', 'found')
+        .eq('import_status', 'pending')
+        .eq('is_in_system', false),
+    ]);
+
+    if (
+      totalRes.error ||
+      pendingRes.error ||
+      foundRes.error ||
+      notFoundRes.error ||
+      importedRes.error ||
+      skippedRes.error ||
+      inSystemRes.error ||
+      readyRes.error
+    ) {
+      return err('Failed to load candidate stats.', 'db_error');
+    }
+
+    const value: TickerCandidateStats = {
+      total: totalRes.count ?? 0,
+      pending_scan: pendingRes.count ?? 0,
+      found: foundRes.count ?? 0,
+      not_found: notFoundRes.count ?? 0,
+      in_system: inSystemRes.count ?? 0,
+      imported: importedRes.count ?? 0,
+      skipped: skippedRes.count ?? 0,
+      ready_to_import: readyRes.count ?? 0,
+    };
+    candidateStatsCache = { at: Date.now(), value };
+    return ok(value);
   });
 }
 
@@ -178,6 +209,7 @@ export async function scanTickerCandidatesAction(
   accessToken: string
 ): Promise<ActionResult<{ scanned: number; found: number; not_found: number; already_in_system: number; error_msg: string | null }>> {
   return withAdmin(accessToken, async (ctx) => {
+    invalidateTickerCandidateStatsCache();
     const admin = getAdminSupabase();
 
     // 1. Read preferred provider from config
@@ -466,6 +498,7 @@ export async function importTickerCandidateAction(
   input: { id: string; targetTable: TargetTable; activateImmediately?: boolean }
 ): Promise<ActionResult<{ ticker: string; targetTable: TargetTable }>> {
   return withAdmin(accessToken, async (ctx) => {
+    invalidateTickerCandidateStatsCache();
     if (!input.id || typeof input.id !== 'string') return err('Invalid candidate id.', 'validation');
     if (!TARGET_TABLES.includes(input.targetTable)) return err('Invalid target table.', 'validation');
 
@@ -815,11 +848,323 @@ export type AddCandidateInput = { ticker: string; provider_name?: string | null 
 
 const MAX_ADD_CANDIDATES = 1000;
 
+export type QuickAddTickerResult = {
+  ticker: string;
+  status: 'added' | 'already_exists' | 'not_found';
+  targetTable: TargetTable | null;
+  providerName: string | null;
+  enriched: boolean;
+  message: string;
+};
+
+/**
+ * One-click path: lookup → insert into system table → mark candidate imported →
+ * kick off a targeted collect for quote/history. No separate Scan / Import steps.
+ */
+export async function quickAddAndImportTickerAction(
+  accessToken: string,
+  input: { ticker: string; targetTable?: TargetTable }
+): Promise<ActionResult<QuickAddTickerResult>> {
+  return withAdmin<QuickAddTickerResult>(accessToken, async (ctx) => {
+    invalidateTickerCandidateStatsCache();
+    const ticker = normalizeCandidateTicker(input.ticker);
+    if (!ticker) return err('Enter a valid ticker symbol (e.g. SPCX).', 'validation');
+
+    const targetOverride =
+      input.targetTable && TARGET_TABLES.includes(input.targetTable) ? input.targetTable : null;
+    const targetTable = targetOverride ?? autoAssignTargetTable(ticker);
+
+    const admin = getAdminSupabase();
+
+    // Already live in a system table?
+    for (const table of TARGET_TABLES) {
+      const { data } = await admin.from(table).select('ticker').eq('ticker', ticker).maybeSingle();
+      if (data) {
+        return ok({
+          ticker,
+          status: 'already_exists',
+          targetTable: table,
+          providerName: null,
+          enriched: false,
+          message: `${ticker} is already in ${table}.`,
+        });
+      }
+    }
+
+    // Preferred provider + key
+    const { data: cfg } = await admin.from('admin_api_config').select('preferred_provider').eq('id', 1).maybeSingle();
+    const provider =
+      typeof cfg?.preferred_provider === 'string' && cfg.preferred_provider.trim()
+        ? cfg.preferred_provider.trim().toLowerCase()
+        : 'finnhub';
+
+    let apiKey = '';
+    if (provider !== 'yahoo') {
+      const { data: keyRow, error: keyErr } = await admin
+        .from('api_keys')
+        .select('key_ciphertext, key_iv, key_auth_tag')
+        .eq('provider', provider)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (keyErr) return err('Failed to read API key.', 'db_error');
+      if (!keyRow) {
+        return err(`No active API key for "${provider}". Add one in API Settings.`, 'config');
+      }
+      try {
+        apiKey = decrypt({
+          ciphertext: fromByteaHex((keyRow as Record<string, unknown>).key_ciphertext),
+          iv: fromByteaHex((keyRow as Record<string, unknown>).key_iv),
+          authTag: fromByteaHex((keyRow as Record<string, unknown>).key_auth_tag),
+        });
+      } catch (e) {
+        return err(`Failed to decrypt API key: ${(e as Error).message}`, 'crypto_error');
+      }
+    }
+
+    let hit: ProviderSymbolHit | null = null;
+    try {
+      hit = await lookupExactSymbol(provider, apiKey, ticker);
+    } catch (e) {
+      return err(`Provider lookup failed: ${(e as Error).message}`, 'provider_error');
+    }
+    if (!hit) {
+      return ok({
+        ticker,
+        status: 'not_found',
+        targetTable: null,
+        providerName: null,
+        enriched: false,
+        message: `${ticker} was not found with ${provider}. Check the symbol or try another provider.`,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const providerName = hit.description ?? ticker;
+
+    // Insert into system table
+    const insertPayload = buildInsertPayload(
+      {
+        id: '',
+        ticker,
+        provider_name: providerName,
+        provider_type: hit.type,
+        provider_mic: hit.exchange,
+        provider_status: 'found',
+        is_in_system: false,
+        existing_table: null,
+        import_status: 'pending',
+        import_target_table: targetTable,
+        notes: null,
+        scanned_at: now,
+        imported_at: null,
+        imported_by: null,
+        created_at: now,
+        updated_at: now,
+      },
+      targetTable,
+      true,
+    );
+    const { error: insertErr } = await admin.from(targetTable).insert(insertPayload);
+    if (insertErr) {
+      if ((insertErr.message ?? '').toLowerCase().includes('unique') || insertErr.code === '23505') {
+        return ok({
+          ticker,
+          status: 'already_exists',
+          targetTable,
+          providerName,
+          enriched: false,
+          message: `${ticker} already exists in ${targetTable}.`,
+        });
+      }
+      return err(`Failed to add ${ticker}: ${insertErr.message}`, 'db_error');
+    }
+
+    // Upsert candidate row as imported (so the list stays consistent)
+    const { data: existingCand } = await admin
+      .from('ticker_import_candidates')
+      .select('id')
+      .eq('ticker', ticker)
+      .maybeSingle();
+
+    const candPayload = {
+      ticker,
+      provider_name: providerName,
+      provider_type: hit.type,
+      provider_mic: hit.exchange,
+      provider_status: 'found' as const,
+      is_in_system: true,
+      existing_table: targetTable,
+      import_status: 'imported' as const,
+      import_target_table: targetTable,
+      notes: null,
+      scanned_at: now,
+      scanned_by: ctx.email,
+      imported_at: now,
+      imported_by: ctx.email,
+      updated_at: now,
+    };
+
+    if (existingCand?.id) {
+      await admin.from('ticker_import_candidates').update(candPayload).eq('id', existingCand.id);
+    } else {
+      await admin.from('ticker_import_candidates').insert(candPayload);
+    }
+
+    // Best-effort quote/history enrichment (single-ticker collect)
+    let enriched = false;
+    const edgeSecret = process.env.EDGE_FN_SECRET;
+    if (edgeSecret) {
+      try {
+        const { data: startedLog } = await admin
+          .from('api_health_log')
+          .insert({
+            provider,
+            status: 'partial',
+            error_message: `__progress__${JSON.stringify({
+              type: 'progress',
+              mode: 'collect',
+              phase: 'quick-add',
+              done: 0,
+              total: 1,
+              percent: 0,
+              heartbeat_at: Date.now(),
+            })}`,
+            triggered_by: ctx.email,
+            duration_ms: null,
+            tickers_updated: 0,
+            tickers_failed: 0,
+          })
+          .select('id')
+          .single();
+
+        void admin.functions.invoke('collect-stock-data', {
+          body: {
+            triggered_by: ctx.email,
+            preferred_provider: provider,
+            target_tickers: [ticker],
+            run_log_id: startedLog ? Number((startedLog as { id: number }).id) : undefined,
+          },
+          headers: { 'x-edge-secret': edgeSecret },
+        });
+        enriched = true;
+      } catch {
+        enriched = false;
+      }
+    }
+
+    return ok({
+      ticker,
+      status: 'added',
+      targetTable,
+      providerName,
+      enriched,
+      message: enriched
+        ? `${ticker} added to ${targetTable}. Fetching quote & history…`
+        : `${ticker} added to ${targetTable}. Run Update Tickers later to refresh quote data.`,
+    });
+  });
+}
+
+/** Exact-symbol lookup via provider search (fast — no full-universe catalog download). */
+async function lookupExactSymbol(
+  provider: string,
+  apiKey: string,
+  ticker: string,
+): Promise<ProviderSymbolHit | null> {
+  const TIMEOUT_MS = 15_000;
+  const q = ticker;
+
+  if (provider === 'finnhub') {
+    const url = `https://finnhub.io/api/v1/search?q=${encodeURIComponent(q)}&exchange=US&token=${encodeURIComponent(apiKey)}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!r.ok) throw new Error(`Finnhub HTTP ${r.status}`);
+    const j = (await r.json()) as {
+      result?: Array<{ symbol?: string; description?: string; type?: string }>;
+    };
+    const exact = (j.result ?? []).find((row) => normalizeCandidateTicker(row.symbol ?? '') === ticker);
+    if (!exact) return null;
+    return {
+      symbol: ticker,
+      description: exact.description?.trim() || null,
+      type: exact.type?.trim() || null,
+      exchange: 'US',
+    };
+  }
+
+  if (provider === 'twelve_data') {
+    const url = `https://api.twelvedata.com/symbol_search?symbol=${encodeURIComponent(q)}&outputsize=20&apikey=${encodeURIComponent(apiKey)}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!r.ok) throw new Error(`Twelve Data HTTP ${r.status}`);
+    const j = (await r.json()) as {
+      data?: Array<{ symbol?: string; instrument_name?: string; instrument_type?: string; exchange?: string; country?: string }>;
+    };
+    const exact = (j.data ?? []).find((row) => {
+      const sym = normalizeCandidateTicker(row.symbol ?? '');
+      if (sym !== ticker) return false;
+      const ctry = String(row.country ?? '').toLowerCase();
+      return !ctry || ctry === 'united states';
+    });
+    if (!exact) return null;
+    return {
+      symbol: ticker,
+      description: exact.instrument_name?.trim() || null,
+      type: exact.instrument_type?.trim() || null,
+      exchange: exact.exchange?.trim() || null,
+    };
+  }
+
+  if (provider === 'yahoo') {
+    const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=12&newsCount=0`;
+    const r = await fetch(url, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+    });
+    if (!r.ok) throw new Error(`Yahoo HTTP ${r.status}`);
+    const j = (await r.json()) as {
+      quotes?: Array<{ symbol?: string; shortname?: string; longname?: string; quoteType?: string; exchange?: string }>;
+    };
+    const exact = (j.quotes ?? []).find((row) => normalizeCandidateTicker(row.symbol ?? '') === ticker);
+    if (!exact) return null;
+    return {
+      symbol: ticker,
+      description: exact.longname?.trim() || exact.shortname?.trim() || null,
+      type: exact.quoteType?.trim() || null,
+      exchange: exact.exchange?.trim() || null,
+    };
+  }
+
+  if (provider === 'fmp') {
+    const url = `https://financialmodelingprep.com/stable/search-symbol?query=${encodeURIComponent(q)}&apikey=${encodeURIComponent(apiKey)}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!r.ok) throw new Error(`FMP HTTP ${r.status}`);
+    const rows = normalizeToObjectArray(await r.json());
+    const exact = rows.find((row) => normalizeCandidateTicker(String(row.symbol ?? '')) === ticker);
+    if (!exact) return null;
+    return {
+      symbol: ticker,
+      description: typeof exact.name === 'string' ? exact.name.trim() : null,
+      type: typeof exact.type === 'string' ? exact.type.trim() : null,
+      exchange:
+        typeof exact.stockExchange === 'string'
+          ? exact.stockExchange.trim()
+          : typeof exact.exchange === 'string'
+            ? exact.exchange.trim()
+            : null,
+    };
+  }
+
+  throw new Error(`Symbol lookup is not supported for "${provider}".`);
+}
+
 export async function addTickerCandidatesAction(
   accessToken: string,
   input: { rows: AddCandidateInput[] }
 ): Promise<ActionResult<{ added: number; skipped: number }>> {
   return withAdmin(accessToken, async () => {
+    invalidateTickerCandidateStatsCache();
     const rawRows = Array.isArray(input.rows) ? input.rows : [];
     if (rawRows.length === 0) return err('Nothing to add.', 'validation');
 
@@ -885,6 +1230,7 @@ export async function deleteTickerCandidatesAction(
   input: { ids: string[] }
 ): Promise<ActionResult<{ deleted_candidates: number; deleted_from_system: number }>> {
   return withAdmin(accessToken, async () => {
+    invalidateTickerCandidateStatsCache();
     if (!Array.isArray(input.ids) || input.ids.length === 0) return err('No ids provided.', 'validation');
     if (input.ids.length > 500) return err('Too many rows in one request.', 'validation');
     const admin = getAdminSupabase();

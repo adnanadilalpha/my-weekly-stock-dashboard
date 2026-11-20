@@ -1,21 +1,45 @@
 'use client';
 
-import { Bell, Shield, User } from 'lucide-react';
+import { Smartphone, Shield, User } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import {
   getProfileSettingsAction,
   saveProfileSettingsAction,
   type AdminPreferences,
 } from '../../_actions/settings-profile';
+import {
+  getStoreReviewSettingsAction,
+  setStoreReviewLoginEnabledAction,
+  type StoreReviewSettings,
+} from '../../_actions/users';
 import { useAdmin } from '../../_lib/admin-context';
-
-const FIELD_STYLE =
-  'block h-10 w-full max-w-md rounded-lg border border-input bg-input-background px-3 text-sm text-foreground shadow-sm outline-none ring-offset-background transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30 dark:scheme-dark';
+import {
+  AdminAlert,
+  AdminOutlineButton,
+  AdminPrimaryButton,
+  adminField,
+  adminPageStack,
+  adminSurface,
+  adminSurfacePad,
+} from '../ui/admin-ui';
 
 function formatRoleLabel(role: string): string {
   if (role === 'Admin') return 'Administrator';
   if (role === 'User') return 'User';
   return role || '—';
+}
+
+function formatDate(iso: string | null) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
 }
 
 export default function SettingsProfilePage() {
@@ -26,9 +50,13 @@ export default function SettingsProfilePage() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [weeklySummary, setWeeklySummary] = useState(true);
-  const [systemUpdates, setSystemUpdates] = useState(true);
+  const [preferences, setPreferences] = useState<AdminPreferences>({
+    email_alerts: true,
+    weekly_summary: true,
+    system_updates: true,
+  });
+  const [storeReview, setStoreReview] = useState<StoreReviewSettings | null>(null);
+  const [storeReviewBusy, setStoreReviewBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +67,10 @@ export default function SettingsProfilePage() {
     setError(null);
     try {
       const token = await getAccessToken();
-      const res = await getProfileSettingsAction(token);
+      const [res, reviewRes] = await Promise.all([
+        getProfileSettingsAction(token),
+        getStoreReviewSettingsAction(token),
+      ]);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -47,9 +78,8 @@ export default function SettingsProfilePage() {
       setFullName(res.data.fullName);
       setEmail(res.data.email);
       setRole(res.data.role);
-      setEmailAlerts(res.data.preferences.email_alerts);
-      setWeeklySummary(res.data.preferences.weekly_summary);
-      setSystemUpdates(res.data.preferences.system_updates);
+      setPreferences(res.data.preferences);
+      if (reviewRes.ok) setStoreReview(reviewRes.data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
@@ -57,27 +87,42 @@ export default function SettingsProfilePage() {
     }
   }, [getAccessToken]);
 
+  const toggleStoreReview = useCallback(async () => {
+    if (!storeReview || storeReviewBusy) return;
+    setStoreReviewBusy(true);
+    setError(null);
+    setFlash(null);
+    try {
+      const token = await getAccessToken();
+      const res = await setStoreReviewLoginEnabledAction(token, !storeReview.enabled);
+      if (res.ok) {
+        setStoreReview(res.data);
+        setFlash(
+          res.data.enabled
+            ? 'Store review sign-in enabled.'
+            : 'Store review sign-in disabled.'
+        );
+      } else {
+        setError(res.error);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update store review setting.');
+    } finally {
+      setStoreReviewBusy(false);
+    }
+  }, [getAccessToken, storeReview, storeReviewBusy]);
+
   useEffect(() => {
     void load();
   }, [load]);
 
   const save = useCallback(
-    async (opts?: {
-      includePassword?: boolean;
-      preferencesPayload?: AdminPreferences;
-    }) => {
+    async (opts?: { includePassword?: boolean }) => {
       if (loading) return;
       setSaving(true);
       setError(null);
       setFlash(null);
       try {
-        const preferences: AdminPreferences =
-          opts?.preferencesPayload ?? {
-            email_alerts: emailAlerts,
-            weekly_summary: weeklySummary,
-            system_updates: systemUpdates,
-          };
-
         if (opts?.includePassword) {
           if (!newPassword.trim()) {
             setError('Enter a new password.');
@@ -108,9 +153,7 @@ export default function SettingsProfilePage() {
         setFullName(res.data.fullName);
         setEmail(res.data.email);
         setRole(res.data.role);
-        setEmailAlerts(res.data.preferences.email_alerts);
-        setWeeklySummary(res.data.preferences.weekly_summary);
-        setSystemUpdates(res.data.preferences.system_updates);
+        setPreferences(res.data.preferences);
         if (opts?.includePassword) {
           setCurrentPassword('');
           setNewPassword('');
@@ -128,88 +171,75 @@ export default function SettingsProfilePage() {
       getAccessToken,
       fullName,
       email,
-      emailAlerts,
-      weeklySummary,
-      systemUpdates,
+      preferences,
       newPassword,
       confirmNewPassword,
       currentPassword,
     ]
   );
 
-  const saveProfile = () => void save();
-
-  const savePassword = () => void save({ includePassword: true });
-
   return (
-    <div className="flex w-full min-w-0 flex-col gap-6">
+    <div className={adminPageStack}>
       <p className="max-w-2xl text-sm text-muted-foreground">
-        Manage your account settings and preferences.
+        Account, security, and review access.
       </p>
-      {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
-      )}
-      {flash && (
-        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-100">
-          {flash}
-        </div>
-      )}
+      {error && <AdminAlert>{error}</AdminAlert>}
+      {flash && <AdminAlert tone="success">{flash}</AdminAlert>}
 
-      <div className="flex min-w-0 flex-col gap-6">
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-6 py-4">
-            <User size={16} className="text-emerald-700 dark:text-emerald-400" />
-            <h3 className="text-lg font-semibold tracking-tight text-foreground">Profile Settings</h3>
+      <div className="flex min-w-0 flex-col gap-5 sm:gap-6">
+        <section className={`${adminSurface} min-w-0`}>
+          <div className="flex items-center gap-2.5 border-b border-black/6 px-5 py-4 sm:px-6">
+            <div className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <User size={15} strokeWidth={1.75} />
+            </div>
+            <h3 className="text-[15px] font-semibold tracking-tight text-foreground">Profile</h3>
           </div>
-          <div className="space-y-6 p-6">
+          <div className={`space-y-5 ${adminSurfacePad}`}>
             <label className="block space-y-2">
-              <span className="block text-sm font-semibold leading-none text-foreground">Full Name</span>
+              <span className="block text-sm font-medium text-foreground">Full name</span>
               <input
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 disabled={loading || saving}
                 autoComplete="name"
-                className={FIELD_STYLE}
+                className={`${adminField} max-w-md`}
               />
             </label>
             <label className="block space-y-2">
-              <span className="block text-sm font-semibold leading-none text-foreground">Email Address</span>
+              <span className="block text-sm font-medium text-foreground">Email</span>
               <input
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading || saving}
                 autoComplete="email"
                 type="email"
-                className={FIELD_STYLE}
+                className={`${adminField} max-w-md`}
               />
             </label>
             <div className="space-y-2">
-              <span className="block text-sm font-semibold leading-none text-foreground">Role</span>
-              <div className="inline-flex rounded-md border border-border bg-muted px-3 py-1 text-sm text-muted-foreground">
+              <span className="block text-sm font-medium text-foreground">Role</span>
+              <div className="inline-flex rounded-full border border-black/8 bg-muted/50 px-3 py-1 text-sm text-muted-foreground">
                 {formatRoleLabel(role)}
               </div>
             </div>
             <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                onClick={saveProfile}
-                disabled={loading || saving}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
+              <AdminPrimaryButton onClick={() => void save()} disabled={loading || saving}>
                 {saving ? 'Saving…' : 'Save profile'}
-              </button>
+              </AdminPrimaryButton>
             </div>
           </div>
         </section>
 
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-6 py-4">
-            <Shield size={16} className="text-emerald-700 dark:text-emerald-400" />
-            <h3 className="text-lg font-semibold tracking-tight text-foreground">Security</h3>
+        <section className={`${adminSurface} min-w-0`}>
+          <div className="flex items-center gap-2.5 border-b border-black/6 px-5 py-4 sm:px-6">
+            <div className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Shield size={15} strokeWidth={1.75} />
+            </div>
+            <h3 className="text-[15px] font-semibold tracking-tight text-foreground">Security</h3>
           </div>
-          <div className="space-y-6 p-6">
+          <div className={`space-y-5 ${adminSurfacePad}`}>
             <label className="block space-y-2">
-              <span className="block text-sm font-semibold leading-none text-foreground">Current Password</span>
+              <span className="block text-sm font-medium text-foreground">Current password</span>
               <input
                 type="password"
                 value={currentPassword}
@@ -217,11 +247,11 @@ export default function SettingsProfilePage() {
                 placeholder="Required to change password"
                 disabled={loading || saving}
                 autoComplete="current-password"
-                className={FIELD_STYLE}
+                className={`${adminField} max-w-md`}
               />
             </label>
             <label className="block space-y-2">
-              <span className="block text-sm font-semibold leading-none text-foreground">New Password</span>
+              <span className="block text-sm font-medium text-foreground">New password</span>
               <input
                 type="password"
                 value={newPassword}
@@ -229,11 +259,11 @@ export default function SettingsProfilePage() {
                 placeholder="At least 8 characters"
                 disabled={loading || saving}
                 autoComplete="new-password"
-                className={FIELD_STYLE}
+                className={`${adminField} max-w-md`}
               />
             </label>
             <label className="block space-y-2">
-              <span className="block text-sm font-semibold leading-none text-foreground">Confirm New Password</span>
+              <span className="block text-sm font-medium text-foreground">Confirm new password</span>
               <input
                 type="password"
                 value={confirmNewPassword}
@@ -241,106 +271,68 @@ export default function SettingsProfilePage() {
                 placeholder="Re-enter new password"
                 disabled={loading || saving}
                 autoComplete="new-password"
-                className={FIELD_STYLE}
+                className={`${adminField} max-w-md`}
               />
             </label>
-            <button
-              type="button"
-              onClick={savePassword}
-              disabled={loading || saving}
-              className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-            >
+            <AdminOutlineButton onClick={() => void save({ includePassword: true })} disabled={loading || saving}>
               {saving ? 'Updating…' : 'Update password'}
-            </button>
+            </AdminOutlineButton>
           </div>
         </section>
 
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-6 py-4">
-            <Bell size={16} className="text-emerald-700 dark:text-emerald-400" />
-            <h3 className="text-lg font-semibold tracking-tight text-foreground">Notifications</h3>
+        <section className={`${adminSurface} min-w-0`}>
+          <div className="flex items-center gap-2.5 border-b border-black/6 px-5 py-4 sm:px-6">
+            <div className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Smartphone size={15} strokeWidth={1.75} />
+            </div>
+            <h3 className="text-[15px] font-semibold tracking-tight text-foreground">Store review</h3>
           </div>
-          <div className="space-y-4 p-6">
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Email Alerts</p>
-                <p className="text-xs text-muted-foreground">
-                  In-app feed for sign-ins, new allowlist users, and pipeline events (email delivery can use this flag
-                  later).
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !emailAlerts;
-                  setEmailAlerts(next);
-                  void save({
-                    preferencesPayload: {
-                      email_alerts: next,
-                      weekly_summary: weeklySummary,
-                      system_updates: systemUpdates,
-                    },
-                  });
-                }}
-                disabled={loading || saving}
-                className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${emailAlerts ? 'border-emerald-500/30 bg-emerald-500' : 'border-border bg-muted'}`}
-              >
-                <span
-                  className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${emailAlerts ? 'left-6' : 'left-1'}`}
-                />
-              </button>
-            </div>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground">Weekly Summary</p>
-                <p className="text-xs text-muted-foreground">Get weekly admin activity summary</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !weeklySummary;
-                  setWeeklySummary(next);
-                  void save({
-                    preferencesPayload: {
-                      email_alerts: emailAlerts,
-                      weekly_summary: next,
-                      system_updates: systemUpdates,
-                    },
-                  });
-                }}
-                disabled={loading || saving}
-                className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${weeklySummary ? 'border-emerald-500/30 bg-emerald-500' : 'border-border bg-muted'}`}
-              >
-                <span
-                  className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${weeklySummary ? 'left-6' : 'left-1'}`}
-                />
-              </button>
-            </div>
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground">System Updates</p>
-                <p className="text-xs text-muted-foreground">Notify me when major updates are released</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !systemUpdates;
-                  setSystemUpdates(next);
-                  void save({
-                    preferencesPayload: {
-                      email_alerts: emailAlerts,
-                      weekly_summary: weeklySummary,
-                      system_updates: next,
-                    },
-                  });
-                }}
-                disabled={loading || saving}
-                className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${systemUpdates ? 'border-emerald-500/30 bg-emerald-500' : 'border-border bg-muted'}`}
-              >
-                <span
-                  className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${systemUpdates ? 'left-6' : 'left-1'}`}
-                />
-              </button>
+          <div className={`space-y-4 ${adminSurfacePad}`}>
+            <p className="max-w-2xl text-sm text-muted-foreground">
+              Instant mobile login for Apple / Google review accounts. Turn off after review so those emails
+              cannot bypass the allowlist.
+            </p>
+            <ul className="space-y-0.5 text-xs text-muted-foreground">
+              {(storeReview?.emails ?? [
+                'weeklystockapple@icloud.com',
+                'weeklystockgoogle@gmail.com',
+              ]).map((addr) => (
+                <li key={addr} className="font-mono">
+                  {addr}
+                </li>
+              ))}
+            </ul>
+            {storeReview?.updatedAt && (
+              <p className="text-[11px] text-muted-foreground">
+                Last changed {formatDate(storeReview.updatedAt)}
+                {storeReview.updatedBy ? ` · ${storeReview.updatedBy}` : ''}
+              </p>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              {storeReview?.enabled ? (
+                <AdminPrimaryButton
+                  role="switch"
+                  aria-checked
+                  disabled={storeReviewBusy || loading || storeReview == null}
+                  onClick={() => void toggleStoreReview()}
+                >
+                  {storeReviewBusy ? 'Saving…' : 'Enabled — tap to turn off'}
+                </AdminPrimaryButton>
+              ) : (
+                <AdminOutlineButton
+                  role="switch"
+                  aria-checked={false}
+                  disabled={storeReviewBusy || loading || storeReview == null}
+                  onClick={() => void toggleStoreReview()}
+                >
+                  {storeReviewBusy ? 'Saving…' : 'Disabled — tap to turn on'}
+                </AdminOutlineButton>
+              )}
+              <p className="text-xs text-muted-foreground sm:text-right">
+                {storeReview?.enabled
+                  ? 'Reviewers can sign in instantly on mobile'
+                  : 'Review emails require allowlist + magic link'}
+              </p>
             </div>
           </div>
         </section>

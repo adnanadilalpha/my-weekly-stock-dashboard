@@ -6,23 +6,39 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Ellipsis,
   Filter,
+  Plus,
   RefreshCw,
-  Search,
   Trash2,
-  UserPlus,
   XCircle,
   Activity,
   DownloadCloud,
+  FileSpreadsheet,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AdminAlert,
+  AdminGhostButton,
+  AdminOutlineButton,
+  AdminPageHeader,
+  AdminSearchInput,
+  adminField,
+  adminPageStack,
+  adminSelect,
+  adminSurface,
+  adminSurfacePad,
+  adminTh,
+} from '../ui/admin-ui';
 import { useDebouncedValue } from '../../_lib/use-debounced-value';
+import { tickerMatchesSearchQuery } from '@/lib/queries/ticker';
 import {
   bulkImportTickerCandidatesAction,
   deleteTickerCandidatesAction,
   getTickerCandidateStatsAction,
   importTickerCandidateAction,
   listTickerCandidatesAction,
+  quickAddAndImportTickerAction,
   scanTickerCandidatesAction,
   skipTickerCandidateAction,
   type CandidateImportStatus,
@@ -54,48 +70,6 @@ const TARGET_TABLE_LABELS: Record<TargetTable, string> = {
 const TARGET_TABLES: TargetTable[] = ['market_segments', 'sectors', 'mega_caps', 'other_stocks'];
 
 const PAGE_SIZE = 100;
-
-/** Accent under each KPI — aligned to meaning (not arbitrary rotation). */
-const STAT_ACCENT_BY_LABEL: Record<string, string> = {
-  'Total Tickers': 'bg-sky-500/85',
-  'Found by Provider': 'bg-emerald-500/85',
-  'Not Found': 'bg-rose-500/85',
-  'Already in System': 'bg-amber-500/85',
-  'Ready to Import': 'bg-violet-500/85',
-  'Imported': 'bg-teal-500/85',
-};
-
-/** Same field surface as shadcn `Input` — fixes native selects staying light in `.dark`. */
-const SELECT_FIELD =
-  'border border-input bg-input-background text-foreground shadow-sm outline-none ring-offset-background transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30 dark:scheme-dark';
-
-/** Native `title` on disabled buttons often does not show; overlay captures hover. */
-function HintDisabledWrap({
-  blocked,
-  hint,
-  children,
-}: {
-  blocked: boolean;
-  hint: string | null | undefined;
-  children: ReactElement;
-}) {
-  const hintStr = (hint ?? '').trim() || null;
-  const showOverlay = Boolean(blocked && hintStr);
-  const titleAttr = hintStr ?? undefined;
-  return (
-    <span className={showOverlay ? 'relative inline-flex [&>button]:pointer-events-none' : 'inline-flex'}>
-      {children}
-      {showOverlay && titleAttr ? (
-        <span
-          className="absolute inset-0 z-10 cursor-not-allowed rounded-md"
-          title={titleAttr}
-          role="presentation"
-          aria-hidden
-        />
-      ) : null}
-    </span>
-  );
-}
 
 function ProviderBadge({ status }: { status: CandidateProviderStatus }) {
   switch (status) {
@@ -140,7 +114,12 @@ function ImportBadge({ status }: { status: CandidateImportStatus }) {
   }
 }
 
-export default function TickerImportPage() {
+const TICKER_IMPORT_REALTIME = [
+  { schema: 'public', table: 'ticker_import_candidates' },
+  { schema: 'public', table: 'admin_api_config' },
+] as const;
+
+export default function TickerImportPage({ dataActive = true }: { dataActive?: boolean }) {
   const { getAccessToken } = useAdmin();
 
   const [rows, setRows] = useState<TickerCandidate[]>([]);
@@ -162,7 +141,10 @@ export default function TickerImportPage() {
   const [importFilter, setImportFilter] = useState<CandidateImportStatus | 'all'>('all');
   const [systemFilter, setSystemFilter] = useState<'all' | 'new' | 'existing'>('all');
   const [page, setPage] = useState(0);
-  const debouncedSearch = useDebouncedValue(search.trim(), 250);
+  const liveSearch = search.trim();
+  const debouncedSearch = useDebouncedValue(liveSearch, 150);
+  const isSearchPending = liveSearch !== debouncedSearch;
+  const searchBusy = isSearchPending || (loading && Boolean(liveSearch));
 
   // Selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -170,8 +152,16 @@ export default function TickerImportPage() {
   const [bulkActive, setBulkActive] = useState(true);
   const [importing, setImporting] = useState<string | null>(null);
   const [bulkImporting, setBulkImporting] = useState(false);
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   const [preferredProvider, setPreferredProvider] = useState<string | null>(null);
+  const [quickTicker, setQuickTicker] = useState('');
+  const [quickTarget, setQuickTarget] = useState<TargetTable>('other_stocks');
+  const [quickAdding, setQuickAdding] = useState(false);
+  const [quickAutoRoute, setQuickAutoRoute] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsWrapRef = useRef<HTMLDivElement>(null);
+  const quickInputRef = useRef<HTMLInputElement>(null);
 
   // Row-level import target
   const [rowTarget, setRowTarget] = useState<Record<string, TargetTable>>({});
@@ -187,37 +177,47 @@ export default function TickerImportPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const statsRef = useRef(stats);
+  statsRef.current = stats;
+  const preferredProviderRef = useRef(preferredProvider);
+  preferredProviderRef.current = preferredProvider;
+
+  const loadData = useCallback(async (opts?: { silent?: boolean; withStats?: boolean }) => {
+    const needStats = opts?.withStats === true || statsRef.current == null;
+    const needConfig = preferredProviderRef.current == null;
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const token = await getAccessToken();
       const inSystem = systemFilter === 'all' ? 'all' : systemFilter === 'existing';
+      const listPromise = listTickerCandidatesAction(token, {
+        provider_status: providerFilter,
+        import_status: importFilter,
+        in_system: inSystem,
+        search: debouncedSearch || undefined,
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      });
+      const statsPromise = needStats ? getTickerCandidateStatsAction(token) : null;
+      const cfgPromise = needConfig ? getAdminApiConfigAction(token) : null;
       const [listRes, statsRes, cfgRes] = await Promise.all([
-        listTickerCandidatesAction(token, {
-          provider_status: providerFilter,
-          import_status: importFilter,
-          in_system: inSystem,
-          search: debouncedSearch || undefined,
-          limit: PAGE_SIZE,
-          offset: page * PAGE_SIZE,
-        }),
-        getTickerCandidateStatsAction(token),
-        getAdminApiConfigAction(token),
+        listPromise,
+        statsPromise,
+        cfgPromise,
       ]);
       if (!listRes.ok) { setError(listRes.error); return; }
-      if (!statsRes.ok) { setError(statsRes.error); return; }
-      if (cfgRes.ok) {
+      if (statsRes && !statsRes.ok) { setError(statsRes.error); return; }
+      if (cfgRes?.ok) {
         setPreferredProvider(cfgRes.data.preferred_provider?.trim().toLowerCase() ?? 'finnhub');
       }
       setRows(listRes.data.rows);
       setTotalCount(listRes.data.total_count);
-      setStats(statsRes.data);
-      setSelected(new Set());
+      if (statsRes?.ok) setStats(statsRes.data);
+      if (!opts?.silent) setSelected(new Set());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [getAccessToken, providerFilter, importFilter, systemFilter, debouncedSearch, page]);
 
@@ -271,6 +271,22 @@ export default function TickerImportPage() {
       window.removeEventListener('scroll', recalcPos, true);
     };
   }, [filtersOpen]);
+
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      const el = toolsWrapRef.current;
+      if (!el) return;
+      const target = e.target instanceof Node ? e.target : null;
+      if (target && !el.contains(target)) setToolsOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+    };
+  }, [toolsOpen]);
 
   // Prompt delete confirmation — resolves which tickers are in system from current rows list
   const promptDelete = useCallback((ids: string[]) => {
@@ -327,23 +343,9 @@ export default function TickerImportPage() {
     runningAction !== null ||
     (edgeLiveProgress !== null && edgeLiveProgress.percent < 100);
 
-  const dataJobLockHint = useMemo(() => {
-    if (scanning) {
-      return 'A candidate scan is running. Wait for it to finish before starting update, import, or another scan.';
-    }
-    if (edgeLiveProgress && edgeLiveProgress.percent < 100) {
-      return edgeLiveProgress.mode === 'import'
-        ? 'Ticker import is already running (this page, another admin, or a queued batch). Wait until it finishes.'
-        : 'Ticker data collection is already running — including the hourly schedule, another admin, or a job you started. Wait until it finishes to avoid overlapping runs.';
-    }
-    if (runningAction) {
-      return 'A data job is starting or finishing. Please wait.';
-    }
-    return null;
-  }, [scanning, edgeLiveProgress, runningAction]);
-
-  // Realtime stream first, polling fallback second.
+  // Progress polling only while this page is visible — was flooding the action queue every 2.5s.
   useEffect(() => {
+    if (!dataActive) return;
     let disposed = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
@@ -363,7 +365,6 @@ export default function TickerImportPage() {
           .subscribe((status) => {
             if (status === 'SUBSCRIBED') {
               realtimeReadyRef.current = true;
-              void fetchLatestProgress();
             }
           });
       } catch {
@@ -386,7 +387,7 @@ export default function TickerImportPage() {
     pollRef.current = setInterval(() => {
       if (disposed) return;
       void tick();
-    }, 2500);
+    }, 5_000);
     return () => {
       disposed = true;
       if (pollRef.current) {
@@ -398,18 +399,16 @@ export default function TickerImportPage() {
       }
       realtimeReadyRef.current = false;
     };
-  }, [fetchLatestProgress, getAccessToken]);
+  }, [dataActive, fetchLatestProgress, getAccessToken]);
 
   useLiveAdminRefresh({
+    enabled: dataActive,
     channelName: 'admin-ticker-import-live',
     getAccessToken,
-    refresh: loadData,
-    pollingMs: 30_000,
-    throttleMs: 4_000,
-    realtime: [
-      { schema: 'public', table: 'ticker_import_candidates' },
-      { schema: 'public', table: 'admin_api_config' },
-    ],
+    refresh: () => void loadData({ silent: true, withStats: true }),
+    pollingMs: 60_000,
+    throttleMs: 8_000,
+    realtime: [...TICKER_IMPORT_REALTIME],
   });
 
   const handleUpdateTickers = async () => {
@@ -459,13 +458,6 @@ export default function TickerImportPage() {
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const scanLockHint = useMemo(() => {
-    if (preferredProvider === 'yahoo') {
-      return 'Yahoo Finance does not support scan. Change the preferred provider in API Settings.';
-    }
-    return dataJobLockHint;
-  }, [preferredProvider, dataJobLockHint]);
-
   const handleScan = async () => {
     if (dataJobBlocking) return;
     setScanning(true);
@@ -484,6 +476,49 @@ export default function TickerImportPage() {
       setError(e instanceof Error ? e.message : 'Scan failed.');
     } finally {
       setScanning(false);
+    }
+  };
+
+  const openQuickAdd = () => {
+    setQuickTicker('');
+    setQuickAutoRoute(true);
+    setQuickTarget('other_stocks');
+    setShowQuickAddModal(true);
+    requestAnimationFrame(() => quickInputRef.current?.focus());
+  };
+
+  const handleQuickAdd = async () => {
+    const sym = quickTicker.trim().toUpperCase();
+    if (!sym) {
+      setError('Enter a ticker symbol (e.g. SPCX).');
+      return;
+    }
+    setQuickAdding(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const token = await getAccessToken();
+      const res = await quickAddAndImportTickerAction(token, {
+        ticker: sym,
+        targetTable: quickAutoRoute ? undefined : quickTarget,
+      });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setSuccessMsg(res.data.message);
+      setQuickTicker('');
+      setShowQuickAddModal(false);
+      setSearch(res.data.ticker);
+      setProviderFilter('all');
+      setImportFilter('all');
+      setSystemFilter('all');
+      setPage(0);
+      await loadData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Quick add failed.');
+    } finally {
+      setQuickAdding(false);
     }
   };
 
@@ -539,9 +574,28 @@ export default function TickerImportPage() {
     }
   };
 
+  const visibleRows = useMemo(() => {
+    if (!liveSearch) return rows;
+    if (isSearchPending || loading) {
+      return rows.filter(
+        (r) =>
+          tickerMatchesSearchQuery(r.ticker, liveSearch) ||
+          tickerMatchesSearchQuery(r.provider_name ?? '', liveSearch)
+      );
+    }
+    return rows;
+  }, [rows, liveSearch, isSearchPending, loading]);
+
+  const searchHint =
+    liveSearch && !searchBusy
+      ? totalCount === 0
+        ? 'No matches'
+        : `${totalCount.toLocaleString()} match${totalCount === 1 ? '' : 'es'}`
+      : null;
+
   const allPageSelected = useMemo(
-    () => rows.length > 0 && rows.every((r) => selected.has(r.id)),
-    [rows, selected]
+    () => visibleRows.length > 0 && visibleRows.every((r) => selected.has(r.id)),
+    [visibleRows, selected]
   );
 
   // Count of selected tickers that are actually importable (not already in system)
@@ -561,13 +615,13 @@ export default function TickerImportPage() {
     if (allPageSelected) {
       setSelected((prev) => {
         const next = new Set(prev);
-        rows.forEach((r) => next.delete(r.id));
+        visibleRows.forEach((r) => next.delete(r.id));
         return next;
       });
     } else {
       setSelected((prev) => {
         const next = new Set(prev);
-        rows.forEach((r) => next.add(r.id));
+        visibleRows.forEach((r) => next.add(r.id));
         return next;
       });
     }
@@ -582,225 +636,169 @@ export default function TickerImportPage() {
     });
   };
 
-  const statCards = stats
-    ? [
-        { label: 'Total Tickers', value: stats.total },
-        { label: 'Found by Provider', value: stats.found },
-        { label: 'Not Found', value: stats.not_found },
-        { label: 'Already in System', value: stats.in_system },
-        { label: 'Ready to Import', value: stats.ready_to_import },
-        { label: 'Imported', value: stats.imported },
-      ]
-    : [];
-
   return (
-    <div className="flex w-full min-w-0 flex-col gap-6">
-      {/* Stats */}
-      <div className="grid min-w-0 grid-cols-2 gap-4 md:gap-6 lg:grid-cols-6">
-        {statCards.map((s) => (
-          <div
-            key={s.label}
-            className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6"
-          >
-            <div className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{stats ? s.value : '—'}</div>
-            <div className="mt-2 text-xs font-medium text-muted-foreground sm:text-sm">{s.label}</div>
-            <div
-              className={`mt-2 h-1 w-10 rounded-full ${STAT_ACCENT_BY_LABEL[s.label] ?? 'bg-muted-foreground/35'}`}
-              aria-hidden
-            />
-          </div>
-        ))}
-        {!stats &&
-          [1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm animate-pulse sm:p-6"
-            >
-              <div className="h-7 w-12 rounded bg-muted" />
-              <div className="mt-2 h-3 w-20 rounded bg-muted/70" />
-            </div>
-          ))}
-      </div>
-
-      {/* Data actions: Update Tickers + Import Tickers */}
-      <div className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-6">
-        <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="flex-1">
-            <h3 className="text-base font-semibold tracking-tight text-foreground">Data Collection</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              <strong>Update Tickers</strong> — refreshes all existing tickers in the 4 system tables, 40 per batch, self-chains until all are updated.<br />
-              <strong>Import Tickers</strong> — fetches full market data for candidates marked "Found" with a target table assigned, 12 per batch, self-chains until all imported.
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <HintDisabledWrap blocked={dataJobBlocking} hint={dataJobBlocking ? (dataJobLockHint ?? 'Please wait.') : null}>
-              <button
-                type="button"
-                disabled={dataJobBlocking}
-                onClick={() => void handleUpdateTickers()}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-              >
-                <Activity size={15} className={runningAction === 'update' ? 'animate-pulse' : ''} />
-                {runningAction === 'update' ? 'Updating…' : 'Update Tickers'}
-              </button>
-            </HintDisabledWrap>
-            <HintDisabledWrap blocked={dataJobBlocking} hint={dataJobBlocking ? (dataJobLockHint ?? 'Please wait.') : null}>
-              <button
-                type="button"
-                disabled={dataJobBlocking}
-                onClick={() => void handleImportCandidates()}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-60"
-              >
-                <DownloadCloud size={15} className={runningAction === 'import-candidates' ? 'animate-bounce' : ''} />
-                {runningAction === 'import-candidates' ? 'Importing…' : 'Import Tickers'}
-              </button>
-            </HintDisabledWrap>
-          </div>
-        </div>
-
-        {/* Inline progress — edge jobs from this session, cron, or another admin */}
-        {(runningAction || edgeLiveProgress) && (
-          <div className="mt-3 rounded-xl border border-primary/20 bg-primary/5 p-3 dark:border-primary/25 dark:bg-primary/10">
-            {edgeLiveProgress ? (
-              <>
-                <div className="mb-1.5 flex items-center justify-between text-xs font-semibold text-foreground">
-                  <span>
-                    {edgeLiveProgress.mode === 'import' ? 'Import in progress (overall queue)' : 'Update in progress'} — phase: {edgeLiveProgress.phase}
-                  </span>
-                  <span>{edgeLiveProgress.percent}%</span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-primary transition-all duration-500"
-                    style={{ width: `${Math.max(2, edgeLiveProgress.percent)}%` }}
-                  />
-                </div>
-                <div className="mt-1.5 flex flex-wrap gap-4 text-xs text-muted-foreground">
-                  <span>Progress: {edgeLiveProgress.done}/{edgeLiveProgress.total}</span>
-                  <span>Updated: {edgeLiveProgress.updated ?? 0}</span>
-                  <span>Imported: {edgeLiveProgress.imported ?? 0}</span>
-                  <span>Failed: {edgeLiveProgress.failed ?? 0}</span>
-                  <span>Elapsed: {Math.round((edgeLiveProgress.elapsedMs ?? 0) / 1000)}s</span>
-                </div>
-                {Array.isArray(edgeLiveProgress.recent_failures) && edgeLiveProgress.recent_failures.length > 0 ? (
-                  <div className="mt-2 rounded-md border border-border bg-card/80 p-2 backdrop-blur-sm">
-                    <p className="text-xs font-semibold text-foreground">Recent failures</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{edgeLiveProgress.recent_failures.join(' | ')}</p>
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-xs text-muted-foreground">Queued — waiting for progress…</p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Feedback messages */}
-      {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+    <div className={adminPageStack}>
+      {error && <AdminAlert tone="error">{error}</AdminAlert>}
       {successMsg && (
-        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-100">
+        <AdminAlert tone="success" onDismiss={() => setSuccessMsg(null)}>
           {successMsg}
-          <button
-            type="button"
-            onClick={() => setSuccessMsg(null)}
-            className="ml-3 font-medium text-emerald-800 underline underline-offset-2 hover:text-emerald-950 dark:text-emerald-200 dark:hover:text-emerald-50"
-          >
-            Dismiss
-          </button>
+        </AdminAlert>
+      )}
+
+      {(runningAction || edgeLiveProgress) && (
+        <div className={`${adminSurface} px-5 py-3`}>
+          {edgeLiveProgress ? (
+            <>
+              <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  {edgeLiveProgress.mode === 'import' ? 'Importing' : 'Updating'} · {edgeLiveProgress.phase}
+                </span>
+                <span>{edgeLiveProgress.percent}%</span>
+              </div>
+              <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary/70 transition-all duration-500"
+                  style={{ width: `${Math.max(2, edgeLiveProgress.percent)}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">Job queued…</p>
+          )}
         </div>
       )}
 
-      {/* Table card */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        {/* Header / filters */}
-        <div className="border-b border-border bg-muted/40 px-4 py-4 md:px-6 md:py-5">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold tracking-tight text-foreground">Ticker Candidates</h3>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {totalCount.toLocaleString()} tickers · page {page + 1} of {totalPages}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <HintDisabledWrap blocked={dataJobBlocking} hint={dataJobBlocking ? (dataJobLockHint ?? 'Please wait.') : null}>
-                <button
-                  type="button"
-                  disabled={dataJobBlocking}
-                  onClick={() => setShowAddModal(true)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground shadow-sm transition-colors hover:bg-secondary/80 disabled:opacity-50"
-                >
-                  <UserPlus size={15} />
-                  Add tickers
-                </button>
-              </HintDisabledWrap>
-              <HintDisabledWrap
-                blocked={dataJobBlocking || preferredProvider === 'yahoo'}
-                hint={
-                  dataJobBlocking || preferredProvider === 'yahoo'
-                    ? (scanLockHint ?? 'Scan unavailable.')
-                    : null
-                }
-              >
-                <button
-                  type="button"
-                  disabled={dataJobBlocking || preferredProvider === 'yahoo'}
-                  onClick={() => void handleScan()}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-                >
-                  <RefreshCw size={15} className={scanning ? 'animate-spin' : ''} />
-                  {scanning ? 'Scanning…' : 'Scan Tickers'}
-                </button>
-              </HintDisabledWrap>
-              <button
-                type="button"
-                onClick={() => void loadData()}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-              >
-                <Download size={15} />
-                Refresh
-              </button>
-            </div>
-          </div>
+      <div className={`min-h-0 min-w-0 flex-1 ${adminSurface}`}>
+        <div className={`${adminSurfacePad} border-b border-border/70`}>
+          <AdminPageHeader
+            title="Ticker List"
+            description={
+              stats
+                ? `${stats.in_system.toLocaleString()} in system${
+                    stats.ready_to_import > 0 ? ` · ${stats.ready_to_import} ready` : ''
+                  }${stats.pending_scan > 0 ? ` · ${stats.pending_scan} pending` : ''}`
+                : `${totalCount.toLocaleString()} candidates`
+            }
+            actions={
+              <>
+                <div ref={toolsWrapRef} className="relative">
+                  <AdminGhostButton
+                    icon={Ellipsis}
+                    aria-expanded={toolsOpen}
+                    aria-haspopup="menu"
+                    title="More tools"
+                    className="size-10 px-0"
+                    onClick={() => setToolsOpen((v) => !v)}
+                  />
+                  {toolsOpen && (
+                    <div
+                      role="menu"
+                      className="absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-border/80 bg-card py-1 shadow-lg"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={dataJobBlocking}
+                        onClick={() => {
+                          setToolsOpen(false);
+                          setShowBulkModal(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        <FileSpreadsheet size={15} className="text-muted-foreground" />
+                        Bulk add from file
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={dataJobBlocking || preferredProvider === 'yahoo'}
+                        onClick={() => {
+                          setToolsOpen(false);
+                          void handleScan();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        <RefreshCw size={15} className={`text-muted-foreground ${scanning ? 'animate-spin' : ''}`} />
+                        Scan candidates
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={dataJobBlocking}
+                        onClick={() => {
+                          setToolsOpen(false);
+                          void handleUpdateTickers();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        <Activity size={15} className="text-muted-foreground" />
+                        Update all tickers
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={dataJobBlocking}
+                        onClick={() => {
+                          setToolsOpen(false);
+                          void handleImportCandidates();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        <DownloadCloud size={15} className="text-muted-foreground" />
+                        Import found queue
+                      </button>
+                      <div className="my-1 border-t border-border/70" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setToolsOpen(false);
+                          void loadData();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted"
+                      >
+                        <Download size={15} className="text-muted-foreground" />
+                        Refresh list
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <AdminOutlineButton icon={Plus} onClick={openQuickAdd}>
+                  Add ticker
+                </AdminOutlineButton>
+              </>
+            }
+          />
 
-          {/* Search + Filters button row */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="relative w-full max-w-xs">
-              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search ticker…"
-                className="h-10 w-full rounded-lg border border-input bg-input-background py-2 pl-9 pr-3 text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30"
-              />
-            </div>
+          <div className="mt-5 flex items-start gap-2">
+            <AdminSearchInput
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search ticker…"
+              busy={searchBusy}
+              hint={searchHint}
+              onClear={() => setSearch('')}
+            />
 
-            {/* Filters button — same floating overlay pattern as TickerManagement */}
             <div ref={filtersWrapRef} className="relative shrink-0">
-              <button
+              <AdminGhostButton
                 ref={filtersBtnRef}
-                type="button"
-                onClick={() => setFiltersOpen((v) => !v)}
+                icon={Filter}
                 aria-expanded={filtersOpen}
                 aria-haspopup="true"
-                className={`inline-flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-medium shadow-sm transition-colors ${
+                onClick={() => setFiltersOpen((v) => !v)}
+                className={
                   filtersOpen || providerFilter !== 'all' || importFilter !== 'all' || systemFilter !== 'all'
-                    ? 'border-primary/50 bg-primary/5 text-primary dark:border-primary/40 dark:bg-primary/10'
-                    : 'border-border bg-card text-foreground hover:bg-muted/50'
-                }`}
+                    ? 'border-primary/35 text-primary'
+                    : ''
+                }
               >
-                <Filter size={14} />
-                Filters
                 {(providerFilter !== 'all' || importFilter !== 'all' || systemFilter !== 'all') && (
                   <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                     {[providerFilter !== 'all', importFilter !== 'all', systemFilter !== 'all'].filter(Boolean).length}
                   </span>
                 )}
-              </button>
+              </AdminGhostButton>
 
               {filtersOpen && (
                 <div
@@ -879,7 +877,7 @@ export default function TickerImportPage() {
                     <select
                       value={bulkTarget}
                       onChange={(e) => setBulkTarget(e.target.value as TargetTable)}
-                      className={`h-9 min-w-0 rounded-lg px-3 pr-9 text-sm ${SELECT_FIELD}`}
+                      className={`${adminSelect} h-9 min-w-0 pr-9`}
                     >
                       {TARGET_TABLES.map((t) => (
                         <option key={t} value={t}>{TARGET_TABLE_LABELS[t]}</option>
@@ -925,8 +923,8 @@ export default function TickerImportPage() {
         <div className="hidden min-w-0 overflow-x-auto md:block">
           <table className="w-full min-w-[900px] border-separate border-spacing-0">
             <thead>
-              <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-                <th className="w-10 border-b border-border bg-muted/50 px-4 py-3">
+              <tr>
+                <th className={`${adminTh} w-10`}>
                   <input
                     type="checkbox"
                     checked={allPageSelected}
@@ -934,32 +932,39 @@ export default function TickerImportPage() {
                     className="h-4 w-4 rounded border-border"
                   />
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">Ticker</th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">Provider Name</th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">Type</th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">Provider</th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">System</th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">Notes</th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">Import Status</th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3">Actions</th>
+                <th className={adminTh}>Ticker</th>
+                <th className={adminTh}>Provider Name</th>
+                <th className={adminTh}>Type</th>
+                <th className={adminTh}>Provider</th>
+                <th className={adminTh}>System</th>
+                <th className={adminTh}>Notes</th>
+                <th className={adminTh}>Import Status</th>
+                <th className={adminTh}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {loading && (
+              {loading && !liveSearch && rows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="border-b border-border px-4 py-8 text-sm text-muted-foreground">
                     Loading…
                   </td>
                 </tr>
               )}
-              {!loading && rows.length === 0 && (
+              {searchBusy && visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="border-b border-border px-4 py-8 text-sm text-muted-foreground">
-                    No candidates match the current filters.
+                    Searching…
                   </td>
                 </tr>
               )}
-              {rows.map((row) => {
+              {!searchBusy && !loading && visibleRows.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="border-b border-border px-4 py-8 text-sm text-muted-foreground">
+                    {liveSearch ? 'No matches.' : 'No candidates match the current filters.'}
+                  </td>
+                </tr>
+              )}
+              {visibleRows.map((row) => {
                 const isBusy = importing === row.id;
                 const target = rowTarget[row.id] ?? row.import_target_table ?? 'other_stocks';
                 const canImport =
@@ -1012,7 +1017,7 @@ export default function TickerImportPage() {
                             <select
                               value={target}
                               onChange={(e) => setRowTarget((prev) => ({ ...prev, [row.id]: e.target.value as TargetTable }))}
-                              className={`h-8 min-h-8 max-w-[11rem] rounded-lg px-2 pr-7 text-xs ${SELECT_FIELD}`}
+                              className={`${adminSelect} h-8 min-h-8 max-w-44 px-2 pr-7 text-xs`}
                             >
                               {TARGET_TABLES.map((t) => (
                                 <option key={t} value={t}>{TARGET_TABLE_LABELS[t]}</option>
@@ -1067,10 +1072,15 @@ export default function TickerImportPage() {
 
         {/* Mobile cards */}
         <div className="space-y-3 p-4 md:hidden">
-          {!loading && rows.length === 0 && (
-            <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">No candidates match.</div>
+          {searchBusy && visibleRows.length === 0 && (
+            <div className="rounded-xl border border-border/80 p-4 text-sm text-muted-foreground">Searching…</div>
           )}
-          {rows.map((row) => {
+          {!searchBusy && !loading && visibleRows.length === 0 && (
+            <div className="rounded-xl border border-border/80 p-4 text-sm text-muted-foreground">
+              {liveSearch ? 'No matches.' : 'No candidates match.'}
+            </div>
+          )}
+          {visibleRows.map((row) => {
             const target = rowTarget[row.id] ?? row.import_target_table ?? 'other_stocks';
             const canImport = row.provider_status === 'found' && !row.is_in_system && row.import_status === 'pending';
             return (
@@ -1110,7 +1120,7 @@ export default function TickerImportPage() {
                     <select
                       value={target}
                       onChange={(e) => setRowTarget((prev) => ({ ...prev, [row.id]: e.target.value as TargetTable }))}
-                      className={`min-h-0 min-w-0 flex-1 rounded-lg px-2 py-1 pr-7 text-xs ${SELECT_FIELD}`}
+                      className={`${adminSelect} min-h-0 min-w-0 flex-1 px-2 py-1 pr-7 text-xs`}
                     >
                       {TARGET_TABLES.map((t) => (
                         <option key={t} value={t}>{TARGET_TABLE_LABELS[t]}</option>
@@ -1149,7 +1159,7 @@ export default function TickerImportPage() {
         {/* Pagination */}
         <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm md:flex-row md:items-center md:justify-between md:px-6">
           <div className="text-muted-foreground">
-            Showing <span className="font-semibold text-foreground">{rows.length}</span> of{' '}
+            Showing <span className="font-semibold text-foreground">{visibleRows.length}</span> of{' '}
             <span className="font-semibold text-foreground">{totalCount.toLocaleString()}</span> results
             {selected.size > 0 && (
               <span className="ml-2 font-semibold text-primary">· {selected.size} selected</span>
@@ -1182,14 +1192,91 @@ export default function TickerImportPage() {
       </div>
 
       <TickerImportAddCandidatesModal
-        open={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        open={showBulkModal}
+        onClose={() => setShowBulkModal(false)}
         getAccessToken={getAccessToken}
         onAdded={(msg) => {
           setSuccessMsg(msg);
           void loadData();
         }}
       />
+
+      {showQuickAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => !quickAdding && setShowQuickAddModal(false)}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-border/80 bg-card p-6 shadow-xl">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">Add ticker</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Looks up the symbol, places it, and fetches market data.
+            </p>
+            <form
+              className="mt-5 space-y-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleQuickAdd();
+              }}
+            >
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Symbol</span>
+                <input
+                  ref={quickInputRef}
+                  value={quickTicker}
+                  onChange={(e) => setQuickTicker(e.target.value.toUpperCase())}
+                  placeholder="e.g. SPCX"
+                  maxLength={40}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={quickAdding}
+                  autoFocus
+                  className={`${adminField} font-medium tracking-wide`}
+                />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Table</span>
+                <select
+                  value={quickAutoRoute ? '__auto__' : quickTarget}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '__auto__') setQuickAutoRoute(true);
+                    else {
+                      setQuickAutoRoute(false);
+                      setQuickTarget(v as TargetTable);
+                    }
+                  }}
+                  disabled={quickAdding}
+                  className={adminSelect}
+                >
+                  <option value="__auto__">Auto table</option>
+                  {TARGET_TABLES.map((t) => (
+                    <option key={t} value={t}>
+                      {TARGET_TABLE_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex justify-end gap-2 pt-1">
+                <AdminGhostButton
+                  type="button"
+                  disabled={quickAdding}
+                  onClick={() => setShowQuickAddModal(false)}
+                >
+                  Cancel
+                </AdminGhostButton>
+                <AdminOutlineButton
+                  type="submit"
+                  icon={Plus}
+                  disabled={quickAdding || !quickTicker.trim()}
+                >
+                  {quickAdding ? 'Adding…' : 'Add'}
+                </AdminOutlineButton>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation modal */}
       {deleteConfirm && (

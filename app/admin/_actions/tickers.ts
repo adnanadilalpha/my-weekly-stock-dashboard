@@ -195,7 +195,13 @@ function applySort(q: any, sort: NonNullable<ListTickersInput['sort']>) {
     .order('ticker', { ascending: true });
 }
 
+let tickerStatsCache: { at: number; value: TickerStats } | null = null;
+const TICKER_STATS_TTL_MS = 30_000;
+
 async function aggregateTickerStats(admin: ReturnType<typeof getAdminSupabase>): Promise<TickerStats> {
+  if (tickerStatsCache && Date.now() - tickerStatsCache.at < TICKER_STATS_TTL_MS) {
+    return tickerStatsCache.value;
+  }
   const countPromises = TICKER_TABLES.map((t) => admin.from(t).select('id', { count: 'exact', head: true }));
   const inactivePromises = TICKER_TABLES.map((t) =>
     admin.from(t).select('id', { count: 'exact', head: true }).eq('is_active', false)
@@ -233,12 +239,19 @@ async function aggregateTickerStats(admin: ReturnType<typeof getAdminSupabase>):
       if (s) sectorSet.add(s.toLowerCase());
     }
   }
-  return {
+  const value: TickerStats = {
     total,
     active,
     inactive,
     sectors: sectorSet.size,
   };
+  tickerStatsCache = { at: Date.now(), value };
+  return value;
+}
+
+/** Call after mutations so KPI cards don't stay stale for the full TTL. */
+function invalidateTickerStatsCache() {
+  tickerStatsCache = null;
 }
 
 export async function listTickersAction(
@@ -347,6 +360,7 @@ export async function toggleTickerActiveAction(
   input: { source_table: TickerTable; id: string; active: boolean }
 ): Promise<ActionResult<{ id: string; active: boolean }>> {
   return withAdmin(accessToken, async () => {
+    invalidateTickerStatsCache();
     if (!TICKER_TABLES.includes(input.source_table)) return err('Invalid ticker table.', 'validation');
     if (typeof input.id !== 'string' || input.id.length < 10) return err('Invalid ticker id.', 'validation');
     if (typeof input.active !== 'boolean') return err('Invalid active flag.', 'validation');
@@ -383,6 +397,7 @@ export async function deleteTickerAction(
 
     const { error } = await admin.from(input.source_table).delete().eq('id', input.id);
     if (error) return err('Failed to delete ticker.', 'db_error');
+    invalidateTickerStatsCache();
 
     // Also remove from import candidates if present (ignore errors — best effort)
     await admin
@@ -399,6 +414,7 @@ export async function bulkDeleteTickersAction(
   input: { rows: { source_table: TickerTable; id: string }[] }
 ): Promise<ActionResult<{ deleted: number }>> {
   return withAdmin(accessToken, async () => {
+    invalidateTickerStatsCache();
     if (!Array.isArray(input?.rows) || input.rows.length === 0) return err('No rows provided.', 'validation');
     if (input.rows.length > 500) return err('Too many rows in one request.', 'validation');
     const admin = getAdminSupabase();

@@ -3,11 +3,11 @@
 import {
   Activity,
   Bell,
+  Briefcase,
   Database,
-  DownloadCloud,
   LayoutDashboard,
   LogOut,
-  Settings,
+  Settings2,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -23,6 +23,9 @@ interface AdminSidebarProps {
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }
+
+type NavItem = { id: AdminPageKey; label: string; icon: LucideIcon };
+type NavGroup = { label: string; items: NavItem[] };
 
 export default function AdminSidebar({
   currentPage,
@@ -58,92 +61,128 @@ export default function AdminSidebar({
     };
   }, [getAccessToken, currentPage]);
 
-  const navItems: { id: AdminPageKey; label: string; icon: LucideIcon }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'ticker-management', label: 'Ticker Management', icon: Database },
-    { id: 'ticker-import', label: 'Ticker Import', icon: DownloadCloud },
-    { id: 'formula-manager', label: 'Formula Manager', icon: Activity },
-    { id: 'api-settings', label: 'API & Data', icon: Settings },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
+  const groups: NavGroup[] = [
+    {
+      label: 'Overview',
+      items: [
+        { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'portfolio', label: 'Portfolio', icon: Briefcase },
+      ],
+    },
+    {
+      label: 'Market',
+      items: [
+        { id: 'ticker-management', label: 'Tickers', icon: Database },
+        { id: 'formula-manager', label: 'Formulas', icon: Activity },
+        { id: 'api-settings', label: 'API & Data', icon: Settings2 },
+      ],
+    },
+    {
+      label: 'Access',
+      items: [{ id: 'users', label: 'Users', icon: Users }],
+    },
   ];
 
   return (
     <>
       {mobileOpen && (
         <button
-          className="fixed inset-0 z-30 bg-black/40 md:hidden"
+          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px] md:hidden"
           onClick={onCloseMobile}
           aria-label="Close admin menu overlay"
         />
       )}
       <aside
-        className={`admin-navy fixed inset-y-0 left-0 z-40 flex h-full w-56 flex-col transition-transform md:static md:translate-x-0 ${
+        className={`admin-navy fixed inset-y-0 left-0 z-40 flex h-full w-60 flex-col transition-transform duration-300 ease-out md:static md:translate-x-0 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Header with logo */}
-        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-white/10 px-4 md:px-6">
-          <MwsLogo variant="mark" onLight={false} className="h-8 w-8 rounded-lg" />
-          <span className="text-base font-semibold text-white">MWS Admin</span>
+        <div className="flex h-16 shrink-0 items-center gap-3 px-5">
+          <MwsLogo variant="mark" onLight={false} className="h-8 w-8 rounded-[10px] shadow-sm" />
+          <div className="min-w-0 leading-tight">
+            <div className="truncate text-[15px] font-semibold tracking-tight text-white">MWS</div>
+            <div className="truncate text-[11px] font-medium text-white/40">Admin</div>
+          </div>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 space-y-2 px-4 pt-4">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = currentPage === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => onNavigate(item.id)}
-                className={`relative flex h-10 w-full items-center gap-3 rounded-md px-3 text-left transition-colors ${
-                  isActive
-                    ? 'bg-[#15803d]/15 text-white'
-                    : 'text-white/70 hover:bg-white/5 hover:text-white'
-                }`}
-              >
-                <Icon size={18} strokeWidth={1.75} />
-                <span className={`text-sm ${isActive ? 'font-semibold' : 'font-normal'}`}>
-                  {item.label}
-                </span>
-                {item.id === 'notifications' && unreadNotifications > 0 && (
-                  <span className="ml-auto min-w-[1.25rem] rounded-full bg-amber-500 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-amber-950">
-                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 pt-1">
+          {groups.map((group) => (
+            <div key={group.label}>
+              <div className="admin-nav-label">{group.label}</div>
+              <div className="space-y-0.5">
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = currentPage === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onNavigate(item.id)}
+                      data-active={isActive}
+                      className="admin-nav-item"
+                    >
+                      <Icon size={17} strokeWidth={isActive ? 2 : 1.75} />
+                      <span className={`text-[13.5px] ${isActive ? 'font-semibold' : 'font-medium'}`}>
+                        {item.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
-        {/* Bottom: profile + logout */}
-        <div className="px-4 pb-4 pt-2">
+        <div className="shrink-0 border-t border-white/8 px-3 py-3">
+          <button
+            type="button"
+            onClick={() => onNavigate('notifications')}
+            data-active={currentPage === 'notifications'}
+            className="admin-nav-item mb-1"
+          >
+            <Bell size={17} strokeWidth={currentPage === 'notifications' ? 2 : 1.75} />
+            <span
+              className={`text-[13.5px] ${
+                currentPage === 'notifications' ? 'font-semibold' : 'font-medium'
+              }`}
+            >
+              Activity
+            </span>
+            {unreadNotifications > 0 && (
+              <span className="ml-auto min-w-5 rounded-full bg-emerald-400/95 px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-emerald-950">
+                {unreadNotifications > 99 ? '99+' : unreadNotifications}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => onNavigate('settings-profile')}
-            className="mb-2 flex w-full items-center gap-3 rounded-md bg-white/5 px-3 py-3 text-left hover:bg-white/10"
+            className={`mb-1 flex w-full items-center gap-3 rounded-[14px] px-2.5 py-2.5 text-left transition-colors ${
+              currentPage === 'settings-profile'
+                ? 'bg-white/10 text-white'
+                : 'text-white/70 hover:bg-white/6 hover:text-white'
+            }`}
           >
-            <div className="admin-green-bg flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white">
+            <div className="admin-green-bg flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white shadow-[0_0_0_2px_rgba(255,255,255,0.08)]">
               {initial}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-white" title={emailDisplay}>
-                {emailDisplay || 'Admin User'}
+              <div className="truncate text-[13px] font-semibold text-white" title={emailDisplay}>
+                {emailDisplay || 'Admin'}
               </div>
-              <div className="truncate text-xs text-white/60">Settings &amp; Profile</div>
+              <div className="truncate text-[11px] text-white/40">Settings</div>
             </div>
-            <Settings size={16} strokeWidth={1.75} className="text-white/70" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="flex h-9 w-full items-center gap-3 rounded-[12px] px-3 text-left text-[13px] font-medium text-white/45 transition-colors hover:bg-white/6 hover:text-white"
+          >
+            <LogOut size={16} strokeWidth={1.75} />
+            <span>Log out</span>
           </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          className="flex w-full items-center gap-3 border-t border-white/10 px-6 py-4 text-left text-sm font-medium text-red-500 transition-colors hover:bg-red-500/10"
-        >
-          <LogOut size={18} strokeWidth={1.75} />
-          <span>Logout</span>
-        </button>
       </aside>
     </>
   );

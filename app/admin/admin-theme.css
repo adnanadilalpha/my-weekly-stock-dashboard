@@ -1,75 +1,200 @@
+/* MWS Admin — Apple-clean ops shell. Navy + green preserved. */
+
 .admin-shell {
-  font-family: Inter, sans-serif;
+  /* Brand */
+  --admin-navy: #0d1b2e;
+  --admin-navy-elevated: #132338;
+  --admin-green: #15803d;
+  --admin-green-soft: rgba(21, 128, 61, 0.14);
+  --admin-green-ring: rgba(21, 128, 61, 0.22);
+
+  /* Surfaces */
+  --admin-page: #f4f5f7;
+  --admin-page-wash: #eef1f4;
+  --admin-card: #ffffff;
+  --admin-hairline: rgba(15, 23, 42, 0.08);
+  --admin-hairline-strong: rgba(15, 23, 42, 0.12);
+
+  /* Type */
+  --admin-ink: #0f172a;
+  --admin-ink-secondary: #64748b;
+  --admin-ink-tertiary: #94a3b8;
+
+  /* Shape */
+  --admin-radius-sm: 10px;
+  --admin-radius: 14px;
+  --admin-radius-lg: 20px;
+  --admin-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px var(--admin-hairline);
+  --admin-shadow-lift: 0 8px 24px rgba(15, 23, 42, 0.06), 0 0 0 1px var(--admin-hairline);
+
+  /* Map shadcn tokens inside admin for cohesive CTAs */
+  --primary: var(--admin-green);
+  --primary-foreground: #ffffff;
+  --ring: var(--admin-green);
+  --background: var(--admin-page);
+  --foreground: var(--admin-ink);
+  --card: var(--admin-card);
+  --card-foreground: var(--admin-ink);
+  --muted: #eef1f4;
+  --muted-foreground: var(--admin-ink-secondary);
+  --border: var(--admin-hairline);
+  --accent: #eef1f4;
+  --accent-foreground: var(--admin-ink);
+
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    'SF Pro Text',
+    'SF Pro Display',
+    'Segoe UI',
+    system-ui,
+    sans-serif;
+  color: var(--admin-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.011em;
+}
+
+.admin-shell * {
+  border-color: var(--admin-hairline);
 }
 
 .admin-navy {
-  background-color: #0d1b2e;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(21, 128, 61, 0.18), transparent 55%),
+    linear-gradient(180deg, #12233a 0%, var(--admin-navy) 48%, #0a1524 100%);
 }
 
 .admin-surface {
-  background-color: #ffffff;
+  background-color: var(--admin-card);
 }
 
 .admin-page-bg {
-  background-color: #f9fafb;
+  background:
+    radial-gradient(ellipse 90% 50% at 50% -10%, rgba(21, 128, 61, 0.06), transparent 55%),
+    linear-gradient(180deg, var(--admin-page-wash) 0%, var(--admin-page) 28%, var(--admin-page) 100%);
 }
 
 .admin-border {
-  border-color: #e5e7eb;
+  border-color: var(--admin-hairline);
 }
 
 .admin-border-soft {
-  border-color: #f3f4f6;
+  border-color: rgba(15, 23, 42, 0.05);
 }
 
 .admin-text-main {
-  color: #111827;
+  color: var(--admin-ink);
 }
 
 .admin-text-muted {
-  color: #6b7280;
+  color: var(--admin-ink-secondary);
 }
 
 .admin-green {
-  color: #15803d;
+  color: var(--admin-green);
 }
 
 .admin-green-bg {
-  background-color: #15803d;
+  background-color: var(--admin-green);
 }
 
 .admin-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  background-color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: none;
+  border-radius: var(--admin-radius-lg);
+  background-color: var(--admin-card);
+  box-shadow: var(--admin-shadow);
 }
 
 .admin-input {
-  border: 1px solid #e5e7eb;
-  background-color: #ffffff;
-  color: #111827;
+  border: 1px solid var(--admin-hairline-strong);
+  background-color: rgba(255, 255, 255, 0.9);
+  color: var(--admin-ink);
+  border-radius: var(--admin-radius-sm);
   outline: none;
   transition:
     border-color 0.15s ease,
-    box-shadow 0.15s ease;
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .admin-input::placeholder {
-  color: #9ca3af;
+  color: var(--admin-ink-tertiary);
 }
 
 .admin-input:hover:not(:disabled) {
-  border-color: #d1d5db;
+  border-color: rgba(15, 23, 42, 0.18);
 }
 
 .admin-input:focus {
-  border-color: #15803d;
-  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15);
+  border-color: var(--admin-green);
+  box-shadow: 0 0 0 4px var(--admin-green-ring);
 }
 
 .admin-input:disabled {
-  background-color: #f9fafb;
-  color: #6b7280;
+  background-color: #f1f5f9;
+  color: var(--admin-ink-secondary);
   cursor: not-allowed;
+}
+
+/* Sidebar nav */
+.admin-nav-label {
+  padding: 0.5rem 0.85rem 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.admin-nav-item {
+  position: relative;
+  display: flex;
+  height: 2.5rem;
+  width: 100%;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 12px;
+  padding: 0 0.85rem;
+  text-align: left;
+  color: rgba(255, 255, 255, 0.62);
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.admin-nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.admin-nav-item[data-active='true'] {
+  background: linear-gradient(90deg, rgba(21, 128, 61, 0.28), rgba(255, 255, 255, 0.08));
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+.admin-nav-item[data-active='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: 999px;
+  background: #4ade80;
+}
+
+.admin-topbar {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: saturate(1.4) blur(16px);
+  -webkit-backdrop-filter: saturate(1.4) blur(16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-nav-item,
+  .admin-input {
+    transition: none;
+  }
 }

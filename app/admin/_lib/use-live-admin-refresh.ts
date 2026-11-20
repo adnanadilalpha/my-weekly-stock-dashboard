@@ -19,11 +19,17 @@ type UseLiveAdminRefreshInput = {
   realtime?: RealtimeSpec[];
 };
 
+function realtimeKey(specs: RealtimeSpec[]): string {
+  return specs
+    .map((s) => `${s.schema}.${s.table}.${s.event ?? '*'}`)
+    .sort()
+    .join('|');
+}
+
 /**
- * Keeps admin pages fresh for long-lived tabs:
- * - periodic polling fallback
- * - visibility/focus refresh
- * - optional realtime triggers
+ * Keeps admin pages fresh for long-lived tabs.
+ * Pass `enabled: false` when the page is hidden so background tabs don't
+ * starve the active page's server-action queue.
  */
 export function useLiveAdminRefresh({
   enabled = true,
@@ -37,6 +43,9 @@ export function useLiveAdminRefresh({
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   const lastRunRef = useRef(0);
+  const realtimeRef = useRef(realtime);
+  realtimeRef.current = realtime;
+  const specsKey = realtimeKey(realtime);
 
   const runThrottledRefresh = useCallback(() => {
     const now = Date.now();
@@ -50,6 +59,7 @@ export function useLiveAdminRefresh({
 
     let disposed = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    const specs = realtimeRef.current;
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') runThrottledRefresh();
@@ -61,18 +71,19 @@ export function useLiveAdminRefresh({
 
     const intervalId = window.setInterval(() => {
       if (disposed) return;
+      if (document.visibilityState !== 'visible') return;
       runThrottledRefresh();
     }, pollingMs);
 
     const setupRealtime = async () => {
-      if (realtime.length === 0) return;
+      if (specs.length === 0) return;
       try {
         const token = await getAccessToken();
         if (disposed) return;
         supabase.realtime.setAuth(token);
 
         let ch: any = supabase.channel(channelName);
-        for (const spec of realtime) {
+        for (const spec of specs) {
           ch = ch.on(
             'postgres_changes',
             {
@@ -83,9 +94,8 @@ export function useLiveAdminRefresh({
             () => runThrottledRefresh()
           );
         }
-        channel = ch.subscribe((status: string) => {
-          if (status === 'SUBSCRIBED') runThrottledRefresh();
-        });
+        // Don't refresh on SUBSCRIBED — that re-fired loads on every channel recreate.
+        channel = ch.subscribe();
       } catch {
         // Polling + focus/visibility continue as fallback.
       }
@@ -100,5 +110,5 @@ export function useLiveAdminRefresh({
       window.removeEventListener('focus', onFocus);
       if (channel) void supabase.removeChannel(channel);
     };
-  }, [channelName, enabled, getAccessToken, pollingMs, realtime, runThrottledRefresh]);
+  }, [channelName, enabled, getAccessToken, pollingMs, specsKey, runThrottledRefresh]);
 }

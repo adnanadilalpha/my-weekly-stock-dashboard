@@ -63,18 +63,18 @@ export default function AdminLoginForm() {
   }
 
   return (
-    <div className="flex h-screen w-full items-center justify-center admin-page-bg px-4">
-      <div className="admin-card w-full max-w-md p-8">
-        <div className="mb-6 text-center">
-          <h1 className="admin-text-main text-2xl font-semibold">Admin Sign In</h1>
-          <p className="admin-text-muted mt-1 text-sm">
-            {mode === 'signin' ? 'Enter your credentials to continue.' : 'Enter your email to receive a reset link.'}
+    <div className="admin-page-bg flex h-dvh w-full items-center justify-center px-4">
+      <div className="admin-card w-full max-w-md p-8 sm:p-10">
+        <div className="mb-8 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Admin</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {mode === 'signin' ? 'Sign in to continue.' : 'We’ll email a reset link.'}
           </p>
         </div>
 
         <form onSubmit={mode === 'signin' ? handleSignIn : handleForgot} className="space-y-4">
           <div>
-            <label htmlFor="admin-email" className="admin-text-main mb-1 block text-sm font-medium">
+            <label htmlFor="admin-email" className="mb-1.5 block text-sm font-medium text-foreground">
               Email
             </label>
             <input
@@ -89,14 +89,14 @@ export default function AdminLoginForm() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="admin-input w-full rounded-lg px-3 py-2 text-sm"
+              className="admin-input h-11 w-full rounded-[10px] px-3.5 text-sm"
               disabled={busy}
             />
           </div>
 
           {mode === 'signin' && (
             <div>
-              <label htmlFor="admin-password" className="admin-text-main mb-1 block text-sm font-medium">
+              <label htmlFor="admin-password" className="mb-1.5 block text-sm font-medium text-foreground">
                 Password
               </label>
               <div className="relative">
@@ -110,7 +110,7 @@ export default function AdminLoginForm() {
                   minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="admin-input w-full rounded-lg px-3 py-2 pr-10 text-sm"
+                  className="admin-input h-11 w-full rounded-[10px] px-3.5 pr-10 text-sm"
                   disabled={busy}
                 />
                 <button
@@ -119,7 +119,7 @@ export default function AdminLoginForm() {
                   disabled={busy}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   aria-pressed={showPassword}
-                  className="admin-text-muted absolute inset-y-0 right-0 flex w-10 items-center justify-center disabled:opacity-60"
+                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground disabled:opacity-60"
                 >
                   {showPassword ? (
                     <svg
@@ -160,12 +160,12 @@ export default function AdminLoginForm() {
           )}
 
           {error && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+            <div className="rounded-[12px] border border-destructive/20 bg-destructive/8 px-3.5 py-2.5 text-sm text-destructive">
               {error}
             </div>
           )}
           {info && (
-            <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-400">
+            <div className="rounded-[12px] border border-primary/20 bg-primary/8 px-3.5 py-2.5 text-sm text-foreground">
               {info}
             </div>
           )}
@@ -173,17 +173,17 @@ export default function AdminLoginForm() {
           <button
             type="submit"
             disabled={busy}
-            className="admin-green-bg w-full rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            className="admin-green-bg mt-1 h-11 w-full rounded-full px-4 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(21,128,61,0.28)] disabled:opacity-60"
           >
             {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Send reset link'}
           </button>
         </form>
 
-        <div className="mt-4 text-center text-sm">
+        <div className="mt-5 text-center text-sm">
           {mode === 'signin' ? (
             <button
               type="button"
-              className="admin-text-muted hover:underline"
+              className="font-medium text-muted-foreground transition-colors hover:text-foreground"
               onClick={() => {
                 setMode('forgot');
                 setError(null);
@@ -196,7 +196,7 @@ export default function AdminLoginForm() {
           ) : (
             <button
               type="button"
-              className="admin-text-muted hover:underline"
+              className="font-medium text-muted-foreground transition-colors hover:text-foreground"
               onClick={() => {
                 setMode('signin');
                 setError(null);
@@ -209,8 +209,8 @@ export default function AdminLoginForm() {
           )}
         </div>
 
-        <p className="admin-text-muted mt-6 text-center text-xs">
-          Admin access is by invitation only. Contact an existing admin for access.
+        <p className="mt-8 text-center text-xs text-muted-foreground">
+          Admin access is by invitation only.
         </p>
       </div>
     </div>

@@ -6,41 +6,42 @@ interface TopBarProps {
   onMenuClick: () => void;
 }
 
-export default function TopBar({ currentPage, onMenuClick }: TopBarProps) {
-  const pageNames: Record<AdminPageKey, string> = {
-    dashboard: 'Dashboard',
-    users: 'User Management',
-    'formula-manager': 'Formula Manager',
-    'ticker-management': 'Ticker Management',
-    'ticker-import': 'Ticker Import',
-    'api-settings': 'API & Data Settings',
-    notifications: 'Notifications',
-    'settings-profile': 'Settings',
-  };
+const pageMeta: Record<AdminPageKey, { title: string; subtitle?: string }> = {
+  dashboard: { title: 'Dashboard', subtitle: 'Analytics' },
+  portfolio: { title: 'Portfolio', subtitle: 'Recap performance' },
+  users: { title: 'Users', subtitle: 'Allowlist & access' },
+  'formula-manager': { title: 'Formulas', subtitle: 'Scoring & ratings' },
+  'ticker-management': { title: 'Tickers', subtitle: 'Universe & refresh' },
+  'api-settings': { title: 'API & Data', subtitle: 'Providers & pipeline' },
+  notifications: { title: 'Activity', subtitle: 'Ops feed' },
+  'settings-profile': { title: 'Settings', subtitle: 'Account & preferences' },
+};
 
-  const dateLabel = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+export default function TopBar({ currentPage, onMenuClick }: TopBarProps) {
+  const meta = pageMeta[currentPage];
 
   return (
-    <header className="admin-navy flex h-16 shrink-0 items-center border-b border-white/10 px-4 md:px-8">
-      <div className="flex w-full min-w-0 flex-row items-center gap-3">
+    <header className="admin-topbar sticky top-0 z-20 flex h-16 shrink-0 items-center border-b border-black/6 px-4 md:px-8">
+      <div className="mx-auto flex w-full max-w-7xl min-w-0 items-center gap-3">
         <button
+          type="button"
           onClick={onMenuClick}
-          className="shrink-0 rounded-md border border-white/15 p-2 text-white md:hidden"
+          className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-black/8 bg-white/80 text-foreground md:hidden"
           aria-label="Open admin menu"
         >
-          <Menu size={18} />
+          <Menu size={18} strokeWidth={1.75} />
         </button>
-        <div className="flex min-w-0 flex-1 flex-row items-center justify-between gap-4">
-          <h1 className="truncate text-xl font-semibold tracking-tight text-white md:text-2xl">
-            {pageNames[currentPage]}
+        <div className="min-w-0 leading-tight">
+          <h1 className="truncate text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+            {meta.title}
           </h1>
-          <p className="shrink-0 text-right text-sm text-white/60 sm:text-base">{dateLabel}</p>
+          {meta.subtitle ? (
+            <p className="truncate text-[12px] text-muted-foreground md:hidden">{meta.subtitle}</p>
+          ) : null}
         </div>
+        {meta.subtitle ? (
+          <p className="ml-auto hidden text-[13px] text-muted-foreground md:block">{meta.subtitle}</p>
+        ) : null}
       </div>
     </header>
   );

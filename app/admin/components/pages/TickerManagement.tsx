@@ -1,8 +1,9 @@
 'use client';
 
-import { ChevronDown, Filter, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { Filter, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { runManualTickerUpdateAction } from '../../_actions/api-settings';
+import { quickAddAndImportTickerAction } from '../../_actions/ticker-import';
 import {
   bulkDeleteTickersAction,
   deleteTickerAction,
@@ -14,7 +15,24 @@ import {
 } from '../../_actions/tickers';
 import { useAdmin } from '../../_lib/admin-context';
 import { useDebouncedValue } from '../../_lib/use-debounced-value';
+import { tickerMatchesSearchQuery } from '@/lib/queries/ticker';
 import { useLiveAdminRefresh } from '../../_lib/use-live-admin-refresh';
+import {
+  AdminAlert,
+  AdminGhostButton,
+  AdminIconButton,
+  AdminKpi,
+  AdminOutlineButton,
+  AdminPageHeader,
+  AdminPrimaryButton,
+  AdminSearchInput,
+  adminField,
+  adminPageStack,
+  adminSelect,
+  adminSurface,
+  adminTd,
+  adminTh,
+} from '../ui/admin-ui';
 import { Switch } from '@/app/components/ui/switch';
 import { TickerIcon } from '@/app/components/ui/ticker-icon';
 import {
@@ -70,10 +88,18 @@ function formatLastUpdated(iso: string | null) {
   return `${days} days ago`;
 }
 
-export default function TickerManagement() {
+const TICKER_MGMT_REALTIME = [
+  { schema: 'public', table: 'market_segments' },
+  { schema: 'public', table: 'sectors' },
+  { schema: 'public', table: 'mega_caps' },
+  { schema: 'public', table: 'other_stocks' },
+] as const;
+
+export default function TickerManagement({ dataActive = true }: { dataActive?: boolean }) {
   const { getAccessToken } = useAdmin();
   const [query, setQuery] = useState('');
-  const debouncedQuery = useDebouncedValue(query.trim(), 250);
+  const liveQuery = query.trim();
+  const debouncedQuery = useDebouncedValue(liveQuery, 150);
   const [sectorFilter, setSectorFilter] = useState('all');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef<HTMLDivElement>(null);
@@ -93,12 +119,21 @@ export default function TickerManagement() {
   const [listMode, setListMode] = useState<'paged' | 'preview'>('paged');
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
+  const isSearchPending = liveQuery !== debouncedQuery;
+  const searchBusy = isSearchPending || (loading && Boolean(liveQuery));
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateFlash, setUpdateFlash] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addTicker, setAddTicker] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
+  const [addResult, setAddResult] = useState<{ ok: boolean; message: string; ticker?: string } | null>(
+    null
+  );
+  const addInputRef = useRef<HTMLInputElement>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     description: string;
@@ -106,11 +141,77 @@ export default function TickerManagement() {
     onConfirm: () => void | Promise<void>;
   } | null>(null);
 
+  const closeAddModal = () => {
+    const addedTicker = addResult?.ok ? addResult.ticker : null;
+    setShowAddModal(false);
+    setAddTicker('');
+    setAddResult(null);
+    setAddBusy(false);
+    if (addedTicker) {
+      setQuery(addedTicker);
+      setPage(0);
+      void load({ silent: true });
+    }
+  };
+
+  const openAddModal = () => {
+    setAddTicker('');
+    setAddResult(null);
+    setShowAddModal(true);
+    requestAnimationFrame(() => addInputRef.current?.focus());
+  };
+
+  const handleAddTicker = async () => {
+    const sym = addTicker.trim().toUpperCase();
+    if (!sym) {
+      setAddResult({ ok: false, message: 'Enter a ticker symbol (e.g. AAPL).' });
+      return;
+    }
+    setAddBusy(true);
+    setAddResult(null);
+    setError(null);
+    try {
+      const token = await getAccessToken();
+      const res = await quickAddAndImportTickerAction(token, { ticker: sym });
+      if (!res.ok) {
+        setAddResult({ ok: false, message: friendlyAddError(res.error) });
+        return;
+      }
+      if (res.data.status === 'not_found') {
+        setAddResult({
+          ok: false,
+          message: `Couldn't find ${res.data.ticker}. Check the symbol and try again.`,
+        });
+        return;
+      }
+      if (res.data.status === 'already_exists') {
+        setAddResult({
+          ok: false,
+          message: `${res.data.ticker} is already in your list.`,
+        });
+        return;
+      }
+      setAddResult({
+        ok: true,
+        ticker: res.data.ticker,
+        message: `${res.data.ticker} added.`,
+      });
+      void load({ silent: true });
+    } catch (e) {
+      setAddResult({
+        ok: false,
+        message: e instanceof Error ? e.message : 'Could not add ticker. Try again.',
+      });
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
   const listKey = `${sourceFilter}|${debouncedQuery}|${statusFilter}|${updatedSort}`;
   const lastListKeyRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const token = await getAccessToken();
@@ -134,7 +235,7 @@ export default function TickerManagement() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error.');
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [getAccessToken, page, sourceFilter, debouncedQuery, statusFilter, updatedSort]);
 
@@ -150,17 +251,13 @@ export default function TickerManagement() {
   }, [load, listKey, page]);
 
   useLiveAdminRefresh({
+    enabled: dataActive,
     channelName: 'admin-ticker-management-live',
     getAccessToken,
-    refresh: load,
-    pollingMs: 45_000,
-    throttleMs: 5_000,
-    realtime: [
-      { schema: 'public', table: 'market_segments' },
-      { schema: 'public', table: 'sectors' },
-      { schema: 'public', table: 'mega_caps' },
-      { schema: 'public', table: 'other_stocks' },
-    ],
+    refresh: () => void load({ silent: true }),
+    pollingMs: 60_000,
+    throttleMs: 8_000,
+    realtime: [...TICKER_MGMT_REALTIME],
   });
 
   useEffect(() => {
@@ -218,6 +315,25 @@ export default function TickerManagement() {
       return updatedSort === 'latest' ? bTime - aTime : aTime - bTime;
     });
   }, [filtered, updatedSort]);
+
+  const displayRows = useMemo(() => {
+    if (!liveQuery) return filteredSorted;
+    if (isSearchPending || loading) {
+      return filteredSorted.filter(
+        (t) =>
+          tickerMatchesSearchQuery(t.ticker, liveQuery) ||
+          tickerMatchesSearchQuery(t.company, liveQuery)
+      );
+    }
+    return filteredSorted;
+  }, [filteredSorted, liveQuery, isSearchPending, loading]);
+
+  const searchHint =
+    liveQuery && !searchBusy
+      ? totalCount === 0
+        ? 'No matches'
+        : `${totalCount.toLocaleString()} match${totalCount === 1 ? '' : 'es'}`
+      : null;
 
   const sectorOptions = useMemo(() => {
     const unique = Array.from(new Set(tickers.map((t) => t.sector))).sort((a, b) => a.localeCompare(b));
@@ -360,7 +476,7 @@ export default function TickerManagement() {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-5 sm:gap-6">
+    <div className={adminPageStack}>
       <AlertDialog open={Boolean(confirmDialog)} onOpenChange={(open) => !open && setConfirmDialog(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -385,99 +501,71 @@ export default function TickerManagement() {
         </AlertDialogContent>
       </AlertDialog>
       <div className="grid min-w-0 grid-cols-2 gap-4 sm:gap-5 md:gap-6 lg:grid-cols-4">
-        {stats.map((stat, i) => (
-          <div
+        {stats.map((stat) => (
+          <AdminKpi
             key={stat.label}
-            className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6"
-          >
-            <div className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-              {loading && !listStats ? '—' : stat.value}
-            </div>
-            <div className="mt-2 text-sm font-medium text-muted-foreground">{stat.label}</div>
-            <div
-              className={`mt-2 h-1 w-10 rounded-full ${
-                i === 0
-                  ? 'bg-violet-500/80'
-                  : i === 1
-                    ? 'bg-emerald-500/80'
-                    : i === 2
-                      ? 'bg-sky-500/80'
-                      : 'bg-amber-500/80'
-              }`}
-              aria-hidden
-            />
-          </div>
+            label={stat.label}
+            value={loading && !listStats ? '—' : stat.value}
+          />
         ))}
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-visible rounded-2xl border border-border bg-card shadow-sm">
-        {updateFlash && (
-          <div className="border-b border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-100 md:px-6">
-            {updateFlash}
-          </div>
-        )}
-        <div className="border-b border-border bg-muted/40 px-4 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
-          <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">All Tickers</h3>
-              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">Manage tracked stocks and ETF mappings</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {selectedIds.size > 0 && (
+      <div className={`${adminSurface} min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-visible`}>
+        <div className="flex flex-col gap-4 px-4 pt-5 pb-4 sm:px-6 sm:pt-6">
+          {updateFlash && (
+            <AdminAlert tone="success" onDismiss={() => setUpdateFlash(null)}>
+              {updateFlash}
+            </AdminAlert>
+          )}
+          <AdminPageHeader
+            title="Tickers"
+            description="Add and manage stocks in the live universe."
+            actions={
+              selectedIds.size > 0 ? (
                 <>
-                  <button
-                    type="button"
+                  <AdminPrimaryButton
+                    icon={RefreshCw}
                     onClick={() => void onManualUpdate()}
-                    disabled={updateBusy || deleteBusy}
-                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    disabled={updateBusy || deleteBusy || addBusy}
                   >
-                    <RefreshCw size={16} className={updateBusy ? 'animate-spin' : ''} />
                     {updateBusy ? 'Queuing…' : `Update Selected (${selectedIds.size})`}
-                  </button>
-                  <button
-                    type="button"
+                  </AdminPrimaryButton>
+                  <AdminOutlineButton
+                    icon={Trash2}
                     onClick={() => void onDeleteSelected()}
-                    disabled={deleteBusy || updateBusy}
-                    className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm transition-colors hover:bg-rose-500/15 dark:text-rose-300 disabled:opacity-50"
+                    disabled={deleteBusy || updateBusy || addBusy}
+                    className="border-destructive/35 text-destructive hover:bg-destructive/8"
                   >
-                    <Trash2 size={16} />
                     {deleteBusy ? 'Deleting…' : `Delete Selected (${selectedIds.size})`}
-                  </button>
+                  </AdminOutlineButton>
                 </>
-              )}
-            </div>
-          </div>
+              ) : (
+                <AdminOutlineButton icon={Plus} onClick={openAddModal} disabled={addBusy}>
+                  Add ticker
+                </AdminOutlineButton>
+              )
+            }
+          />
 
-          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <div className="relative w-full max-w-xs">
-              <Search
-                size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search ticker or company..."
-                className="h-10 w-full rounded-lg border border-border bg-card py-2 pl-9 pr-4 text-sm text-foreground shadow-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </div>
-            <div ref={filtersRef} className="relative w-full shrink-0 sm:w-auto">
-              <button
-                type="button"
+          <div className="flex min-w-0 items-start gap-3">
+            <AdminSearchInput
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search ticker or company…"
+              busy={searchBusy}
+              hint={searchHint}
+              onClear={() => setQuery('')}
+            />
+            <div ref={filtersRef} className="relative shrink-0">
+              <AdminGhostButton
                 ref={filterButtonRef}
+                icon={Filter}
                 onClick={() => setFiltersOpen((o) => !o)}
-                className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 sm:min-w-[9.5rem]"
                 aria-expanded={filtersOpen}
                 aria-haspopup="true"
               >
-                <Filter size={15} aria-hidden />
                 Filters
-                <ChevronDown
-                  size={16}
-                  className={`shrink-0 opacity-70 transition-transform ${filtersOpen ? 'rotate-180' : ''}`}
-                  aria-hidden
-                />
-              </button>
+              </AdminGhostButton>
               {filtersOpen && (
                 <div
                   className="fixed z-[70] max-h-[min(70vh,28rem)] overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-xl"
@@ -493,7 +581,7 @@ export default function TickerManagement() {
                       <select
                         value={sectorFilter}
                         onChange={(e) => setSectorFilter(e.target.value)}
-                        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm"
+                        className={adminSelect}
                       >
                         <option value="all">All Sectors</option>
                         {sectorOptions.map((sector) => (
@@ -510,7 +598,7 @@ export default function TickerManagement() {
                       <select
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value as 'all' | 'active' | 'inactive')}
-                        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm"
+                        className={adminSelect}
                       >
                         <option value="all">All Status</option>
                         <option value="active">Active</option>
@@ -524,7 +612,7 @@ export default function TickerManagement() {
                       <select
                         value={sourceFilter}
                         onChange={(e) => setSourceFilter(e.target.value as TickerTable | 'all')}
-                        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm"
+                        className={adminSelect}
                       >
                         {SOURCE_TABLE_OPTIONS.map((o) => (
                           <option key={o.value} value={o.value}>
@@ -540,7 +628,7 @@ export default function TickerManagement() {
                       <select
                         value={etfFilter}
                         onChange={(e) => setEtfFilter(e.target.value as 'all' | 'mapped' | 'unmapped')}
-                        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground shadow-sm"
+                        className={adminSelect}
                       >
                         <option value="all">All ETF Mapping</option>
                         <option value="mapped">Mapped to ETF</option>
@@ -551,16 +639,15 @@ export default function TickerManagement() {
                       <span className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
                         Sort by updated
                       </span>
-                      <button
-                        type="button"
+                      <AdminGhostButton
                         onClick={() => setUpdatedSort((prev) => (prev === 'latest' ? 'oldest' : 'latest'))}
-                        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
+                        className="w-full justify-start"
                       >
                         {updatedSort === 'latest' ? 'Latest first' : 'Oldest first'}
-                      </button>
+                      </AdminGhostButton>
                     </div>
-                    <button
-                      type="button"
+                    <AdminGhostButton
+                      className="w-full"
                       onClick={() => {
                         setQuery('');
                         setSectorFilter('all');
@@ -570,10 +657,9 @@ export default function TickerManagement() {
                         setUpdatedSort('latest');
                         setFiltersOpen(false);
                       }}
-                      className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
                     >
                       Clear all filters
-                    </button>
+                    </AdminGhostButton>
                   </div>
                 </div>
               )}
@@ -581,75 +667,82 @@ export default function TickerManagement() {
           </div>
         </div>
         {error && (
-          <div className="border-b border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive md:px-6 dark:border-destructive/30 dark:bg-destructive/15">
-            {error}
+          <div className="px-4 pb-4 sm:px-6">
+            <AdminAlert tone="error">{error}</AdminAlert>
           </div>
         )}
 
         <div className="hidden min-w-0 overflow-x-auto md:block">
-          <table className="w-full min-w-[1050px] border-separate border-spacing-0 text-sm">
+          <table className="w-full min-w-262.5 border-separate border-spacing-0 text-sm">
             <thead>
               <tr className="text-left">
-                <th className="w-10 border-b border-border bg-muted/50 px-4 py-3">
+                <th className={`${adminTh} w-10`}>
                   <input
                     type="checkbox"
                     className="rounded border-border"
-                    checked={filteredSorted.length > 0 && filteredSorted.every((t) => selectedIds.has(t.id))}
+                    checked={displayRows.length > 0 && displayRows.every((t) => selectedIds.has(t.id))}
                     onChange={(e) => {
-                      if (e.target.checked) setSelectedIds(new Set(filteredSorted.map((t) => t.id)));
+                      if (e.target.checked) setSelectedIds(new Set(displayRows.map((t) => t.id)));
                       else setSelectedIds(new Set());
                     }}
                   />
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   Ticker
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   Company
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   Sector
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   Price
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   Volume
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   ETF Mapping
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   Status
                 </th>
-                <th className="border-b border-border bg-muted/50 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground sm:px-6 sm:text-[11px]">
+                <th className={adminTh}>
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody>
-              {loading && (
-                <tr className="border-b border-border text-sm">
-                  <td className="px-4 py-8 text-muted-foreground sm:px-6" colSpan={9}>
+              {loading && !liveQuery && filteredSorted.length === 0 && (
+                <tr className="text-sm">
+                  <td className={`${adminTd} py-8 text-muted-foreground`} colSpan={9}>
                     Loading…
                   </td>
                 </tr>
               )}
-              {!loading && filteredSorted.length === 0 && (
-                <tr className="border-b border-border text-sm">
-                  <td className="px-4 py-8 text-muted-foreground sm:px-6" colSpan={9}>
-                    No tickers match.
+              {searchBusy && displayRows.length === 0 && (
+                <tr className="text-sm">
+                  <td className={`${adminTd} py-8 text-muted-foreground`} colSpan={9}>
+                    Searching…
                   </td>
                 </tr>
               )}
-              {filteredSorted.map((item) => (
+              {!searchBusy && !loading && displayRows.length === 0 && (
+                <tr className="text-sm">
+                  <td className={`${adminTd} py-8 text-muted-foreground`} colSpan={9}>
+                    {liveQuery ? 'No matches.' : 'No tickers match.'}
+                  </td>
+                </tr>
+              )}
+              {displayRows.map((item) => (
                 <tr
                   key={item.id}
-                  className={`border-b border-border text-sm transition-colors last:border-b-0 hover:bg-muted/30 ${
+                  className={`text-sm transition-colors hover:bg-muted/30 ${
                     selectedIds.has(item.id) ? 'bg-primary/5 dark:bg-primary/10' : ''
                   }`}
                 >
-                  <td className="w-10 px-4 py-3.5 sm:py-4">
+                  <td className={`${adminTd} w-10`}>
                     <input
                       type="checkbox"
                       className="rounded border-border"
@@ -657,7 +750,7 @@ export default function TickerManagement() {
                       onChange={() => toggleSelect(item.id)}
                     />
                   </td>
-                  <td className="px-4 py-3.5 text-foreground sm:px-6 sm:py-4">
+                  <td className={adminTd}>
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
                         <TickerIcon ticker={item.ticker} size={32} className="h-full w-full max-h-full max-w-full rounded-none border-0 object-cover" />
@@ -665,12 +758,12 @@ export default function TickerManagement() {
                       <span className="font-semibold">{item.ticker}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3.5 sm:px-6 sm:py-4">
+                  <td className={adminTd}>
                     <div className="font-medium text-foreground">{item.company}</div>
                     <div className="text-xs text-muted-foreground">Updated {formatLastUpdated(item.last_updated)}</div>
                   </td>
-                  <td className="px-4 py-3.5 text-muted-foreground sm:px-6 sm:py-4">{item.sector}</td>
-                  <td className="px-4 py-3.5 sm:px-6 sm:py-4">
+                  <td className={`${adminTd} text-muted-foreground`}>{item.sector}</td>
+                  <td className={adminTd}>
                     <div className="font-semibold text-foreground">{formatMoney(item.price)}</div>
                     <div
                       className={`text-xs font-semibold ${
@@ -682,8 +775,8 @@ export default function TickerManagement() {
                       {formatPct(item.change_pct)}
                     </div>
                   </td>
-                  <td className="px-4 py-3.5 text-muted-foreground sm:px-6 sm:py-4">{formatVolume(item.volume)}</td>
-                  <td className="px-4 py-3.5 sm:px-6 sm:py-4">
+                  <td className={`${adminTd} text-muted-foreground`}>{formatVolume(item.volume)}</td>
+                  <td className={adminTd}>
                     <div className="flex flex-wrap gap-1">
                       {item.etf_mapping.map((etf) => (
                         <span
@@ -695,7 +788,7 @@ export default function TickerManagement() {
                       ))}
                     </div>
                   </td>
-                  <td className="px-4 py-3.5 sm:px-6 sm:py-4">
+                  <td className={adminTd}>
                     <span
                       className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
                         item.active
@@ -706,8 +799,8 @@ export default function TickerManagement() {
                       {item.active ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td className="px-4 py-3.5 sm:px-6 sm:py-4">
-                    <div className="flex items-center gap-1 text-muted-foreground">
+                  <td className={adminTd}>
+                    <div className="flex items-center gap-2.5">
                       <Switch
                         checked={item.active}
                         onCheckedChange={() => void onToggle(item)}
@@ -715,15 +808,13 @@ export default function TickerManagement() {
                         aria-label={item.active ? `Disable ${item.ticker}` : `Enable ${item.ticker}`}
                         className="border border-border data-[state=checked]:bg-emerald-600 data-[state=unchecked]:bg-slate-500/70 dark:data-[state=unchecked]:bg-slate-600"
                       />
-                      <button
-                        type="button"
+                      <AdminIconButton
+                        icon={Trash2}
+                        tone="danger"
                         onClick={() => void onDeleteOne(item)}
                         disabled={busyId === item.id}
-                        className="rounded-lg p-2 text-rose-600 transition-colors hover:bg-rose-500/10 dark:text-rose-400"
                         title="Delete ticker"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      />
                     </div>
                   </td>
                 </tr>
@@ -733,11 +824,16 @@ export default function TickerManagement() {
         </div>
 
         <div className="space-y-4 p-4 md:hidden">
-          {!loading && filteredSorted.length === 0 && (
-            <div className="rounded-xl border border-border bg-muted/30 p-4 text-sm text-muted-foreground">No tickers match.</div>
+          {searchBusy && displayRows.length === 0 && (
+            <div className="rounded-xl border border-border/80 p-4 text-sm text-muted-foreground">Searching…</div>
           )}
-          {filteredSorted.map((item) => (
-            <div key={item.id} className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          {!searchBusy && !loading && displayRows.length === 0 && (
+            <div className="rounded-xl border border-border/80 p-4 text-sm text-muted-foreground">
+              {liveQuery ? 'No matches.' : 'No tickers match.'}
+            </div>
+          )}
+          {displayRows.map((item) => (
+            <div key={item.id} className="rounded-xl border border-border/80 bg-card p-4">
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-start gap-2">
                   <div className="mt-0.5 flex h-8 w-8 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
@@ -778,7 +874,7 @@ export default function TickerManagement() {
                 >
                   {item.active ? 'Active' : 'Inactive'}
                 </span>
-                <div className="flex items-center gap-1 text-muted-foreground">
+                <div className="flex items-center gap-2.5">
                   <Switch
                     checked={item.active}
                     onCheckedChange={() => void onToggle(item)}
@@ -786,58 +882,155 @@ export default function TickerManagement() {
                     aria-label={item.active ? `Disable ${item.ticker}` : `Enable ${item.ticker}`}
                     className="border border-border data-[state=checked]:bg-emerald-600 data-[state=unchecked]:bg-slate-500/70 dark:data-[state=unchecked]:bg-slate-600"
                   />
-                  <button
-                    type="button"
+                  <AdminIconButton
+                    icon={Trash2}
+                    tone="danger"
                     onClick={() => void onDeleteOne(item)}
                     disabled={busyId === item.id}
-                    className="rounded-lg p-2 text-rose-600 hover:bg-rose-500/10 disabled:opacity-60 dark:text-rose-400"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                    title="Delete ticker"
+                  />
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-border px-4 py-4 text-sm md:flex-row md:items-center md:justify-between md:px-6">
+        <div className="flex flex-col gap-3 border-t border-border/60 px-4 py-4 text-sm md:flex-row md:items-center md:justify-between md:px-6">
           <div className="text-muted-foreground">
             {listMode === 'preview' ? (
               <span>
-                Preview: <span className="font-semibold text-foreground">{filteredSorted.length}</span> symbols (cap
+                Preview: <span className="font-semibold text-foreground">{displayRows.length}</span> symbols (cap
                 across tables). Choose a source for full paginated lists.
               </span>
             ) : (
               <span>
                 Page <span className="font-semibold text-foreground">{page + 1}</span> of{' '}
                 <span className="font-semibold text-foreground">{totalPages}</span> · Showing{' '}
-                <span className="font-semibold text-foreground">{filteredSorted.length}</span> loaded ·{' '}
+                <span className="font-semibold text-foreground">{displayRows.length}</span> loaded ·{' '}
                 <span className="font-semibold text-foreground">{totalCount.toLocaleString()}</span> in this source
                 {sectorFilter !== 'all' || etfFilter !== 'all' ? ' (filters apply to this page)' : ''}
               </span>
             )}
           </div>
           <div className="flex gap-3">
-            <button
-              type="button"
+            <AdminGhostButton
               disabled={!canPrev || loading}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
-              className="rounded-lg border border-border bg-card px-4 py-2 font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Previous
-            </button>
-            <button
-              type="button"
+            </AdminGhostButton>
+            <AdminOutlineButton
               disabled={!canNext || loading}
               onClick={() => setPage((p) => p + 1)}
-              className="rounded-lg bg-primary px-4 py-2 font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next
-            </button>
+            </AdminOutlineButton>
           </div>
         </div>
       </div>
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
+          <div className="relative w-full max-w-md overflow-hidden rounded-3xl border-0 bg-card shadow-[0_8px_40px_rgba(15,23,42,0.12),0_0_0_1px_rgba(15,23,42,0.08)]">
+            <div className="flex items-start justify-between gap-3 border-b border-black/6 px-5 py-4">
+              <div>
+                <h2 className="text-base font-semibold tracking-tight text-foreground">
+                  {addResult?.ok ? 'Ticker added' : addResult && !addResult.ok ? 'Couldn’t add ticker' : 'Add ticker'}
+                </h2>
+                {!addResult ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Enter a symbol. We’ll look it up and add it if it exists.
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                disabled={addBusy}
+                onClick={closeAddModal}
+                className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {addResult ? (
+              <div className="space-y-4 p-5">
+                <AdminAlert tone={addResult.ok ? 'success' : 'error'}>{addResult.message}</AdminAlert>
+                <div className="flex justify-end gap-2">
+                  {!addResult.ok ? (
+                    <AdminGhostButton
+                      type="button"
+                      onClick={() => {
+                        setAddResult(null);
+                        requestAnimationFrame(() => addInputRef.current?.focus());
+                      }}
+                    >
+                      Try again
+                    </AdminGhostButton>
+                  ) : null}
+                  <AdminPrimaryButton type="button" onClick={closeAddModal}>
+                    Close
+                  </AdminPrimaryButton>
+                </div>
+              </div>
+            ) : (
+              <form
+                className="space-y-4 p-5"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleAddTicker();
+                }}
+              >
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-foreground">Symbol</span>
+                  <input
+                    ref={addInputRef}
+                    value={addTicker}
+                    onChange={(e) => setAddTicker(e.target.value.toUpperCase())}
+                    placeholder="e.g. AAPL"
+                    maxLength={40}
+                    autoComplete="off"
+                    spellCheck={false}
+                    disabled={addBusy}
+                    autoFocus
+                    className={`${adminField} font-medium tracking-wide`}
+                  />
+                </label>
+                <div className="flex justify-end gap-2 pt-1">
+                  <AdminGhostButton type="button" disabled={addBusy} onClick={closeAddModal}>
+                    Cancel
+                  </AdminGhostButton>
+                  <AdminPrimaryButton
+                    type="submit"
+                    icon={Plus}
+                    disabled={addBusy || !addTicker.trim()}
+                  >
+                    {addBusy ? 'Adding…' : 'Add'}
+                  </AdminPrimaryButton>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function friendlyAddError(raw: string): string {
+  const msg = (raw ?? '').trim();
+  if (!msg) return 'Could not add ticker. Try again.';
+  const lower = msg.toLowerCase();
+  if (lower.includes('api key') || lower.includes('no active')) {
+    return 'Market data isn’t set up. Add an API key in API & Data, then try again.';
+  }
+  if (lower.includes('provider lookup') || lower.includes('provider')) {
+    return 'Couldn’t verify that symbol right now. Try again in a moment.';
+  }
+  if (lower.includes('valid ticker') || lower.includes('enter a')) {
+    return 'Enter a valid ticker symbol (e.g. AAPL).';
+  }
+  return msg;
 }
 

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { MicrosoftClarity } from "@/app/components/microsoft-clarity";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,7 +25,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <MicrosoftClarity />
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle2, RefreshCw, Save, Zap, Activity } from 'lucide-react';
+import { RefreshCw, Save } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   getAdminApiConfigAction,
@@ -17,6 +17,20 @@ import {
 } from '../../_actions/api-settings';
 import { useAdmin } from '../../_lib/admin-context';
 import { useLiveAdminRefresh } from '../../_lib/use-live-admin-refresh';
+import {
+  AdminAlert,
+  AdminGhostButton,
+  AdminKpi,
+  AdminOutlineButton,
+  AdminPrimaryButton,
+  adminField,
+  adminPageStack,
+  adminSelect,
+  adminSurface,
+  adminSurfacePad,
+  adminTd,
+  adminTh,
+} from '../ui/admin-ui';
 
 const PROVIDER_OPTIONS = [
   { id: 'finnhub', label: 'Finnhub' },
@@ -26,9 +40,6 @@ const PROVIDER_OPTIONS = [
   { id: 'polygon', label: 'Polygon.io' },
   { id: 'yahoo', label: 'Yahoo Finance (free, no key needed)' },
 ] as const;
-
-const FIELD_STYLE =
-  'block w-full rounded-lg border border-input bg-input-background px-3 py-2 text-sm text-foreground shadow-sm outline-none ring-offset-background transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30 dark:scheme-dark';
 
 function fmtInt(n: number) {
   return n.toLocaleString('en-US');
@@ -57,7 +68,13 @@ function sameAdminConfig(a: AdminApiConfig | null, b: AdminApiConfig | null) {
   );
 }
 
-export default function APISettings() {
+const API_SETTINGS_REALTIME = [
+  { schema: 'public', table: 'api_health_log' },
+  { schema: 'public', table: 'api_keys' },
+  { schema: 'public', table: 'admin_api_config' },
+] as const;
+
+export default function APISettings({ dataActive = true }: { dataActive?: boolean }) {
   const { getAccessToken } = useAdmin();
   const [keys, setKeys] = useState<ApiKeyMetadata[]>([]);
   const [health, setHealth] = useState<ApiHealthRow[]>([]);
@@ -116,16 +133,13 @@ export default function APISettings() {
   }, [load]);
 
   useLiveAdminRefresh({
+    enabled: dataActive,
     channelName: 'admin-api-settings-live',
     getAccessToken,
     refresh: () => void load({ silent: true }),
-    pollingMs: 30_000,
-    throttleMs: 3_000,
-    realtime: [
-      { schema: 'public', table: 'api_health_log' },
-      { schema: 'public', table: 'api_keys' },
-      { schema: 'public', table: 'admin_api_config' },
-    ],
+    pollingMs: 60_000,
+    throttleMs: 8_000,
+    realtime: [...API_SETTINGS_REALTIME],
   });
 
   const keysByProvider = useMemo(() => {
@@ -143,40 +157,11 @@ export default function APISettings() {
     const activity = m ? fmtInt(m.activity24h) : '—';
     const rate = m?.successRatePct != null ? `${m.successRatePct}%` : '—';
     const status = m?.statusLabel ?? 'No data';
-    const statusGreen = status === 'Operational';
     return [
-      {
-        label: 'API Status',
-        value: status,
-        sub: 'Current pipeline health',
-        icon: CheckCircle2,
-        accent: statusGreen ? 'text-emerald-700 dark:text-emerald-400' : m?.statusLabel === 'Degraded' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground',
-        iconWrap: statusGreen ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-muted text-muted-foreground',
-      },
-      {
-        label: 'Avg Response Time',
-        value: avg,
-        sub: 'Mean job duration (24h)',
-        icon: Zap,
-        accent: 'text-amber-700 dark:text-amber-400',
-        iconWrap: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-      },
-      {
-        label: 'Requests Today',
-        value: activity,
-        sub: 'Ticker rows touched (24h)',
-        icon: Activity,
-        accent: 'text-violet-700 dark:text-violet-400',
-        iconWrap: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
-      },
-      {
-        label: 'Success Rate',
-        value: rate,
-        sub: 'OK runs / total runs (24h)',
-        icon: CheckCircle2,
-        accent: 'text-emerald-700 dark:text-emerald-400',
-        iconWrap: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-      },
+      { label: 'API Status', value: status, sub: 'Current pipeline health' },
+      { label: 'Avg Response Time', value: avg, sub: 'Mean job duration (24h)' },
+      { label: 'Requests Today', value: activity, sub: 'Ticker rows touched (24h)' },
+      { label: 'Success Rate', value: rate, sub: 'OK runs / total runs (24h)' },
     ];
   }, [metrics]);
 
@@ -244,40 +229,30 @@ export default function APISettings() {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-6">
-      {error && <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
-      {flash && <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-100">{flash}</div>}
+    <div className={adminPageStack}>
+      {error && <AdminAlert>{error}</AdminAlert>}
+      {flash && <AdminAlert tone="success">{flash}</AdminAlert>}
 
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {kpiCards.map((s) => {
-          const Icon = s.icon;
-          return (
-            <div key={s.label} className="min-w-0 overflow-hidden rounded-2xl border border-border bg-card p-6 shadow-sm">
-              <div className={`inline-flex rounded-lg p-2 ${s.iconWrap}`}>
-                <Icon size={20} strokeWidth={1.75} />
-              </div>
-              <p className={`mt-4 text-2xl font-bold tracking-tight ${s.accent}`}>{loading ? '—' : s.value}</p>
-              <p className="mt-1 text-sm font-semibold text-foreground">{s.label}</p>
-              <p className="text-xs text-muted-foreground">{s.sub}</p>
-            </div>
-          );
-        })}
+        {kpiCards.map((s) => (
+          <AdminKpi key={s.label} label={s.label} value={loading ? '—' : s.value} hint={s.sub} />
+        ))}
       </div>
 
-      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-2">
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <div className="border-b border-border bg-muted/40 px-6 py-5">
-            <h3 className="text-lg font-semibold tracking-tight text-foreground">Data Provider Configuration</h3>
+      <div className="grid min-w-0 grid-cols-1 gap-5 sm:gap-6 lg:grid-cols-2">
+        <section className={`${adminSurface} flex min-h-0 min-w-0 flex-col`}>
+          <div className="border-b border-border/80 px-5 py-4 sm:px-6">
+            <h3 className="text-base font-semibold tracking-tight text-foreground">Data Provider Configuration</h3>
             <p className="mt-1 text-sm text-muted-foreground">Configure your market data source</p>
           </div>
-          <div className="flex flex-1 flex-col gap-5 p-6">
+          <div className={`flex flex-1 flex-col gap-5 ${adminSurfacePad}`}>
             <label className="block space-y-2">
-              <span className="text-sm font-semibold text-foreground">Provider</span>
+              <span className="text-sm font-medium text-foreground">Provider</span>
               <select
                 disabled={!config || busy}
                 value={config?.preferred_provider ?? 'finnhub'}
                 onChange={(e) => setCfg('preferred_provider', e.target.value)}
-                className={FIELD_STYLE}
+                className={adminSelect}
               >
                 {PROVIDER_OPTIONS.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -298,7 +273,7 @@ export default function APISettings() {
                 onChange={(e) => setKeyDraft(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
-                className={`${FIELD_STYLE} font-mono`}
+                className={`${adminField} font-mono`}
               />
               <span className="block text-xs text-muted-foreground">
                 {existingKey
@@ -317,7 +292,7 @@ export default function APISettings() {
                   disabled={!config || busy}
                   value={config?.refresh_interval_seconds ?? 900}
                   onChange={(e) => setCfg('refresh_interval_seconds', Number(e.target.value) || 900)}
-                  className={`${FIELD_STYLE} max-w-[200px]`}
+                  className={`${adminField} max-w-50`}
                 />
                 <span className="text-sm text-muted-foreground">seconds</span>
               </div>
@@ -325,40 +300,28 @@ export default function APISettings() {
             </label>
 
             <div className="mt-1 flex flex-wrap gap-3 border-t border-border/70 pt-4">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void onTestConnection()}
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50"
-              >
-                <RefreshCw size={16} />
+              <AdminOutlineButton icon={RefreshCw} disabled={busy} onClick={() => void onTestConnection()}>
                 Test Connection
-              </button>
-              <button
-                type="button"
-                disabled={busy || !config}
-                onClick={() => void onSaveSettings()}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Save size={16} />
+              </AdminOutlineButton>
+              <AdminPrimaryButton icon={Save} disabled={busy || !config} onClick={() => void onSaveSettings()}>
                 {busy ? 'Saving…' : 'Save Settings'}
-              </button>
+              </AdminPrimaryButton>
             </div>
           </div>
         </section>
 
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <div className="border-b border-border bg-muted/40 px-6 py-5">
-            <h3 className="text-lg font-semibold tracking-tight text-foreground">Advanced Settings</h3>
+        <section className={`${adminSurface} flex min-h-0 min-w-0 flex-col`}>
+          <div className="border-b border-border/80 px-5 py-4 sm:px-6">
+            <h3 className="text-base font-semibold tracking-tight text-foreground">Advanced Settings</h3>
             <p className="mt-1 text-sm text-muted-foreground">Configure advanced data options</p>
           </div>
-          <div className="flex flex-1 flex-col gap-4 p-6">
+          <div className={`flex flex-1 flex-col gap-4 ${adminSurfacePad}`}>
             {[
               ['auto_retry', 'Auto-retry on failure', 'Retry provider calls when a batch step fails', config?.auto_retry] as const,
               ['cache_responses', 'Cache responses', 'Reuse recent provider payloads where safe', config?.cache_responses] as const,
               ['realtime_updates', 'Real-time updates', 'Stream-style updates (reserved for future use)', config?.realtime_updates] as const,
             ].map(([key, title, desc, val]) => (
-              <div key={key} className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-4">
+              <div key={key} className="flex items-center justify-between gap-4 rounded-xl border border-border/80 px-4 py-4">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-foreground">{title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
@@ -367,7 +330,7 @@ export default function APISettings() {
                   type="button"
                   disabled={!config || busy}
                   onClick={() => setCfg(key as keyof AdminApiConfig, !val as never)}
-                  className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${val ? 'border-emerald-500/30 bg-emerald-500' : 'border-border bg-muted'}`}
+                  className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors ${val ? 'border-primary/30 bg-primary' : 'border-border bg-muted'}`}
                 >
                   <span
                     className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-all ${val ? 'left-6' : 'left-1'}`}
@@ -385,49 +348,48 @@ export default function APISettings() {
                 disabled={!config || busy}
                 value={config?.rate_limit_rpm ?? 60}
                 onChange={(e) => setCfg('rate_limit_rpm', Number(e.target.value) || 60)}
-                className={`${FIELD_STYLE} max-w-xs`}
+                className={`${adminField} max-w-xs`}
               />
             </label>
           </div>
         </section>
       </div>
 
-      <section className="min-h-0 min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-6 py-5">
+      <section className={`${adminSurface} min-h-0 min-w-0`}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 px-5 py-4 sm:px-6">
           <div>
-            <h3 className="text-lg font-semibold tracking-tight text-foreground">Connection Status Log</h3>
+            <h3 className="text-base font-semibold tracking-tight text-foreground">Connection Status Log</h3>
             <p className="mt-1 text-sm text-muted-foreground">History of completed collection and import runs</p>
           </div>
-          <button type="button" onClick={() => void load({ silent: true })} className="rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/50">
-            <RefreshCw size={14} className="inline mr-1" />
+          <AdminGhostButton icon={RefreshCw} onClick={() => void load({ silent: true })}>
             Refresh
-          </button>
+          </AdminGhostButton>
         </div>
         <div className="min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[720px] border-separate border-spacing-0">
-            <thead className="text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <table className="w-full min-w-180 border-separate border-spacing-0">
+            <thead>
               <tr>
-                <th className="border-b border-border bg-muted/50 px-6 py-3">Timestamp</th>
-                <th className="border-b border-border bg-muted/50 px-6 py-3">Provider</th>
-                <th className="border-b border-border bg-muted/50 px-6 py-3">Status</th>
-                <th className="border-b border-border bg-muted/50 px-6 py-3">Updated</th>
-                <th className="border-b border-border bg-muted/50 px-6 py-3">Failed</th>
-                <th className="border-b border-border bg-muted/50 px-6 py-3">Duration</th>
-                <th className="border-b border-border bg-muted/50 px-6 py-3">Detail</th>
+                <th className={adminTh}>Timestamp</th>
+                <th className={adminTh}>Provider</th>
+                <th className={adminTh}>Status</th>
+                <th className={adminTh}>Updated</th>
+                <th className={adminTh}>Failed</th>
+                <th className={adminTh}>Duration</th>
+                <th className={adminTh}>Detail</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
-                <tr><td className="border-b border-border px-6 py-8 text-sm text-muted-foreground" colSpan={7}>Loading…</td></tr>
+                <tr><td className={`${adminTd} py-8 text-muted-foreground`} colSpan={7}>Loading…</td></tr>
               )}
               {!loading && health.filter((r) => !isProgressRow(r.error_message)).length === 0 && (
-                <tr><td className="border-b border-border px-6 py-8 text-sm text-muted-foreground" colSpan={7}>No runs yet.</td></tr>
+                <tr><td className={`${adminTd} py-8 text-muted-foreground`} colSpan={7}>No runs yet.</td></tr>
               )}
               {health.filter((r) => !isProgressRow(r.error_message)).map((r) => (
-                <tr key={r.id} className="border-b border-border text-sm transition-colors hover:bg-muted/30">
-                  <td className="px-6 py-4 text-muted-foreground">{formatDateTime(r.run_at)}</td>
-                  <td className="px-6 py-4 font-mono text-xs text-foreground">{r.provider}</td>
-                  <td className="px-6 py-4">
+                <tr key={r.id} className="transition-colors hover:bg-muted/30">
+                  <td className={`${adminTd} text-muted-foreground`}>{formatDateTime(r.run_at)}</td>
+                  <td className={`${adminTd} font-mono text-xs`}>{r.provider}</td>
+                  <td className={adminTd}>
                     <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
                       r.status === 'ok'
                         ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
@@ -436,10 +398,10 @@ export default function APISettings() {
                           : 'bg-destructive/10 text-destructive'
                     }`}>{r.status}</span>
                   </td>
-                  <td className="px-6 py-4 text-foreground">{fmtInt(r.tickers_updated)}</td>
-                  <td className="px-6 py-4 text-foreground">{fmtInt(r.tickers_failed)}</td>
-                  <td className="px-6 py-4 text-muted-foreground">{r.duration_ms ? `${r.duration_ms} ms` : '—'}</td>
-                  <td className="max-w-[280px] truncate px-6 py-4 text-xs text-muted-foreground" title={r.error_message ?? ''}>
+                  <td className={adminTd}>{fmtInt(r.tickers_updated)}</td>
+                  <td className={adminTd}>{fmtInt(r.tickers_failed)}</td>
+                  <td className={`${adminTd} text-muted-foreground`}>{r.duration_ms ? `${r.duration_ms} ms` : '—'}</td>
+                  <td className={`${adminTd} max-w-70 truncate text-xs text-muted-foreground`} title={r.error_message ?? ''}>
                     {r.error_message ?? r.triggered_by ?? '—'}
                   </td>
                 </tr>

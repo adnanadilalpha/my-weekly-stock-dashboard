@@ -11,6 +11,7 @@
     "brief:verify": "tsx lib/intelligence/brief/scripts/verify-fixtures.ts"
   },
   "dependencies": {
+    "@microsoft/clarity": "^1.0.2",
     "@popperjs/core": "2.11.8",
     "@radix-ui/react-accordion": "1.2.3",
     "@radix-ui/react-alert-dialog": "1.1.6",

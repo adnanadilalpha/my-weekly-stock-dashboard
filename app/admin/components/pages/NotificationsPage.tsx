@@ -9,6 +9,13 @@ import {
   type AdminNotificationRow,
 } from '../../_actions/notifications';
 import { useAdmin } from '../../_lib/admin-context';
+import {
+  AdminAlert,
+  AdminGhostButton,
+  AdminPageHeader,
+  adminPageStack,
+  adminSurface,
+} from '../ui/admin-ui';
 
 function formatWhen(iso: string) {
   try {
@@ -33,16 +40,16 @@ function typeBadge(type: string) {
   return 'bg-muted text-muted-foreground';
 }
 
-export default function NotificationsPage() {
+export default function NotificationsPage({ dataActive = true }: { dataActive?: boolean }) {
   const { getAccessToken } = useAdmin();
   const [items, setItems] = useState<AdminNotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     setError(null);
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     try {
       const token = await getAccessToken();
       const res = await listAdminNotificationsAction(token, { limit: 100 });
@@ -56,7 +63,7 @@ export default function NotificationsPage() {
       setError(e instanceof Error ? e.message : 'Failed to load.');
       setItems([]);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [getAccessToken]);
 
@@ -65,9 +72,10 @@ export default function NotificationsPage() {
   }, [load]);
 
   useEffect(() => {
-    const id = window.setInterval(() => void load(), 25_000);
+    if (!dataActive) return;
+    const id = window.setInterval(() => void load({ silent: true }), 60_000);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [dataActive, load]);
 
   const onRowActivate = async (n: AdminNotificationRow) => {
     if (n.read_at) return;
@@ -109,34 +117,28 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          New allowlist users appear here automatically. Ticker refresh summaries are sent once per finished session
-          (when all chained batches are done), with updated/failed counts from the Edge job. Open a row to mark it read.
-        </p>
-        <button
-          type="button"
-          onClick={() => void markAll()}
-          disabled={busy || loading || items.length === 0}
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted/50 disabled:opacity-50"
-        >
-          <CheckCheck size={16} />
-          Mark all read
-        </button>
-      </div>
+    <div className={adminPageStack}>
+      <AdminPageHeader
+        title="Notifications"
+        description="New allowlist users appear here automatically. Ticker refresh summaries are sent once per finished session (when all chained batches are done), with updated/failed counts from the Edge job. Open a row to mark it read."
+        actions={
+          <AdminGhostButton
+            icon={CheckCheck}
+            onClick={() => void markAll()}
+            disabled={busy || loading || items.length === 0}
+          >
+            Mark all read
+          </AdminGhostButton>
+        }
+      />
 
-      {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+      {error && <AdminAlert>{error}</AdminAlert>}
 
       {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
 
       {!loading && items.length === 0 && (
-        <div className="flex min-w-0 flex-col items-center justify-center rounded-2xl border border-border bg-card px-6 py-14 text-center shadow-sm md:px-8 md:py-16">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full border border-border bg-muted text-muted-foreground">
+        <div className={`flex min-w-0 flex-col items-center justify-center ${adminSurface} px-6 py-14 text-center md:px-8 md:py-16`}>
+          <div className="flex h-14 w-14 items-center justify-center rounded-full border border-border/80 bg-muted text-muted-foreground">
             <Inbox size={28} strokeWidth={1.5} aria-hidden />
           </div>
           <p className="mt-5 text-base font-semibold text-foreground">No notifications yet</p>
@@ -148,7 +150,7 @@ export default function NotificationsPage() {
       )}
 
       {!loading && items.length > 0 && (
-        <ul className="flex min-w-0 flex-col divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <ul className={`${adminSurface} flex min-w-0 flex-col divide-y divide-border/60`}>
           {items.map((n) => {
             const unread = !n.read_at;
             return (
@@ -158,7 +160,7 @@ export default function NotificationsPage() {
                   onClick={() => void onRowActivate(n)}
                   disabled={busy}
                   className={`flex w-full min-w-0 flex-col gap-1 px-4 py-4 text-left transition-colors sm:px-6 ${
-                    unread ? 'bg-emerald-500/[0.04] hover:bg-muted/40' : 'hover:bg-muted/30'
+                    unread ? 'bg-primary/4 hover:bg-muted/40' : 'hover:bg-muted/30'
                   }`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
@@ -169,7 +171,7 @@ export default function NotificationsPage() {
                     </span>
                     <span className="text-xs text-muted-foreground">{formatWhen(n.created_at)}</span>
                     {unread && (
-                      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800 dark:text-emerald-200">
+                      <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase text-primary">
                         New
                       </span>
                     )}
