@@ -6,7 +6,7 @@ export type PageView = 'index' | 'readme' | 'ticker-analysis' | 'dashboard';
  */
 export type AppMode = 'hub' | 'mws' | 'portfolio' | 'my-holdings';
 
-/** MWS Portfolio detail pages (client-requested 5 only for now) */
+/** MWS Portfolio detail pages (legacy sheet keys + V2 momentum pages) */
 export type PortfolioPage =
   | 'dashboard'
   | 'momentum-combined'
@@ -14,4 +14,6 @@ export type PortfolioPage =
   | 'large-caps'
   | 'nasdaq100'
   | 'macro-etf'
-  | 'macro-3x';
+  | 'macro-3x'
+  | 'current-week'
+  | 'track-record';

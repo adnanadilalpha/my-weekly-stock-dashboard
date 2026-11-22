@@ -20,6 +20,8 @@ import {
   adminWeeklyMomentumRecapHeaders,
   GROUP_WEEKLY_MOMENTUM_TITLE,
 } from '@/lib/portfolio/recap-table-columns';
+import { isMomentumV2 } from '@/lib/feature-flags';
+import MomentumCurrentWeekEditor from './MomentumCurrentWeekEditor';
 
 const REFRESH_MS = 45_000;
 const THROTTLE_MS = 4_000;
@@ -28,6 +30,18 @@ const PORTFOLIO_SECTION_ETF = 'ETF portfolios';
 type Props = { dataActive?: boolean };
 
 export default function PortfolioPage({ dataActive = true }: Props) {
+  if (isMomentumV2) {
+    return (
+      <div className={adminPageStack}>
+        <MomentumCurrentWeekEditor dataActive={dataActive} />
+      </div>
+    );
+  }
+
+  return <LegacyPortfolioPage dataActive={dataActive} />;
+}
+
+function LegacyPortfolioPage({ dataActive = true }: Props) {
   const { getAccessToken } = useAdmin();
   const [weeklyRecap, setWeeklyRecap] = useState<PortfolioRecapRowDisplay[]>([]);
   const [etfRecap, setEtfRecap] = useState<PortfolioRecapRowDisplay[]>([]);

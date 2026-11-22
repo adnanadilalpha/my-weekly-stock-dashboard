@@ -8,11 +8,15 @@ import { TickerAnalysisPage } from './components/ticker-analysis-page';
 import { DashboardPage } from './components/dashboard-page';
 import { PortfolioDashboardPage } from './components/portfolio-dashboard-page';
 import { PortfolioDetailPage } from './components/portfolio-detail-page';
+import { MomentumPicksDashboard } from './components/momentum-picks-dashboard';
+import { MomentumCurrentWeekPage } from './components/momentum-current-week-page';
+import { MomentumTrackRecordPage } from './components/momentum-track-record-page';
 import { MyPortfoliosPage } from './components/my-portfolio/my-portfolios-page';
 import { ChatDrawer } from './components/intelligence/chat-drawer';
 import type { PageView, AppMode, PortfolioPage } from './types';
 import { supabase } from '@/lib/supabase-client';
 import { ActivityProvider, useActivity } from '@/lib/activity/ActivityProvider';
+import { isMomentumV2 } from '@/lib/feature-flags';
 
 const isDevBypassEnabled =
   (process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS ?? '').toLowerCase().trim() === 'true';
@@ -432,6 +436,72 @@ function HomeContent({
   }
 
   if (effectiveMode === 'portfolio') {
+    if (isMomentumV2) {
+      if (portfolioPage === 'dashboard') {
+        return (
+          <>
+            <MomentumPicksDashboard
+              userEmail={userEmail}
+              currentAppMode={effectiveMode}
+              onGoToPortfolio={handleGoToPortfolio}
+              onGoToMyHoldings={handleGoToMyHoldings}
+              onGoToMWS={handleGoToMWS}
+              onSignOut={handleSignOut}
+              onSelectPortfolio={onSelectPortfolioProp}
+            />
+            <ChatDrawer contextRef={{ portfolioPage: 'dashboard' }} />
+          </>
+        );
+      }
+      if (portfolioPage === 'current-week') {
+        return (
+          <>
+            <MomentumCurrentWeekPage
+              userEmail={userEmail}
+              currentAppMode={effectiveMode}
+              onGoToPortfolio={handleGoToPortfolio}
+              onGoToMyHoldings={handleGoToMyHoldings}
+              onGoToMWS={handleGoToMWS}
+              onSignOut={handleSignOut}
+              onBack={onBackToPortfolioDashboard}
+            />
+            <ChatDrawer contextRef={{ portfolioPage }} />
+          </>
+        );
+      }
+      if (portfolioPage === 'track-record') {
+        return (
+          <>
+            <MomentumTrackRecordPage
+              userEmail={userEmail}
+              currentAppMode={effectiveMode}
+              onGoToPortfolio={handleGoToPortfolio}
+              onGoToMyHoldings={handleGoToMyHoldings}
+              onGoToMWS={handleGoToMWS}
+              onSignOut={handleSignOut}
+              onBack={onBackToPortfolioDashboard}
+            />
+            <ChatDrawer contextRef={{ portfolioPage }} />
+          </>
+        );
+      }
+      // Unknown legacy portfolio page under V2 → home
+      return (
+        <>
+          <MomentumPicksDashboard
+            userEmail={userEmail}
+            currentAppMode={effectiveMode}
+            onGoToPortfolio={handleGoToPortfolio}
+            onGoToMyHoldings={handleGoToMyHoldings}
+            onGoToMWS={handleGoToMWS}
+            onSignOut={handleSignOut}
+            onSelectPortfolio={onSelectPortfolioProp}
+          />
+          <ChatDrawer contextRef={{ portfolioPage: 'dashboard' }} />
+        </>
+      );
+    }
+
     if (portfolioPage === 'dashboard') {
       return (
         <>
@@ -451,7 +521,7 @@ function HomeContent({
     return (
       <>
         <PortfolioDetailPage
-          portfolioPage={portfolioPage as Exclude<PortfolioPage, 'dashboard'>}
+          portfolioPage={portfolioPage as Exclude<PortfolioPage, 'dashboard' | 'current-week' | 'track-record'>}
           userEmail={userEmail}
           currentAppMode={effectiveMode}
           onGoToPortfolio={handleGoToPortfolio}

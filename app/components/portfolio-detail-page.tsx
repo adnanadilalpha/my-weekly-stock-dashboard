@@ -8,10 +8,9 @@ import { usePortfolioSheet, type PortfolioSheetRow } from '@/lib/hooks/usePortfo
 import { sortPickRowsNewestFirst } from '@/lib/portfolio/sort-pick-rows';
 import type { AppMode, PortfolioPage } from '../types';
 
-const PORTFOLIO_DETAIL_CONFIG: Record<
-  Exclude<PortfolioPage, 'dashboard'>,
-  { title: string; tableKey: string }
-> = {
+type SheetPortfolioPage = Exclude<PortfolioPage, 'dashboard' | 'current-week' | 'track-record'>;
+
+const PORTFOLIO_DETAIL_CONFIG: Record<SheetPortfolioPage, { title: string; tableKey: string }> = {
   'momentum-combined': { title: 'Momentum Picks: Combined Summary', tableKey: 'momentum-combined' },
   dow30: { title: 'Momentum Picks: DOW 30', tableKey: 'dow30' },
   'large-caps': { title: 'Momentum Picks: LARGE CAPS', tableKey: 'large-caps' },
@@ -60,7 +59,7 @@ function getVal(row: Record<string, unknown>, key: string): unknown {
   return row[key] ?? null;
 }
 
-type DetailPageKey = Exclude<PortfolioPage, 'dashboard'>;
+type DetailPageKey = SheetPortfolioPage;
 
 function isTradeEconomicsColumnLabel(label: string): boolean {
   const h = label.toLowerCase().replace(/,/g, '');
@@ -518,7 +517,7 @@ function formatSummaryValue(label: string, val: unknown, portfolioPage?: DetailP
 }
 
 export interface PortfolioDetailPageProps {
-  portfolioPage: Exclude<PortfolioPage, 'dashboard'>;
+  portfolioPage: SheetPortfolioPage;
   userEmail: string;
   currentAppMode: AppMode;
   onGoToPortfolio: () => void;

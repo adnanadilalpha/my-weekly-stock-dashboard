@@ -13,12 +13,14 @@ const PAGE_LABELS: Record<string, string> = {
   nasdaq100: 'Nasdaq 100',
   'macro-etf': 'Macro ETF',
   'macro-3x': 'Macro 2–3× ETF',
+  'current-week': "Current Week's Picks",
+  'track-record': 'Track Record',
 };
 
 const MODE_LABELS: Record<AppMode, string> = {
   hub: 'Hub',
   mws: 'MWS Dashboard',
-  portfolio: 'MWS Portfolio',
+  portfolio: 'MWS Momentum Picks',
   'my-holdings': 'My Holdings',
 };
 

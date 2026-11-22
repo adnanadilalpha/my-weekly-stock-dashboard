@@ -4,6 +4,7 @@ import { LogOut, LayoutDashboard, PieChart, Briefcase } from 'lucide-react';
 import { Button } from './ui/button';
 import { MwsLogo } from './brand/mws-logo';
 import type { AppMode, PageView } from '../types';
+import { isMomentumV2 } from '@/lib/feature-flags';
 
 export interface AppHeaderProps {
   userEmail: string;
@@ -50,7 +51,13 @@ export function AppHeader({
               }`}
             >
               <PieChart className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">{showMyHoldings ? 'MWS Portfolio' : 'Portfolio'}</span>
+              <span className="hidden sm:inline">
+                {isMomentumV2
+                  ? 'Momentum Picks'
+                  : showMyHoldings
+                    ? 'MWS Portfolio'
+                    : 'Portfolio'}
+              </span>
             </button>
             {showMyHoldings && (
               <button

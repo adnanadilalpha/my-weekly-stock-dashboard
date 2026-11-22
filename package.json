@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "brief:fixtures": "tsx lib/intelligence/brief/scripts/generate-fixtures.ts",
-    "brief:verify": "tsx lib/intelligence/brief/scripts/verify-fixtures.ts"
+    "brief:verify": "tsx lib/intelligence/brief/scripts/verify-fixtures.ts",
+    "momentum:seed": "python3 scripts/seed-momentum-track-record.py"
   },
   "dependencies": {
     "@microsoft/clarity": "^1.0.2",
