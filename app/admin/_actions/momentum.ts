@@ -6,6 +6,7 @@ import {
   compoundCumulative,
   computeMomentumKpis,
   emptyPicksTemplate,
+  normalizeDirection,
   return5d,
   suggestNextWeek,
 } from '@/lib/momentum/formulas';
@@ -259,7 +260,7 @@ export async function saveCurrentWeekAction(
 
     for (const pick of input.picks) {
       const ticker = (pick.ticker ?? '').trim().toUpperCase();
-      const direction = pick.direction === 'long' || pick.direction === 'short' ? pick.direction : null;
+      const direction = normalizeDirection(pick.direction);
       const computed5d = return5d(pick.weekOpen, pick.currentPrice, direction);
       const return5 = pick.return5d != null ? pick.return5d : computed5d;
       // Default return with stop/loss to return 5d unless explicitly overridden

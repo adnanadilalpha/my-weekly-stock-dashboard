@@ -32,7 +32,7 @@ type Props = { dataActive?: boolean };
 export default function PortfolioPage({ dataActive = true }: Props) {
   if (isMomentumV2) {
     return (
-      <div className={adminPageStack}>
+      <div className="mx-auto flex w-full min-w-0 max-w-none flex-col gap-5 sm:gap-6">
         <MomentumCurrentWeekEditor dataActive={dataActive} />
       </div>
     );

@@ -1,43 +1,67 @@
 import type { MomentumDirection, MomentumKpis, MomentumTrackWeek } from './types';
 
-/** Stop-loss $ — Direction-aware (fixes sheet typo that used Week Open for Take Profit). */
-export function stopLossDollars(
-  weekOpen: number | null | undefined,
-  stopLossPct: number | null | undefined,
-  direction: MomentumDirection | '' | null | undefined
-): number | null {
-  if (weekOpen == null || stopLossPct == null || !direction) return null;
-  if (!Number.isFinite(weekOpen) || !Number.isFinite(stopLossPct)) return null;
-  // stopLossPct is typically negative (e.g. -0.02). Long: open*(1+pct); Short: open*(1-pct)
-  return direction === 'long' ? weekOpen * (1 + stopLossPct) : weekOpen * (1 - stopLossPct);
-}
-
-/** Take Profit $ — Direction-aware. */
-export function takeProfitDollars(
-  weekOpen: number | null | undefined,
-  takeProfitPct: number | null | undefined,
-  direction: MomentumDirection | '' | null | undefined
-): number | null {
-  if (weekOpen == null || takeProfitPct == null || !direction) return null;
-  if (!Number.isFinite(weekOpen) || !Number.isFinite(takeProfitPct)) return null;
-  return direction === 'long' ? weekOpen * (1 + takeProfitPct) : weekOpen * (1 - takeProfitPct);
+/**
+ * Normalize Direction from sheet/UI ("Long" / "SHORT" / "long").
+ * Design file Take Profit $ checked Week Open instead of Direction — always use this.
+ */
+export function normalizeDirection(
+  direction: string | null | undefined
+): MomentumDirection | null {
+  const d = String(direction ?? '')
+    .trim()
+    .toLowerCase();
+  if (d === 'long' || d === 'short') return d;
+  return null;
 }
 
 /**
- * Return 5-d — direction-aware:
- * Long: price/open - 1
- * Short: open/price - 1
+ * Stop-loss $ — Direction-aware.
+ * Long: open * (1 + stopPct)  |  Short: open * (1 - stopPct)
+ * stopPct is typically negative (e.g. -0.02).
+ */
+export function stopLossDollars(
+  weekOpen: number | null | undefined,
+  stopLossPct: number | null | undefined,
+  direction: string | null | undefined
+): number | null {
+  const dir = normalizeDirection(direction);
+  if (weekOpen == null || stopLossPct == null || !dir) return null;
+  if (!Number.isFinite(weekOpen) || !Number.isFinite(stopLossPct)) return null;
+  return dir === 'long' ? weekOpen * (1 + stopLossPct) : weekOpen * (1 - stopLossPct);
+}
+
+/**
+ * Take Profit $ — Direction-aware.
+ * Fixes design-sheet typo that used Week Open cell in the IF (so Long was priced like Short).
+ * Long: open * (1 + tpPct)  |  Short: open * (1 - tpPct)
+ */
+export function takeProfitDollars(
+  weekOpen: number | null | undefined,
+  takeProfitPct: number | null | undefined,
+  direction: string | null | undefined
+): number | null {
+  const dir = normalizeDirection(direction);
+  if (weekOpen == null || takeProfitPct == null || !dir) return null;
+  if (!Number.isFinite(weekOpen) || !Number.isFinite(takeProfitPct)) return null;
+  return dir === 'long' ? weekOpen * (1 + takeProfitPct) : weekOpen * (1 - takeProfitPct);
+}
+
+/**
+ * Return 5-d — direction-aware.
+ * Design Current Week used price/open-1 for every row (wrong for shorts).
+ * Long: price/open - 1  |  Short: open/price - 1
  */
 export function return5d(
   weekOpen: number | null | undefined,
   currentPrice: number | null | undefined,
-  direction: MomentumDirection | '' | null | undefined
+  direction: string | null | undefined
 ): number | null {
-  if (weekOpen == null || currentPrice == null || !direction) return null;
+  const dir = normalizeDirection(direction);
+  if (weekOpen == null || currentPrice == null || !dir) return null;
   if (!Number.isFinite(weekOpen) || !Number.isFinite(currentPrice) || weekOpen === 0 || currentPrice === 0) {
     return null;
   }
-  return direction === 'long' ? currentPrice / weekOpen - 1 : weekOpen / currentPrice - 1;
+  return dir === 'long' ? currentPrice / weekOpen - 1 : weekOpen / currentPrice - 1;
 }
 
 export function average(nums: Array<number | null | undefined>): number | null {

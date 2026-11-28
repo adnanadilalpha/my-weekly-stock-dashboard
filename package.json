@@ -9,7 +9,8 @@
     "lint": "next lint",
     "brief:fixtures": "tsx lib/intelligence/brief/scripts/generate-fixtures.ts",
     "brief:verify": "tsx lib/intelligence/brief/scripts/verify-fixtures.ts",
-    "momentum:seed": "python3 scripts/seed-momentum-track-record.py"
+    "momentum:seed": "python3 scripts/seed-momentum-track-record.py",
+    "momentum:verify-formulas": "npx tsx scripts/verify-momentum-formulas.ts"
   },
   "dependencies": {
     "@microsoft/clarity": "^1.0.2",
