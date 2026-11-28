@@ -7,7 +7,12 @@ import {
   useMomentumKpis,
   useMomentumTrackRecord,
 } from '@/lib/hooks/useMomentumData';
-import { formatRatioAsPct, formatTotalReturnPct } from '@/lib/momentum/formulas';
+import {
+  formatRatioAsPct,
+  formatTotalReturnPct,
+  stopLossDollars,
+  takeProfitDollars,
+} from '@/lib/momentum/formulas';
 import {
   DirBadge,
   ReturnPct,
@@ -16,6 +21,16 @@ import {
 } from '@/lib/momentum/display';
 import { MOMENTUM_STRATEGIES } from '@/lib/momentum/types';
 import type { AppMode, PortfolioPage } from '../types';
+
+function money(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+const th =
+  'whitespace-nowrap border-b border-border bg-muted/40 px-3 py-2.5 text-left text-[10px] font-semibold uppercase tracking-[0.05em] text-muted-foreground sm:px-3.5';
+const td =
+  'whitespace-nowrap border-b border-border px-3 py-2.5 align-middle text-[12px] sm:px-3.5 sm:py-3';
 
 export interface MomentumPicksDashboardProps {
   userEmail: string;
@@ -72,7 +87,7 @@ export function MomentumPicksDashboard({
         onSignOut={onSignOut}
       />
 
-      <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold leading-tight tracking-tight text-foreground sm:text-[1.45rem] md:text-[1.75rem]">
@@ -127,59 +142,105 @@ export function MomentumPicksDashboard({
           ))}
         </div>
 
-        {/* Current week preview */}
-        <button
-          type="button"
-          onClick={() => onSelectPortfolio('current-week')}
-          className="group mt-6 w-full overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-colors hover:bg-muted/30 sm:rounded-2xl"
-        >
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
-            <div>
-              <div className="text-sm font-semibold text-foreground">Current week&apos;s picks</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {week
-                  ? `Year ${week.year} · Week ${week.week} · Start ${formatWeekStartDisplay(week.weekStart)}`
-                  : 'This week · 3 strategies'}
-              </div>
+        {/* Current week — full table on home (only 3 rows; no separate "view full") */}
+        <section className="mt-6 overflow-hidden rounded-xl border border-border bg-card shadow-sm sm:rounded-2xl">
+          <div className="border-b border-border bg-muted/40 px-4 py-3">
+            <div className="text-sm font-semibold text-foreground">Current week&apos;s picks</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {week
+                ? `Year ${week.year} · Week ${week.week} · Start ${formatWeekStartDisplay(week.weekStart)}`
+                : 'This week · 3 strategies'}
             </div>
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground">
-              View full
-              <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-            </span>
           </div>
 
-          <div className="divide-y divide-border">
-            {weekLoading && !week ? (
-              <div className="px-4 py-6 text-sm text-muted-foreground">Loading…</div>
-            ) : !week || week.picks.every((p) => !p.ticker) ? (
-              <div className="px-4 py-6 text-sm text-muted-foreground">
-                No picks set for the current week yet.
-              </div>
-            ) : (
-              week.picks.map((p) => (
-                <div
-                  key={p.strategy}
-                  className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[7rem_4.5rem_auto_1fr_auto_auto] sm:items-center"
-                >
-                  <span className="text-[12px] font-medium text-muted-foreground">
-                    {strategyLabel(p.strategy)}
-                  </span>
-                  <span className="text-[14px] font-semibold tracking-tight text-foreground">
-                    {p.ticker || '—'}
-                  </span>
-                  <DirBadge direction={p.direction} />
-                  <span className="font-mono text-[12px] tabular-nums text-muted-foreground sm:justify-self-end">
-                    Open {p.weekOpen == null ? '—' : p.weekOpen.toFixed(2)}
-                  </span>
-                  <ReturnPct value={p.return5d} pill />
-                  <ReturnPct value={p.returnStopLoss} pill />
-                </div>
-              ))
-            )}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-max border-separate border-spacing-0 text-left">
+              <thead>
+                <tr>
+                  {[
+                    'Strategy',
+                    'Pick',
+                    'Direction',
+                    'Week Open',
+                    'Stop-loss (%)',
+                    'Take Profit (%)',
+                    'Stop-loss ($)',
+                    'Take Profit',
+                    'Current Price',
+                    'Return 5-d',
+                    'Return with Stop/Loss',
+                    'Comments',
+                  ].map((h) => (
+                    <th key={h} className={th}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weekLoading && !week ? (
+                  <tr>
+                    <td className={`${td} text-muted-foreground`} colSpan={12}>
+                      Loading…
+                    </td>
+                  </tr>
+                ) : !week || week.picks.every((p) => !p.ticker) ? (
+                  <tr>
+                    <td className={`${td} text-muted-foreground`} colSpan={12}>
+                      No picks set for the current week yet.
+                    </td>
+                  </tr>
+                ) : (
+                  week.picks.map((p) => {
+                    const stop$ = stopLossDollars(p.weekOpen, p.stopLossPct, p.direction || null);
+                    const tp$ = takeProfitDollars(p.weekOpen, p.takeProfitPct, p.direction || null);
+                    return (
+                      <tr
+                        key={p.strategy}
+                        className="[&:last-child>td]:border-b-0"
+                      >
+                        <td className={`${td} font-medium text-muted-foreground`}>
+                          {strategyLabel(p.strategy)}
+                        </td>
+                        <td className={`${td} font-semibold tracking-tight`}>{p.ticker || '—'}</td>
+                        <td className={td}>
+                          <DirBadge direction={p.direction} />
+                        </td>
+                        <td className={`${td} font-mono tabular-nums`}>{money(p.weekOpen)}</td>
+                        <td className={`${td} font-mono tabular-nums`}>
+                          {formatRatioAsPct(p.stopLossPct, 1)}
+                        </td>
+                        <td className={`${td} font-mono tabular-nums`}>
+                          {formatRatioAsPct(p.takeProfitPct, 1)}
+                        </td>
+                        <td className={`${td} font-mono tabular-nums text-muted-foreground`}>
+                          {money(stop$)}
+                        </td>
+                        <td className={`${td} font-mono tabular-nums text-muted-foreground`}>
+                          {money(tp$)}
+                        </td>
+                        <td className={`${td} font-mono font-semibold tabular-nums`}>
+                          {money(p.currentPrice)}
+                        </td>
+                        <td className={td}>
+                          <ReturnPct value={p.return5d} pill />
+                        </td>
+                        <td className={td}>
+                          <ReturnPct value={p.returnStopLoss} pill />
+                        </td>
+                        <td className={`${td} max-w-48 truncate text-muted-foreground`}>
+                          {p.comments || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
-        </button>
+        </section>
 
-        {/* Track record preview */}
+        {/* Track record — preview only; full history + CSV on separate page */}
         <button
           type="button"
           onClick={() => onSelectPortfolio('track-record')}
@@ -189,11 +250,11 @@ export function MomentumPicksDashboard({
             <div>
               <div className="text-sm font-semibold text-foreground">Track record</div>
               <div className="mt-0.5 text-xs text-muted-foreground">
-                Latest weeks{weeks.length ? ` · ${weeks.length} total` : ''} · Download CSV in full view
+                Latest 5 weeks{weeks.length ? ` · ${weeks.length} total` : ''} · full history + CSV
               </div>
             </div>
             <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground">
-              View full
+              Open full history
               <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </span>
           </div>
@@ -204,10 +265,7 @@ export function MomentumPicksDashboard({
                 <tr>
                   {['Year', 'Week', 'Start', 'Dow', 'Large Cap', 'Nasdaq', 'Avg Stop', 'Cum Stop'].map(
                     (h) => (
-                      <th
-                        key={h}
-                        className="whitespace-nowrap border-b border-border px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.05em] text-muted-foreground sm:px-4"
-                      >
+                      <th key={h} className={th}>
                         {h}
                       </th>
                     )
@@ -217,40 +275,31 @@ export function MomentumPicksDashboard({
               <tbody>
                 {trackLoading && recentWeeks.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-6 text-sm text-muted-foreground">
+                    <td className={`${td} text-muted-foreground`} colSpan={8}>
                       Loading…
                     </td>
                   </tr>
                 ) : recentWeeks.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-6 text-sm text-muted-foreground">
+                    <td className={`${td} text-muted-foreground`} colSpan={8}>
                       No closed weeks yet.
                     </td>
                   </tr>
                 ) : (
                   recentWeeks.map((w) => (
-                    <tr
-                      key={w.id}
-                      className="[&>td]:border-b [&>td]:border-border [&:last-child>td]:border-b-0"
-                    >
-                      <td className="whitespace-nowrap px-3 py-2.5 sm:px-4">{w.year}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 sm:px-4">{w.week}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-mono tabular-nums text-muted-foreground sm:px-4">
+                    <tr key={w.id} className="[&:last-child>td]:border-b-0">
+                      <td className={td}>{w.year}</td>
+                      <td className={td}>{w.week}</td>
+                      <td className={`${td} font-mono tabular-nums text-muted-foreground`}>
                         {formatWeekStartDisplay(w.weekStart)}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold sm:px-4">
-                        {w.pick1Ticker ?? '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold sm:px-4">
-                        {w.pick2Ticker ?? '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 font-semibold sm:px-4">
-                        {w.pick3Ticker ?? '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 sm:px-4">
+                      <td className={`${td} font-semibold`}>{w.pick1Ticker ?? '—'}</td>
+                      <td className={`${td} font-semibold`}>{w.pick2Ticker ?? '—'}</td>
+                      <td className={`${td} font-semibold`}>{w.pick3Ticker ?? '—'}</td>
+                      <td className={td}>
                         <ReturnPct value={w.weeklyAvgStopLoss} pill />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 sm:px-4">
+                      <td className={td}>
                         <TotalReturnPct value={w.cumulativeStopLoss} />
                       </td>
                     </tr>
